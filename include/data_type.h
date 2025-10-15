@@ -40,3 +40,12 @@ typedef ap_axiu<64, 0, 0, 0> VEC_INFO_STREAM;
 #define STOP_ICON 
 typedef ap_axiu<72, 0, 0, 0> TAG_STREAM; // 64 VECINFO + 8tag 
 #define READER_CHUNK_BYTES 512
+typedef ap_axiu<67, 0, 0, 0> PMA_UPDATE_MESSAGE; // (0,31) src (32,63) dst (64,65) type(insert vertex, insert edge, change attr) (66)direction()
+#define MAX_PMA_NUM 2048
+
+struct PMA_HEADER
+{
+    int vertex_range[VERTEX_PER_PMA];//every vertex in PMA's end segment [)
+    int edge_count[VERTEX_PER_PMA];//every vertex in PMA's edge count
+    double attr[VERTEX_PER_PMA];//every vertex in PMA's attr
+};
