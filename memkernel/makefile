@@ -8,19 +8,19 @@
 
 VPP ?= v++
 PLATFORM ?= /xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm
-INCLUDES := -I.
+INCLUDES := -I../include
 
 # Target can be hw_emu or hw
 TARGET ?= sw_emu
 
 # List of kernels (file names without .cpp and matching extern "C" function names)
-KERNELS := read_mux read_kernel write_mux write_kernel allocate_kernel free_kernel memlock test_kernel
+KERNELS := read_mux read_kernel write_mux write_kernel allocate_kernel free_kernel memlock
 
 XO_FILES := $(patsubst %,%.xo,$(KERNELS))
 
 
 .PHONY: all clean help
-all: test_mem_kernel.xclbin
+all: $(XO_FILES)
 
 # build single kernel .xo from corresponding .cpp
 # uses -k <kernel_name> (kernel name must match extern "C" function)
@@ -32,10 +32,6 @@ all: test_mem_kernel.xclbin
 %.xo: %.cpp
 	@echo "---- Building kernel $* -> $@ (target=$(TARGET)) ----"
 	$(VPP) -c -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) -k $* -o $@ $<
-	@echo "---- done: $@ ----"
-test_mem_kernel.xclbin: $(XO_FILES)
-	@echo "---- Linking to $@ ----"
-	$(VPP) -l -g -t $(TARGET) --platform $(PLATFORM) --config connectivity.cfg -o  $(TARGET)_test_mem_kernel.xclbin $^
 	@echo "---- done: $@ ----"
 allocate_kernel.xo: allocate_kernel.cpp memory_manage_alloc.cpp
 	@echo "---- Building allocate_kernel -> $@ ----"

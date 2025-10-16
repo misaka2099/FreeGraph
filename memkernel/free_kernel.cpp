@@ -14,7 +14,6 @@ extern "C"
         #pragma HLS INTERFACE m_axi port=bm_ptr offset=slave bundle=gmem0
         #pragma HLS INTERFACE axis port=vec_info_stream
         #pragma HLS INTERFACE axis port=ack_stream
-        #pragma HLS INTERFACE s_axilite port=return
         while (true)
         {
             auto info = vec_info_stream.read();

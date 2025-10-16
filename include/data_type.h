@@ -9,7 +9,7 @@ typedef ap_axiu<32,0,0,0> COMMAND_STREAM;
 typedef ap_uint<32> COMMAND;
 typedef ap_uint<8> BYTE;
 // typedef double ATTR_STREAM;
-#define PMA_STOP 13
+#define PMA_STOP 0
 #define PMA_INSERT_EDGE 1 
 #define PMA_INSERT_VERTEX 2 
 #define PMA_GET_OUT_EDGE 3
@@ -40,9 +40,14 @@ typedef ap_axiu<64, 0, 0, 0> VEC_INFO_STREAM;
 #define STOP_ICON 
 typedef ap_axiu<72, 0, 0, 0> TAG_STREAM; // 64 VECINFO + 8tag 
 #define READER_CHUNK_BYTES 512
-typedef ap_axiu<67, 0, 0, 0> PMA_UPDATE_MESSAGE; // (0,31) src (32,63) dst (64,65) type(insert vertex, insert edge, change attr) (66)direction()
+// (0,31) src (32,63) dst or (32, 95) attr (96,97) type(insert vertex, insert edge, change attr) (98)direction()
+typedef ap_axiu<128, 0, 0, 0> PMA_UPDATE_MESSAGE; 
 #define MAX_PMA_NUM 2048
 
+#define OUT_DIRECTION 0
+#define IN_DIRECTION 1
+typedef ap_axiu<64,0,0,0> READ_COMMAND_STREAM; 
+typedef  ap_axiu<8,0,0,0> CLEAR_ICON;
 struct PMA_HEADER
 {
     int vertex_range[VERTEX_PER_PMA];//every vertex in PMA's end segment [)
