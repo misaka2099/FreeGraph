@@ -54,3 +54,7 @@ struct PMA_HEADER
     int edge_count[VERTEX_PER_PMA];//every vertex in PMA's edge count
     double attr[VERTEX_PER_PMA];//every vertex in PMA's attr
 };
+
+
+#define MAX_COMMAND_BUFFER_LENGTH 16
+#define MAX_COMMAND_BUFFER_NUM 16

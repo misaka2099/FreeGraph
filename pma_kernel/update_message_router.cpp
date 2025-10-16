@@ -4,32 +4,19 @@
 void flush_buffer(
     int buffer_idx,
     hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_pma,
-    ap_uint<67> msg_buffer[16][16],
-    ap_uint<4> &count
+    ap_uint<128> msg_buffer[MAX_COMMAND_BUFFER_NUM][MAX_COMMAND_BUFFER_LENGTH],
+    ap_uint<4> *count_arr
 )
 {
-    for (int j = 0 ; j < count; j++)
-    {
+    ap_uint<4> c = count_arr[buffer_idx];
+    for (int j = 0 ; j < c; j++) {
         #pragma HLS PIPELINE II=1
-        #pragma HLS LOOP_TRIPCOUNT min=0 max=16
-        if (j == count - 1)
-        {
-            PMA_UPDATE_MESSAGE tmp;
-            tmp.data = msg_buffer[buffer_idx][j];
-            tmp.last = 1;
-            cmd_to_pma.write(tmp);
-            // cmd_to_pma.write({.data=msg_buffer[i][j], .last = 1});
-        }
-        else
-        {
-            PMA_UPDATE_MESSAGE tmp;
-            tmp.data = msg_buffer[buffer_idx][j];
-            tmp.last = 0;
-            cmd_to_pma.write(tmp);
-            // cmd_to_pma.write({.data=msg_buffer[i][j], .last = 0});
-        }
+        PMA_UPDATE_MESSAGE tmp;
+        tmp.data = msg_buffer[buffer_idx][j];
+        tmp.last = (j == c - 1) ? 1 : 0;
+        cmd_to_pma.write(tmp);
     }
-    count = 0;
+    count_arr[buffer_idx] = 0;
 }
 extern "C"
 {
@@ -43,21 +30,19 @@ extern "C"
         #pragma HLS INTERFACE axis port=cmd_to_pma
         #pragma HLS INTERFACE axis port=clear_message_from_generator
         #pragma HLS INTERFACE ap_ctrl_none port=return
-
-        static ap_uint<67> msg_buffer[16][16];
+        ap_uint<128> msg_buffer[MAX_COMMAND_BUFFER_NUM][MAX_COMMAND_BUFFER_LENGTH];
         #pragma HLS BIND_STORAGE variable=msg_buffer type=RAM_2P impl=BRAM
-        static ap_uint<4> count[16]; 
-        #pragma HLS BIND_STORAGE variable=count type=RAM_1P impl=BRAM
-        for (int i = 0 ; i < 16 ; i++)
-        {
-            #pragma HLS UNROLL
-            for (int j = 0 ; j < 16 ; j++)
-            {
-                #pragma HLS UNROLL
-                msg_buffer[i][j] = 0;
-            }
-            count[i] = 0;
-        }
+        ap_uint<4> count[MAX_COMMAND_BUFFER_NUM]; 
+        // for (int i = 0 ; i < MAX_COMMAND_BUFFER_NUM ; i++)
+        // {
+        //     #pragma HLS UNROLL
+        //     for (int j = 0 ; j < MAX_COMMAND_BUFFER_LENGTH ; j++)
+        //     {
+        //         #pragma HLS UNROLL
+        //         msg_buffer[i][j] = 0;
+        //     }
+        //     count[i] = 0;
+        // }
 
         while (true)
         {
@@ -66,12 +51,12 @@ extern "C"
             bool res = clear_message_from_generator.read_nb(clear_icon);
             if (res)
             {
-                for (int i = 0 ; i < 16 ; i++)
+                for (int i = 0 ; i < MAX_COMMAND_BUFFER_NUM ; i++)
                     flush_buffer(
                         i,
                         cmd_to_pma,
                         msg_buffer,
-                        count[i]
+                        count
                     );
             }
             PMA_UPDATE_MESSAGE cmd;
@@ -80,14 +65,15 @@ extern "C"
             {
                 continue;
             }
-            ap_uint<4> hash_idx = (cmd.data.range(31,0) / VERTEX_PER_PMA) % 8;
-            if (cmd.data[98] == OUT_DIRECTION)
+            ap_uint<4> hash_idx = (cmd.data.range(31,0) / VERTEX_PER_PMA) % (MAX_COMMAND_BUFFER_NUM / 2);
+            auto cmd_data = cmd.data;
+            if (cmd_data[98] == OUT_DIRECTION)
             {
-                hash_idx += 8;
+                hash_idx += (MAX_COMMAND_BUFFER_NUM / 2);
             }
-            if (count[hash_idx] < 16)
+            if (count[hash_idx] < MAX_COMMAND_BUFFER_LENGTH)
             {
-                msg_buffer[hash_idx][count[hash_idx]] = cmd.data;
+                msg_buffer[hash_idx][count[hash_idx]] = cmd_data;
                 count[hash_idx]++;
             }
             else  
@@ -97,7 +83,7 @@ extern "C"
                     hash_idx,
                     cmd_to_pma,
                     msg_buffer,
-                    count[hash_idx]
+                    count
                 );
             }
         }

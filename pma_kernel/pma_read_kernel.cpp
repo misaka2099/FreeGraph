@@ -68,7 +68,9 @@ extern "C"
         //memory
         hls::stream<VEC_INFO_STREAM> &vec_info_stream,
         hls::stream<COMMAND_STREAM> &cmd_to_mem_stream,
-        hls::stream<BYTE_STREAM> &data_from_mem_stream
+        hls::stream<BYTE_STREAM> &data_from_mem_stream,
+        hls::stream<VEC_INFO_STREAM> &vec_info_from_mem,
+        hls::stream<BYTE_STREAM> &data_to_mem_stream
     )
     {
         while (true)

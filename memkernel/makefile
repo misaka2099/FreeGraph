@@ -8,13 +8,13 @@
 
 VPP ?= v++
 PLATFORM ?= /xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm
-INCLUDES := -I../include
+INCLUDES := -I/home/sail/lyf/pma_demo/stream/include
 
 # Target can be hw_emu or hw
 TARGET ?= sw_emu
 
 # List of kernels (file names without .cpp and matching extern "C" function names)
-KERNELS := read_mux read_kernel write_mux write_kernel allocate_kernel free_kernel memlock
+KERNELS := read_mux read_kernel write_mux write_kernel allocate_kernel free_kernel memlock app_mem_middle_ware
 
 XO_FILES := $(patsubst %,%.xo,$(KERNELS))
 
