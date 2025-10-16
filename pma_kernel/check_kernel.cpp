@@ -9,8 +9,8 @@ extern "C"
         double *vertex_attr,
         int vertex_to_check,
         hls::stream<READ_COMMAND_STREAM> &cmd_to_read,
-        hls::stream<int> &data_to_check,
-        hls::stream<ap_uint<64>> &attr_to_check // Changed type to ap_uint<64>
+        hls::stream<ap_axiu<32,0,0,0>> &data_to_check,
+        hls::stream<ap_axiu<64,0,0,0>> &attr_to_check // Changed type to ap_uint<64>
     )
     {
         #pragma HLS INTERFACE m_axi port=src offset=slave bundle=gmem0
@@ -36,14 +36,14 @@ extern "C"
             int tmp_dst = 0;
             while (tmp_dst != -1)
             {
-                tmp_dst = data_to_check.read();
+                tmp_dst = data_to_check.read().data;
                 dst[idx] = tmp_dst;
                 idx++;
             }
 
             // Convert double to ap_uint<64> and write to attr_to_check
             ap_uint<64> attr_value = *reinterpret_cast<ap_uint<64>*>(&vertex_attr[i]);
-            attr_to_check.write(attr_value);
+            attr_to_check.write({.data=attr_value});
         }
     }
 }

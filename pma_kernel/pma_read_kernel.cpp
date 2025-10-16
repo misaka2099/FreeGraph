@@ -28,7 +28,7 @@ void read_edge(
     hls::stream<VEC_INFO_STREAM> &vec_info_stream,
     hls::stream<COMMAND_STREAM> &cmd_to_mem_stream,
     hls::stream<BYTE_STREAM> &data_from_mem_stream,
-    hls::stream<int> &data_to_nei_query
+    hls::stream<ap_axiu<32,0,0,0>> &data_to_nei_query
 )
 {
     int local_src = src % VERTEX_PER_PMA;
@@ -53,9 +53,9 @@ void read_edge(
         {
             continue;
         }
-        data_to_nei_query.write(dst);
+        data_to_nei_query.write({.data=dst});
     }
-    data_to_nei_query.write(-1);
+    data_to_nei_query.write({.data=-1});
 }
 extern "C"
 {
@@ -63,8 +63,8 @@ extern "C"
         VEC_INFO* pos_pma_addrs,
         VEC_INFO* neg_pma_addrs,
         hls::stream<READ_COMMAND_STREAM> &cmd_stream,
-        hls::stream<int> &data_to_nei_query,
-        hls::stream<double> &data_to_attr_query,
+        hls::stream<ap_axiu<32,0,0,0>> &data_to_nei_query,
+        hls::stream<ap_axiu<64,0,0,0>> &data_to_attr_query,
         //memory
         hls::stream<VEC_INFO_STREAM> &vec_info_stream,
         hls::stream<COMMAND_STREAM> &cmd_to_mem_stream,
@@ -90,7 +90,7 @@ extern "C"
                     vec_info = pos_pma_addrs[pma_idx];
                     if (vec_info == 0) // empty PMA
                     {
-                        data_to_nei_query.write(-1);
+                        data_to_nei_query.write({.data=-1});
                         break;
                     }
                     PMA_HEADER pma_header;
@@ -121,7 +121,7 @@ extern "C"
                     vec_info = neg_pma_addrs[pma_idx];
                     if (vec_info == 0) // empty PMA
                     {
-                        data_to_nei_query.write(-1);
+                        data_to_nei_query.write({.data=-1});
                     }
                     PMA_HEADER pma_header;
                     // read header
@@ -151,7 +151,7 @@ extern "C"
                     vec_info = pos_pma_addrs[pma_idx];
                     if (vec_info == 0) // empty PMA
                     {
-                        data_to_attr_query.write(-1);
+                        data_to_attr_query.write({.data=-1});
                     }
                     PMA_HEADER pma_header;
                     // read header
@@ -163,7 +163,7 @@ extern "C"
                         pma_header
                     );
                     double attr = pma_header.attr[vertex % VERTEX_PER_PMA];
-                    data_to_attr_query.write(attr);
+                    data_to_attr_query.write({.data=attr});
                     break;
                 }
             }
