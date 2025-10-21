@@ -22,7 +22,6 @@ void test_kernel(
     hls::stream<VEC_INFO_STREAM> &vec_info_from_mem
 )
 {
-    #pragma HLS INTERFACE s_axilite port=return
     #pragma HLS INTERFACE m_axi port=int_in offset=slave bundle=gmem0
     #pragma HLS INTERFACE m_axi port=double_in offset=slave bundle=gmem1
     #pragma HLS INTERFACE m_axi port=int_out offset=slave bundle=gmem2

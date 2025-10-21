@@ -17,6 +17,16 @@ extern "C"
         hls::stream<VEC_INFO_STREAM>& vec_to_free_stream
     )
     {
+        #pragma HLS INTERFACE axis port=vec_info_stream
+        #pragma HLS INTERFACE axis port=cmd_stream
+        #pragma HLS INTERFACE axis port=ack_write_stream
+        #pragma HLS INTERFACE axis port=ack_read_stream
+        #pragma HLS INTERFACE axis port=ack_alloc_stream
+        #pragma HLS INTERFACE axis port=ack_free_stream
+        #pragma HLS INTERFACE axis port=vec_to_write_stream
+        #pragma HLS INTERFACE axis port=vec_to_read_stream
+        #pragma HLS INTERFACE axis port=vec_to_alloc_stream
+        #pragma HLS INTERFACE axis port=vec_to_free_stream
         #pragma HLS INTERFACE s_axilite port=return
         static int write_counter[CHANNEL_NUM] = {0};
         static int read_counter[CHANNEL_NUM] = {0};

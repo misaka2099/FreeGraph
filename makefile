@@ -13,5 +13,7 @@ all: $(XCLBIN_FILE)
 ALL_XO_FILES = $(MEM_XO_FILES) $(PMA_XO_FILES)
 $(XCLBIN_FILE): $(ALL_XO_FILES)
 	@echo "---- Linking kernels to create $(XCLBIN_FILE) ----"
-	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --config system_connect.cfg --config $(MEMKERNEL_DIR)/connectivity.cfg --config $(PMA_KERNEL_DIR)/connectivity.cfg -o $@ $^
+	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --config system.cfg -o $@ $^
 	@echo "---- Link done: $@ ----"
+host: host.cpp
+	g++ -std=c++17 $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -lpthread -lrt -ldl -g

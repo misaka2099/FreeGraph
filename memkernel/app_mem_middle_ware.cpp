@@ -8,7 +8,7 @@ extern "C"
         hls::stream<COMMAND_STREAM> &cmd_to_mem,
         hls::stream<BYTE_STREAM> &data_from_app_1,
         hls::stream<BYTE_STREAM> &data_from_app_2,
-        hls::stream<BYTE_STREAM> &data_to_mem,
+        hls::stream<BYTE_STREAM> &data_to_mem,//只有write mux需要数据
         hls::stream<BYTE_STREAM> &data_from_mem,
         hls::stream<BYTE_STREAM> &data_to_app_1,
         hls::stream<BYTE_STREAM> &data_to_app_2,

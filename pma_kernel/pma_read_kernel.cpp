@@ -1,7 +1,7 @@
 #include "data_type.h"
 #include <hls_stream.h>
 #include <ap_int.h> 
-
+#define NONE 123
 
 void read_header(
     int header_start,
@@ -12,6 +12,7 @@ void read_header(
 )
 {
     VEC_INFO_STREAM header_vec_info;
+    cmd_to_mem_stream.write({.data=MEM_READ});
     header_vec_info.data.range(31,0) = header_start;
     header_vec_info.data.range(63,32) = sizeof(PMA_HEADER);
     vec_info_stream.write(header_vec_info);
@@ -39,6 +40,7 @@ void read_edge(
     edge_vec_info.data.range(31,0) = edge_start;
     edge_vec_info.data.range(63,32) = edge_len;
     vec_info_stream.write(edge_vec_info);
+    cmd_to_mem_stream.write({.data=MEM_READ});
     for (int i = 0 ; i < edge_len;  i++)
     {
         int dst;
@@ -73,6 +75,16 @@ extern "C"
         hls::stream<BYTE_STREAM> &data_to_mem_stream
     )
     {
+        #pragma HLS INTERFACE m_axi port=pos_pma_addrs offset=slave bundle=gmem0
+        #pragma HLS INTERFACE m_axi port=neg_pma_addrs offset=slave bundle=gmem1
+        #pragma HLS INTERFACE axis port=cmd_stream
+        #pragma HLS INTERFACE axis port=data_to_nei_query
+        #pragma HLS INTERFACE axis port=data_to_attr_query
+        #pragma HLS INTERFACE axis port=vec_info_stream
+        #pragma HLS INTERFACE axis port=cmd_to_mem_stream   
+        #pragma HLS INTERFACE axis port=data_to_mem_stream
+        #pragma HLS INTERFACE axis port=data_from_mem_stream
+        #pragma HLS INTERFACE axis port=vec_info_from_mem
         while (true)
         {
             READ_COMMAND_STREAM cmd = cmd_stream.read();
@@ -164,6 +176,12 @@ extern "C"
                     );
                     double attr = pma_header.attr[vertex % VERTEX_PER_PMA];
                     data_to_attr_query.write({.data=attr});
+                    break;
+                }
+                case NONE:
+                {
+                    vec_info_from_mem.read();
+                    data_to_mem_stream.write({.data=0});
                     break;
                 }
             }

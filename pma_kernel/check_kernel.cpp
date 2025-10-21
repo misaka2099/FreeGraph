@@ -8,6 +8,7 @@ extern "C"
         int *dst,
         double *vertex_attr,
         int vertex_to_check,
+        int attr_vertex_to_check,
         hls::stream<READ_COMMAND_STREAM> &cmd_to_read,
         hls::stream<ap_axiu<32,0,0,0>> &data_to_check,
         hls::stream<ap_axiu<64,0,0,0>> &attr_to_check // Changed type to ap_uint<64>
@@ -19,11 +20,11 @@ extern "C"
         #pragma HLS INTERFACE axis port=cmd_to_read
         #pragma HLS INTERFACE axis port=data_to_check
         #pragma HLS INTERFACE axis port=attr_to_check
-        #pragma HLS INTERFACE s_axilite port=src bundle=control
-        #pragma HLS INTERFACE s_axilite port=dst bundle=control
-        #pragma HLS INTERFACE s_axilite port=vertex_attr bundle=control
-        #pragma HLS INTERFACE s_axilite port=vertex_to_check bundle=control
-        #pragma HLS INTERFACE s_axilite port=return bundle=control
+        #pragma HLS INTERFACE s_axilite port=src 
+        #pragma HLS INTERFACE s_axilite port=dst 
+        #pragma HLS INTERFACE s_axilite port=vertex_attr 
+        #pragma HLS INTERFACE s_axilite port=vertex_to_check 
+        #pragma HLS INTERFACE s_axilite port=return 
 
         int idx = 0;
         for (int i = 0 ; i < vertex_to_check ; i++)
@@ -42,8 +43,13 @@ extern "C"
             }
 
             // Convert double to ap_uint<64> and write to attr_to_check
-            ap_uint<64> attr_value = *reinterpret_cast<ap_uint<64>*>(&vertex_attr[i]);
-            attr_to_check.write({.data=attr_value});
+
+        }
+        for (int i = 0 ; i < attr_vertex_to_check ; i++)
+        { 
+            auto attr = attr_to_check.read();
+            double attr_value = attr.data;
+            vertex_attr[i] = attr_value;
         }
     }
 }
