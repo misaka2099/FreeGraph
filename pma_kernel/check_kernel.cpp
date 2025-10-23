@@ -1,6 +1,7 @@
 #include <hls_stream.h>
 #include <ap_int.h> 
 #include "data_type.h"
+#include "debug.h"
 extern "C"
 {
     void check_kernel(
@@ -45,6 +46,7 @@ extern "C"
             // Convert double to ap_uint<64> and write to attr_to_check
 
         }
+        HERE
         for (int i = 0 ; i < attr_vertex_to_check ; i++)
         { 
             auto attr = attr_to_check.read();

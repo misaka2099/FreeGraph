@@ -1,5 +1,8 @@
 #include "data_type.h"
+#include <cstdio>
 #include <sstream>
+#include "pma.h"
+#include "debug.h"
 //[)
 //left and right stand for seg idx
 void binary_search(int val, int left, int right, int *storage, int &out_idx, int& out_val)
@@ -96,36 +99,77 @@ void insert_edge(int src, int dst, int* pma_data, PMA_HEADER& pma_header)
         pma_data[i] = pma_data[i - 1];
     }
     pma_data[out_idx+1] = dst;
+    pma_header.edge_count[local_src]++;
 }
 void rebalance(int* pma_data, PMA_HEADER& pma_header)
 {
-    for (int i = 0 ; i < VERTEX_PER_PMA; i++)
+    
+    // for (int i = 0 ; i < VERTEX_PER_PMA; i++)
+    // {
+    //     // HERE
+    //     int start = i == 0 ? 0 : pma_header.vertex_range[i - 1] * SEGMENT_SIZE;
+    //     int end = pma_header.vertex_range[i] * SEGMENT_SIZE;
+    //     int seg_count = (end - start) / SEGMENT_SIZE;
+    //     // printf("REBALANCE VERTEX %d FROM %d TO %d, SEG COUNT %d\n", i, start, end, seg_count);
+    //     if (seg_count == 0) continue;
+    //     int pack_ptr = start;
+    //     for (int j = start ; j < end ; j++)
+    //     {
+    //         if (pma_data[j] != UNUSED_ICON)
+    //         {
+    //             pma_data[pack_ptr++] = pma_data[j];
+    //         }
+    //     }
+    //     // HERE
+    //     int edge_num = (pack_ptr - start);
+    //     int base = edge_num / seg_count;
+    //     int extra = edge_num % seg_count;
+    //     if (edge_num == 0) continue;
+    //     // HERE
+    //     for (int s = seg_count - 1 ; s >= 0 ; s--)
+    //     {
+    //         int cur_seg_valid = base + (s < extra ? 1 : 0);
+    //         int cur_seg_start = start + s * SEGMENT_SIZE;
+    //         for (int k = cur_seg_start + cur_seg_valid -1 ; k >= cur_seg_start ; k--)
+    //         {
+    //             --pack_ptr;
+    //             int tmp = pma_data[pack_ptr];
+    //             pma_data[pack_ptr] = UNUSED_ICON;
+    //             pma_data[k] = tmp;
+    //         }
+    //     }
+    // }
+    int end = pma_header.vertex_range[VERTEX_PER_PMA - 1] * SEGMENT_SIZE;
+    int pack_ptr = end;
+    //把所有数据放在最后
+    for (int i = end - 1 ; i >= 0 ; i--)
     {
-        int start = i == 0 ? 0 : pma_header.vertex_range[i - 1] * SEGMENT_SIZE;
-        int end = pma_header.vertex_range[i] * SEGMENT_SIZE;
-        int seg_count = (end - start) / SEGMENT_SIZE;
-        if (seg_count == 0) continue;
-        int pack_ptr = start;
-        for (int j = start ; j < end ; j++)
+        if (pma_data[i] != UNUSED_ICON)
         {
-            if (pma_data[j] != UNUSED_ICON)
-            {
-                pma_data[pack_ptr++] = pma_data[j];
-            }
+            pack_ptr--;
+            pma_data[pack_ptr] = pma_data[i];
+            pma_data[i] = UNUSED_ICON;
         }
-        int edge_num = (pack_ptr - start);
+    }
+    for (int i = 0 ; i < VERTEX_PER_PMA ; i++)
+    {
+        int seg_start = (i == 0) ? 0 : pma_header.vertex_range[i - 1] * SEGMENT_SIZE;
+        int seg_end = pma_header.vertex_range[i] * SEGMENT_SIZE;
+        int seg_count = (seg_end - seg_start) / SEGMENT_SIZE;
+        if (seg_count == 0) continue;
+        int edge_num = pma_header.edge_count[i];
         int base = edge_num / seg_count;
         int extra = edge_num % seg_count;
         if (edge_num == 0) continue;
-        for (int s = seg_count - 1 ; s >= 0 ; s--)
+        for (int s = 0 ; s < seg_count ; s++)
         {
             int cur_seg_valid = base + (s < extra ? 1 : 0);
-            int cur_seg_start = start + s * SEGMENT_SIZE;
-            for (int k = cur_seg_start + cur_seg_valid -1 ; k >= cur_seg_start ; k--)
+            int cur_seg_start = seg_start + s * SEGMENT_SIZE;
+            for (int k = cur_seg_start; k < cur_seg_start + cur_seg_valid; k++)
             {
-                --pack_ptr;
                 int tmp = pma_data[pack_ptr];
                 pma_data[pack_ptr] = UNUSED_ICON;
+                ++pack_ptr;
                 pma_data[k] = tmp;
             }
         }

@@ -125,7 +125,9 @@ int main(int argc, char** argv)
     run_pma_update_kernel.start();
     run_update_message_router_kernel.start();
     run_update_message_generator_kernel.start();
-
+    run_update_message_generator_kernel.wait();
+    run_update_message_router_kernel.wait();
+    run_pma_update_kernel.wait();
     run_pma_read_kernel.start();
 
     for (int i = 0 ; i < 1024 ; i++)

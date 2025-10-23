@@ -9,7 +9,12 @@ MEM_XO_FILES := $(addprefix $(MEMKERNEL_DIR)/, memlock.xo read_mux.xo write_mux.
 PMA_XO_FILES := $(addprefix $(PMA_KERNEL_DIR)/, update_message_generator.xo update_message_router.xo pma_update_kernel.xo pma_read_kernel.xo check_kernel.xo)
 
 XCLBIN_FILE := $(TARGET)_test_all.xclbin
-all: $(XCLBIN_FILE)
+all: subdirs $(XCLBIN_FILE)
+
+subdirs:
+	$(MAKE) -C memkernel all
+	$(MAKE) -C pma_kernel all
+
 ALL_XO_FILES = $(MEM_XO_FILES) $(PMA_XO_FILES)
 $(XCLBIN_FILE): $(ALL_XO_FILES)
 	@echo "---- Linking kernels to create $(XCLBIN_FILE) ----"

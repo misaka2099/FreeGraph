@@ -86,13 +86,14 @@ extern "C"
                     if (!vec_info_stream.empty())
                     {
                         vec_info_stream.read(current_job);
+                        // HERE
                         state = DECODE;
                     }
                     break;
                 }
                 case DECODE:
                 {
-                    HERE
+                    // HERE
                     if (current_job.last == 1)
                     {
                         tag_vecinfo_to_mem_1.write({.last = 1});
@@ -113,7 +114,7 @@ extern "C"
                 }
                 case PARTITION_COMMAND:
                 {
-                    HERE
+                    // HERE
                     if (remain_lenth > 0)
                     {
                         int chunk_size = (remain_lenth > READER_CHUNK_BYTES) ? READER_CHUNK_BYTES : remain_lenth;
@@ -132,10 +133,10 @@ extern "C"
                         // save channel for this chunk before advancing cur_start_addr
                         cur_chunk_channel = channel_id;
                         remain_lenth -= chunk_size;
-                        printf("REMAINNING LENGTH %d\n", remain_lenth);
+                        // printf("REMAINNING LENGTH %d\n", remain_lenth);
                         tag_num++;
                         ack_count++;
-                        printf("ACK COUNT %d\n", ack_count);
+                        // printf("ACK COUNT %d\n", ack_count);
                         if (channel_id == 0)
                         {
                             tag_vecinfo_to_mem_1.write(chunk);
@@ -150,14 +151,14 @@ extern "C"
                     }
                     else  
                     {
-                        HERE
+                        // HERE
                         state = ACK_BACK;
                     }
                     break;
                 }
                 case COLLECTION_AND_DATA_TRANSFER:
                 {
-                    HERE
+                    // HERE
                     // use saved chunk channel (do not recompute from cur_start_addr which was advanced)
                     int channel_id = cur_chunk_channel;
                     if (channel_id == 0)
@@ -168,7 +169,7 @@ extern "C"
                       }
                       auto ack = ack_from_mem_1.read();
                       ack_count--;
-                      printf("GOT ACK FROM MEM 1, REMAINING COUNT %d\n", ack_count);
+                    //   printf("GOT ACK FROM MEM 1, REMAINING COUNT %d\n", ack_count);
                     }
                     else
                     {
@@ -178,7 +179,7 @@ extern "C"
                       }
                       auto ack = ack_from_mem_2.read();
                       ack_count--;
-                      printf("GOT ACK FROM MEM 2, REMAINING COUNT %d\n", ack_count);
+                    //   printf("GOT ACK FROM MEM 2, REMAINING COUNT %d\n", ack_count);
 
                     }
                     cur_start_addr += cur_length;
@@ -187,7 +188,7 @@ extern "C"
                 }
                 case ACK_BACK:
                 {
-                    HERE
+                    // HERE
                     if (ack_count == 0)
                     {
                         COMMAND_STREAM ack;
@@ -195,11 +196,12 @@ extern "C"
                         {
                             if (used[i])
                             {
-                                printf("SENDING ACK BACK %d\n", i);
+                                // printf("SENDING ACK BACK %d\n", i);
                                 ack.data = i;
                                 ack_to_scheduler.write(ack);
                             }
                         }
+                        // HERE
                         state = IDLE;
                     }
                     else  

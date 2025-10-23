@@ -1,4 +1,5 @@
 #include "data_type.h"
+#include <cstdio>
 #include <hls_stream.h>
 #include <ap_int.h>
 #include "debug.h"
@@ -31,7 +32,7 @@ extern "C"
         static int write_counter[CHANNEL_NUM] = {0};
         static int read_counter[CHANNEL_NUM] = {0};
         static int alloc_counter = {0};
-        static int free_counter[CHANNEL_NUM] = {0};
+        static int free_counter = {0};
         static int cmd_buffer[COMMAND_BUFFER_SIZE] = {-1};
         static int cmd_number = 0;
         for (int i = 0 ; i < COMMAND_BUFFER_SIZE; i++)
@@ -48,14 +49,14 @@ extern "C"
             // HERE
             if (cmd_buffer[buffer_ptr] == -1 && !vec_info_stream.empty() && !cmd_stream.empty() )
             {
-                HERE
+                // HERE
                 int tmp_cmd = cmd_stream.read().data;
                 VEC_INFO info = vec_info_stream.read().data;
                 // cur_buffer_size++;
                 vec_buffer[buffer_ptr] = info;
                 cmd_buffer[buffer_ptr] = tmp_cmd;
                 buffer_ptr = (buffer_ptr + 1) % COMMAND_BUFFER_SIZE;
-                printf("CUR  buffer ptr = %d, cmd_number = %d\n", buffer_ptr, cmd_number);
+                // printf("CUR  buffer ptr = %d, cmd_number = %d\n", buffer_ptr, cmd_number);
                 cmd_number++;
             }
             COMMAND_STREAM ack_w, ack_r, ack_a, ack_f;
@@ -64,22 +65,24 @@ extern "C"
             bool has_ack_a = ack_alloc_stream.read_nb(ack_a);
             bool has_ack_f = ack_free_stream.read_nb(ack_f);
             if (has_ack_w) {
-                HERE
+                // HERE
                 write_counter[ack_w.data]--;
-                HERE
+                // printf("Channel %d write counter: %d\n", int(ack_w.data), write_counter[ack_w.data]);
+                // HERE
             }
             if (has_ack_r) {
-                HERE
+                // HERE
                 read_counter[ack_r.data]--;
-                         
+                // printf("Channel %d read counter: %d\n", int(ack_r.data), read_counter[ack_r.data]);
             }
             if (has_ack_a) {
-                HERE
+                // HERE
                 alloc_counter--;
             }
             if (has_ack_f) {
-                HERE
-                free_counter[ack_f.data]--;
+                // HERE
+                free_counter--;
+                // printf("Channel %d free counter: %d\n", int(ack_f.data), free_counter[ack_f.data]);
             }
             // HERE
             for (int i = 0 ; i < COMMAND_BUFFER_SIZE; i++)
@@ -113,13 +116,15 @@ extern "C"
                     //     // cannot issue now, try other buffer entries
                     //     continue;
                     // }
-                    HERE
+                    // HERE
                     vec_to_write_stream.write({.data=info});
+                    // printf("CHANNEL START %d, CHANNEL END %d\n", channel_start, channel_end);
                     for (int i = channel_start; i <= channel_end; ++i) {
                         write_counter[i] ++;
+                        // printf("Channel %d write counter: %d\n", i, write_counter[i]);
                     }
                     // write_counter[channel] ++;
-                    HERE
+                    // HERE
                     cmd_buffer[(buffer_ptr+i) % COMMAND_BUFFER_SIZE] = -1;
                     // cur_buffer_size--;
                     cmd_number--;
@@ -135,8 +140,9 @@ extern "C"
 
                     bool to_continue = false;
                     for (int i = channel_start; i <= channel_end; ++i) {
-                        if (write_counter[i] > 0  || read_counter[i] >= 8 || free_counter[i] > 0) {
+                        if (write_counter[i] > 0  || read_counter[i] >= 8) {
                             to_continue = true;
+                            // HERE
                             break;
                         }
                     }
@@ -147,14 +153,14 @@ extern "C"
                     //     // cannot issue now, try other buffer entries
                     //     continue;
                     // }
-                    HERE
+                    // HERE
                     vec_to_read_stream.write({.data=info});
                     // read_counter[channel] ++;
                     for (int i = channel_start; i <= channel_end; ++i) {
                         read_counter[i] ++;
                     }
                     
-                    HERE
+                    // HERE
                     
                     cmd_buffer[(buffer_ptr+i) % COMMAND_BUFFER_SIZE] = -1;
                     // cur_buffer_size--;
@@ -162,7 +168,11 @@ extern "C"
                 }
                 else if (cmd == MEM_ALLOC)
                 {
-                    HERE
+                    // HERE
+                    if (free_counter > 0)
+                    {
+                        continue;
+                    }
                     vec_to_alloc_stream.write({.data=info});
                     alloc_counter++;                   
                     cmd_buffer[(buffer_ptr+i) % COMMAND_BUFFER_SIZE] = -1;
@@ -171,15 +181,15 @@ extern "C"
                 }
                 else if (cmd == MEM_FREE)
                 {
-                    HERE
+                    // HERE
                     int start_pos = info.range(31, 0);
                     int channel = start_pos / CHANNEL_CAPACITY;
-                    if (write_counter[channel] > 0 || read_counter[channel] > 0) {
+                    if (write_counter[channel] > 0 || read_counter[channel] > 0 || alloc_counter > 0) {
                         // cannot issue now, try other buffer entries
                         continue;
                     }
                     vec_to_free_stream.write({.data=info});
-                    free_counter[channel]++;                    
+                    free_counter++;                    
                     cmd_buffer[(buffer_ptr+i) % COMMAND_BUFFER_SIZE] = -1;
                     // cur_buffer_size--;
                     cmd_number--;
@@ -189,7 +199,7 @@ extern "C"
                     if (cmd_number != 1) {
                         continue;
                     }
-                    HERE
+                    // HERE
                     vec_to_alloc_stream.write({.last = 1});
                     vec_to_free_stream.write({.last = 1});
                     vec_to_read_stream.write({.last = 1});

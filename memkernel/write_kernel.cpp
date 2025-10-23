@@ -20,16 +20,16 @@ extern "C"
         while (true)
         {
             auto info = vec_info_in.read();
-            HERE
+            // HERE
             int start_pos = info.data.range(31, 0);
             int total_size = info.data.range(63, 32);
             if (info.last == 1)
             {
-                HERE
+                // HERE
                 // printf("WRITE KERNEL GET LAST TAG %d\n", tag);
                 return;
             }
-            std::cout << "Write request: start_pos=" << start_pos << ", total_size=" << total_size << std::endl;
+            // std::cout << "Write request: start_pos=" << start_pos << ", total_size=" << total_size << std::endl;
             for (int i = 0; i < total_size; i++) 
             {
                 #pragma HLS PIPELINE II=1
@@ -41,7 +41,7 @@ extern "C"
             COMMAND_STREAM ack;
             ack.data = 1;
             ack_back_to_scheduler.write(ack);
-            HERE
+            // HERE
         }
     }
 }

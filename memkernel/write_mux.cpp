@@ -55,11 +55,11 @@ extern "C"
             bool has_ack1 = ack_from_mem_1.read_nb(ack1);
             bool has_ack2 = ack_from_mem_2.read_nb(ack2);
             if (has_ack1) {
-                HERE
+                // HERE
                 ack_to_scheduler.write({.data=0});
             }
             if (has_ack2) {
-                HERE
+                // HERE
                 ack_to_scheduler.write({.data=1});
             }
              switch (state) {
@@ -69,7 +69,7 @@ extern "C"
                     }
                     if (current_job.last == 1)
                     {
-                        HERE
+                        // HERE
                         vec_info_to_mem_1.write({.last=1});
                         vec_info_to_mem_2.write({.last=1});
                         return;
@@ -77,7 +77,7 @@ extern "C"
                     break;
                 }
                 case DECODE_AND_DISPATCH: {
-                    HERE
+                    // HERE
                     int start_pos = current_job.data.range(31, 0);
                     int total_len = current_job.data.range(63, 32);
                     int current_pos = start_pos;
@@ -85,7 +85,7 @@ extern "C"
                     // This loop breaks down the request into non-crossing chunks
                     // It will execute multiple times if the write crosses channels
                     while (remaining_len > 0) {
-                        HERE
+                        // HERE
                         int channel_idx = current_pos / CHANNEL_CAPACITY;
                         int channel_start_addr = channel_idx * CHANNEL_CAPACITY;
                         int channel_end_addr = channel_start_addr + CHANNEL_CAPACITY;
@@ -103,10 +103,10 @@ extern "C"
                         VEC_INFO header;
                         header.range(31, 0) = chunk_start_addr_rel;
                         header.range(63, 32) = len_in_this_chunk;
-                        std::cout << "Dispatching write chunk: start_pos=" << chunk_start_addr_abs 
-                                  << " (rel=" << chunk_start_addr_rel << "), len=" << len_in_this_chunk 
-                                  << ", channel=" << channel_idx << std::endl;
-                        HERE
+                        // std::cout << "Dispatching write chunk: start_pos=" << chunk_start_addr_abs 
+                        //           << " (rel=" << chunk_start_addr_rel << "), len=" << len_in_this_chunk 
+                        //           << ", channel=" << channel_idx << std::endl;
+                        // HERE
                         if (channel_idx == 0) {
                             vec_info_to_mem_1.write({.data=header});
                         } else { // channel_idx == 1
@@ -131,7 +131,7 @@ extern "C"
                         remaining_len -= len_in_this_chunk;
                         current_pos += len_in_this_chunk;
                     }
-                    HERE
+                    // HERE
                     // All chunks dispatched, return to IDLE
                     state = IDLE;
                     break;

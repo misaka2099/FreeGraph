@@ -1,5 +1,7 @@
+#include <cstdio>
 #include <hls_stream.h>
 #include "data_type.h"
+#include "debug.h"
 extern "C"
 {
     void app_mem_middle_ware(
@@ -35,7 +37,6 @@ extern "C"
         #pragma HLS INTERFACE axis port=vec_info_to_app_1
         #pragma HLS INTERFACE axis port=vec_info_to_app_2
         #pragma HLS INTERFACE axis port=vec_info_to_mem
-        #pragma HLS INTERFACE ap_ctrl_none port=return
         while (true)
         {
             // Process commands from app 1
@@ -55,13 +56,17 @@ extern "C"
                 }
                 else if (cmd.data == MEM_READ)
                 {
+                    // HERE
                     auto vec_info = vec_info_from_app_1.read();
+                    // HERE
                     vec_info_to_mem.write(vec_info);
                     for (int i = 0 ; i < vec_info.data.range(63,32) ; i++)
                     {
+                        // printf("ITERATION IN MIDDLE_WARE %d/%d\n", i, int(vec_info.data.range(63,32)));
                         auto byte = data_from_mem.read();
                         data_to_app_1.write(byte);
                     }
+                    // HERE
                 }
                 else if (cmd.data == MEM_ALLOC)
                 {
@@ -85,6 +90,7 @@ extern "C"
             if (!cmd_from_app_2.empty())
             {
                 COMMAND_STREAM cmd = cmd_from_app_2.read();
+                HERE
                 cmd_to_mem.write(cmd);
                 if (cmd.data == MEM_WRITE)
                 {
@@ -98,11 +104,13 @@ extern "C"
                 }
                 else if (cmd.data == MEM_READ)
                 {
+                    HERE
                     auto vec_info = vec_info_from_app_2.read();
                     vec_info_to_mem.write(vec_info);
                     for (int i = 0 ; i < vec_info.data.range(63,32) ; i++)
                     {
                         auto byte = data_from_mem.read();
+                        printf("ITERATION IN MIDDLE_WARE %d/%d\n", i, int(vec_info.data.range(63,32)));
                         data_to_app_2.write(byte);
                     }
                 }

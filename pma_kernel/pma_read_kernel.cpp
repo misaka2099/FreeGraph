@@ -1,4 +1,6 @@
 #include "data_type.h"
+#include "debug.h"
+#include <cstdio>
 #include <hls_stream.h>
 #include <ap_int.h> 
 #define NONE 123
@@ -18,6 +20,7 @@ void read_header(
     vec_info_stream.write(header_vec_info);
     for (int i = 0 ; i < sizeof(PMA_HEADER); i++)
     {
+        printf("ITERATION %d\n", i);
         BYTE_STREAM byte;
         data_from_mem_stream.read(byte);
         ((BYTE*)&pma_header)[i] = byte.data;
@@ -88,6 +91,7 @@ extern "C"
         while (true)
         {
             READ_COMMAND_STREAM cmd = cmd_stream.read();
+            HERE
             if (cmd.data == PMA_STOP && cmd.last == 1) 
             {
                 break;
@@ -96,6 +100,7 @@ extern "C"
             {
                 case PMA_GET_OUT_EDGE:
                 {
+                    HERE
                     int src = cmd.data.range(63,32);
                     int pma_idx = src / VERTEX_PER_PMA;
                     VEC_INFO vec_info;
@@ -106,6 +111,7 @@ extern "C"
                         break;
                     }
                     PMA_HEADER pma_header;
+                    HERE
                     // read header
                     read_header(
                         vec_info.range(31,0),
@@ -114,6 +120,9 @@ extern "C"
                         data_from_mem_stream,
                         pma_header
                     );
+                    
+                    show_header(pma_header);
+                    HERE
                     // send edge data
                     read_edge(
                         src,
@@ -123,6 +132,7 @@ extern "C"
                         data_from_mem_stream,
                         data_to_nei_query
                     );
+                    HERE
                     break;
                 }
                 case PMA_GET_IN_EDGE:

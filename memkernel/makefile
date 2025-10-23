@@ -58,4 +58,7 @@ clean:
 	@echo "Cleaning .xo and build artifacts..."
 	@rm -f *.xo
 	@rm -rf _x
+	@rm v++_*
+	@rm *_summary
+	@rm *.info
 	@echo "done."
