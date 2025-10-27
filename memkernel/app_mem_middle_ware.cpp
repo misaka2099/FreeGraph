@@ -19,7 +19,8 @@ extern "C"
         hls::stream<VEC_INFO_STREAM> &vec_info_from_mem,
         hls::stream<VEC_INFO_STREAM> &vec_info_to_app_1,
         hls::stream<VEC_INFO_STREAM> &vec_info_to_app_2,
-        hls::stream<VEC_INFO_STREAM> &vec_info_to_mem
+        hls::stream<VEC_INFO_STREAM> &vec_info_to_mem,
+        hls::stream<COMMAND_STREAM> &stop_signal
     )
     {
         #pragma HLS INTERFACE axis port=cmd_from_app_1
@@ -37,9 +38,18 @@ extern "C"
         #pragma HLS INTERFACE axis port=vec_info_to_app_1
         #pragma HLS INTERFACE axis port=vec_info_to_app_2
         #pragma HLS INTERFACE axis port=vec_info_to_mem
+        #pragma HLS INTERFACE axis port=stop_signal
         while (true)
         {
             // Process commands from app 1
+            if (stop_signal.empty() == false)
+            {
+                stop_signal.read();
+                cmd_to_mem.write({.data = MEM_STOP});
+                vec_info_to_mem.write({.last = 1});
+                // HERE
+                break;
+            }
             if (!cmd_from_app_1.empty())
             {
                 COMMAND_STREAM cmd = cmd_from_app_1.read();
@@ -80,17 +90,13 @@ extern "C"
                     auto vec_info = vec_info_from_app_1.read();
                     vec_info_to_mem.write(vec_info);
                 }
-                else if (cmd.data == MEM_STOP)
-                {
-                    break;
-                }
             }
 
             // Process commands from app 2
             if (!cmd_from_app_2.empty())
             {
                 COMMAND_STREAM cmd = cmd_from_app_2.read();
-                HERE
+                // HERE
                 cmd_to_mem.write(cmd);
                 if (cmd.data == MEM_WRITE)
                 {
@@ -104,15 +110,16 @@ extern "C"
                 }
                 else if (cmd.data == MEM_READ)
                 {
-                    HERE
+                    // HERE
                     auto vec_info = vec_info_from_app_2.read();
                     vec_info_to_mem.write(vec_info);
                     for (int i = 0 ; i < vec_info.data.range(63,32) ; i++)
                     {
                         auto byte = data_from_mem.read();
-                        printf("ITERATION IN MIDDLE_WARE %d/%d\n", i, int(vec_info.data.range(63,32)));
+                        // printf("ITERATION IN MIDDLE_WARE %d/%d\n", i, int(vec_info.data.range(63,32)));
                         data_to_app_2.write(byte);
                     }
+                    // HERE
                 }
                 else if (cmd.data == MEM_ALLOC)
                 {
@@ -125,10 +132,6 @@ extern "C"
                 {
                     auto vec_info = vec_info_from_app_2.read();
                     vec_info_to_mem.write(vec_info);
-                }
-                else if (cmd.data == MEM_STOP)
-                {
-                    break;
                 }
             }
         }

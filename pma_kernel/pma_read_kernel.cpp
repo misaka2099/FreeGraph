@@ -20,7 +20,7 @@ void read_header(
     vec_info_stream.write(header_vec_info);
     for (int i = 0 ; i < sizeof(PMA_HEADER); i++)
     {
-        printf("ITERATION %d\n", i);
+        // printf("ITERATION %d\n", i);
         BYTE_STREAM byte;
         data_from_mem_stream.read(byte);
         ((BYTE*)&pma_header)[i] = byte.data;
@@ -29,6 +29,7 @@ void read_header(
 void read_edge(
     int src,
     PMA_HEADER &pma_header,
+    int header_start,
     hls::stream<VEC_INFO_STREAM> &vec_info_stream,
     hls::stream<COMMAND_STREAM> &cmd_to_mem_stream,
     hls::stream<BYTE_STREAM> &data_from_mem_stream,
@@ -36,15 +37,19 @@ void read_edge(
 )
 {
     int local_src = src % VERTEX_PER_PMA;
-    int src_seg = pma_header.vertex_range[local_src] - (local_src == 0 ? 0 : pma_header.vertex_range[local_src - 1]);
-    int edge_start = sizeof(PMA_HEADER) + src_seg * SEGMENT_SIZE * sizeof(int);
-    int edge_len = pma_header.edge_count[local_src] * sizeof(int);
+    int start_seg_offset = local_src == 0 ? 0 : pma_header.vertex_range[local_src - 1];
+    int src_seg = pma_header.vertex_range[local_src] - start_seg_offset;
+    int edge_start = header_start + sizeof(PMA_HEADER) + start_seg_offset * sizeof(int) * SEGMENT_SIZE;
+    int edge_len = src_seg * sizeof(int) * SEGMENT_SIZE;
     VEC_INFO_STREAM edge_vec_info;
     edge_vec_info.data.range(31,0) = edge_start;
     edge_vec_info.data.range(63,32) = edge_len;
     vec_info_stream.write(edge_vec_info);
     cmd_to_mem_stream.write({.data=MEM_READ});
-    for (int i = 0 ; i < edge_len;  i++)
+    // printf("Reading edges for vertex %d: start=%d, length=%d bytes\n", src, edge_start, edge_len);
+    // show_header(pma_header);
+    printf("EDGE COUNT: %d\n", pma_header.edge_count[local_src]);
+    for (int i = 0 ; i < edge_len / sizeof(int);  i++)
     {
         int dst;
         BYTE_STREAM byte;
@@ -76,6 +81,7 @@ extern "C"
         hls::stream<BYTE_STREAM> &data_from_mem_stream,
         hls::stream<VEC_INFO_STREAM> &vec_info_from_mem,
         hls::stream<BYTE_STREAM> &data_to_mem_stream
+        // hls::stream<COMMAND_STREAM> &stop_signal
     )
     {
         #pragma HLS INTERFACE m_axi port=pos_pma_addrs offset=slave bundle=gmem0
@@ -88,10 +94,11 @@ extern "C"
         #pragma HLS INTERFACE axis port=data_to_mem_stream
         #pragma HLS INTERFACE axis port=data_from_mem_stream
         #pragma HLS INTERFACE axis port=vec_info_from_mem
+        // #pragma HLS INTERFACE axis port=stop_signal
         while (true)
         {
             READ_COMMAND_STREAM cmd = cmd_stream.read();
-            HERE
+            // HERE
             if (cmd.data == PMA_STOP && cmd.last == 1) 
             {
                 break;
@@ -100,7 +107,7 @@ extern "C"
             {
                 case PMA_GET_OUT_EDGE:
                 {
-                    HERE
+                    // HERE
                     int src = cmd.data.range(63,32);
                     int pma_idx = src / VERTEX_PER_PMA;
                     VEC_INFO vec_info;
@@ -120,13 +127,14 @@ extern "C"
                         data_from_mem_stream,
                         pma_header
                     );
-                    
-                    show_header(pma_header);
-                    HERE
+                    // printf("READING OUT EDGE FOR VERTEX %d\n", src);
+                    // show_header(pma_header);
+                    // HERE
                     // send edge data
                     read_edge(
                         src,
                         pma_header,
+                        vec_info.range(31,0),
                         vec_info_stream,
                         cmd_to_mem_stream,
                         data_from_mem_stream,
@@ -144,6 +152,7 @@ extern "C"
                     if (vec_info == 0) // empty PMA
                     {
                         data_to_nei_query.write({.data=-1});
+                        break;
                     }
                     PMA_HEADER pma_header;
                     // read header
@@ -158,6 +167,7 @@ extern "C"
                     read_edge(
                         src,
                         pma_header,
+                        vec_info.range(31,0),
                         vec_info_stream,
                         cmd_to_mem_stream,
                         data_from_mem_stream,

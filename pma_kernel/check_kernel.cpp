@@ -1,3 +1,4 @@
+#include <cstdio>
 #include <hls_stream.h>
 #include <ap_int.h> 
 #include "data_type.h"
@@ -39,6 +40,7 @@ extern "C"
             while (tmp_dst != -1)
             {
                 tmp_dst = data_to_check.read().data;
+                // printf("EDGE FROM %d TO %d\n", src[i], tmp_dst);
                 dst[idx] = tmp_dst;
                 idx++;
             }
@@ -46,12 +48,13 @@ extern "C"
             // Convert double to ap_uint<64> and write to attr_to_check
 
         }
-        HERE
+        // HERE
         for (int i = 0 ; i < attr_vertex_to_check ; i++)
         { 
             auto attr = attr_to_check.read();
             double attr_value = attr.data;
             vertex_attr[i] = attr_value;
         }
+        cmd_to_read.write({.data = PMA_STOP, .last = 1});
     }
 }

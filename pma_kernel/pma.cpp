@@ -11,7 +11,6 @@ void binary_search(int val, int left, int right, int *storage, int &out_idx, int
 
     int low_seg = left / SEGMENT_SIZE;
     int high_seg = (right) / SEGMENT_SIZE - 1;
-    int target_seg = low_seg - 1;
 
     out_idx = left - 1;
     out_val = -1;
@@ -62,7 +61,6 @@ void binary_search(int val, int left, int right, int *storage, int &out_idx, int
         }
         if (minimum <= val && maximum >= val)
         {
-            target_seg = mid;
             find = true;
         }
         
@@ -79,6 +77,8 @@ void insert_edge(int src, int dst, int* pma_data, PMA_HEADER& pma_header)
     binary_search(dst, left, right, pma_data, out_idx, out_val);
     if (out_val == dst)
     {
+        HERE
+        printf("Edge %d -> %d already exists. Skipping insertion.\n", src, dst);
         return;
     }
     int to_move_pos = -1;
@@ -103,43 +103,19 @@ void insert_edge(int src, int dst, int* pma_data, PMA_HEADER& pma_header)
 }
 void rebalance(int* pma_data, PMA_HEADER& pma_header)
 {
-    
-    // for (int i = 0 ; i < VERTEX_PER_PMA; i++)
-    // {
-    //     // HERE
-    //     int start = i == 0 ? 0 : pma_header.vertex_range[i - 1] * SEGMENT_SIZE;
-    //     int end = pma_header.vertex_range[i] * SEGMENT_SIZE;
-    //     int seg_count = (end - start) / SEGMENT_SIZE;
-    //     // printf("REBALANCE VERTEX %d FROM %d TO %d, SEG COUNT %d\n", i, start, end, seg_count);
-    //     if (seg_count == 0) continue;
-    //     int pack_ptr = start;
-    //     for (int j = start ; j < end ; j++)
-    //     {
-    //         if (pma_data[j] != UNUSED_ICON)
-    //         {
-    //             pma_data[pack_ptr++] = pma_data[j];
-    //         }
-    //     }
-    //     // HERE
-    //     int edge_num = (pack_ptr - start);
-    //     int base = edge_num / seg_count;
-    //     int extra = edge_num % seg_count;
-    //     if (edge_num == 0) continue;
-    //     // HERE
-    //     for (int s = seg_count - 1 ; s >= 0 ; s--)
-    //     {
-    //         int cur_seg_valid = base + (s < extra ? 1 : 0);
-    //         int cur_seg_start = start + s * SEGMENT_SIZE;
-    //         for (int k = cur_seg_start + cur_seg_valid -1 ; k >= cur_seg_start ; k--)
-    //         {
-    //             --pack_ptr;
-    //             int tmp = pma_data[pack_ptr];
-    //             pma_data[pack_ptr] = UNUSED_ICON;
-    //             pma_data[k] = tmp;
-    //         }
-    //     }
-    // }
-    int end = pma_header.vertex_range[VERTEX_PER_PMA - 1] * SEGMENT_SIZE;
+    int end = -1;
+    for (int i = 0 ; i < VERTEX_PER_PMA ; i++)
+    {
+        if (pma_header.vertex_range[i] == UNUSED_ICON)
+        {
+            break;
+        }
+        end = pma_header.vertex_range[i] * SEGMENT_SIZE;
+    }
+    if (end == -1)  
+    {
+        return;
+    }
     int pack_ptr = end;
     //把所有数据放在最后
     for (int i = end - 1 ; i >= 0 ; i--)
@@ -153,6 +129,10 @@ void rebalance(int* pma_data, PMA_HEADER& pma_header)
     }
     for (int i = 0 ; i < VERTEX_PER_PMA ; i++)
     {
+        if (pma_header.vertex_range[i] == UNUSED_ICON)
+        {
+            break;
+        }
         int seg_start = (i == 0) ? 0 : pma_header.vertex_range[i - 1] * SEGMENT_SIZE;
         int seg_end = pma_header.vertex_range[i] * SEGMENT_SIZE;
         int seg_count = (seg_end - seg_start) / SEGMENT_SIZE;
@@ -174,4 +154,5 @@ void rebalance(int* pma_data, PMA_HEADER& pma_header)
             }
         }
     }
+    
 }

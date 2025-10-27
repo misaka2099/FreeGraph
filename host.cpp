@@ -1,18 +1,55 @@
 #include "data_type.h"
 #include <iostream>
 #include <string>
+#include <utility>
+#include <vector>
 #include <xrt/xrt_device.h>
 #include <xrt/xrt_kernel.h>
 #include <xrt/xrt_bo.h>
+#include <unordered_set>
+#include <fstream>
 int main(int argc, char** argv)
 {
-    if (argc < 2) {
+    if (argc < 3) {
         std::cerr << "Usage: " << argv[0] << " <xclbin> <graph>" << std::endl;
         return 1;
     }
 
+
+
     std::string xclbin_name = argv[1];
-    // std::string graph_path = argv[2];
+    std::string graph_path = argv[2];
+    std::fstream graph_file(graph_path);
+    if (!graph_file.is_open()) {
+        std::cerr << "Failed to open graph file: " << graph_path << std::endl;
+        return 1;
+    }
+    std::vector<std::unordered_set<int>> Graph;
+    int a,b;
+    std::vector<std::pair<int,int>> edges;
+    int max_vertex = -1;
+    while (graph_file >> a >> b)
+    {
+        edges.emplace_back(a,b);
+        if (a > max_vertex) max_vertex = a;
+        if (b > max_vertex) max_vertex = b;
+    }
+    graph_file.close();
+    Graph.resize(max_vertex + 1);
+    for (auto& edge : edges)
+    {
+        Graph[edge.first].insert(edge.second);
+    }
+
+    // Debug: Print edges read from the file
+    std::cout << "Edges read from the file:" << std::endl;
+    // for (const auto& edge : edges) {
+    //     std::cout << edge.first << " -> " << edge.second << std::endl;
+    // }
+
+    // // Debug: Print max_vertex value
+    // std::cout << "Max vertex: " << max_vertex << std::endl;
+
     auto xclbin = xrt::xclbin(xclbin_name);
     auto device = xrt::device(0);
     auto uuid = device.load_xclbin(xclbin);
@@ -34,6 +71,7 @@ int main(int argc, char** argv)
 
     auto check_kernel = xrt::kernel(device, uuid, "check_kernel");
     
+    auto stop_kernel = xrt::kernel(device, uuid, "stop_kernel");
     std::cout << "Kernels loaded successfully." << std::endl;
     auto run_write_kernel_1 = xrt::run(write_kernel_1);
     auto run_write_kernel_2 = xrt::run(write_kernel_2);
@@ -50,8 +88,8 @@ int main(int argc, char** argv)
     auto run_update_message_router_kernel = xrt::run(update_message_router_kernel);
     auto run_pma_update_kernel = xrt::run(pma_update_kernel);
     auto run_check_kernel = xrt::run(check_kernel);
-
-    std::cout << "Kernels are running..." << std::endl;
+    auto run_stop_kernel = xrt::run(stop_kernel);
+    std::cout << "Kernels are created..." << std::endl;
 
     auto bo_hbm_base_addr_1 = xrt::bo(device, sizeof(BYTE) * CHANNEL_CAPACITY, write_kernel_1.group_id(0));
     auto bo_hbm_base_addr_2 = xrt::bo(device, sizeof(BYTE) * CHANNEL_CAPACITY, write_kernel_2.group_id(0));
@@ -72,19 +110,26 @@ int main(int argc, char** argv)
     auto neg_vec_info_ptr = bo_neg_vec_info.map<VEC_INFO*>();
     std::fill_n(pos_vec_info_ptr, MAX_PMA_NUM, 0);
     std::fill_n(neg_vec_info_ptr, MAX_PMA_NUM, 0);
-    auto bo_src = xrt::bo(device, sizeof(int) * 1024, check_kernel.group_id(0));
-    auto bo_dst = xrt::bo(device, sizeof(int) * 1024, check_kernel.group_id(1));
+
+    // 修改 bo_src 和 bo_dst 的分配，确保使用 update_message_generator_kernel 的 group_id
+    auto bo_src = xrt::bo(device, sizeof(int) * edges.size(), update_message_generator_kernel.group_id(2));
+    auto bo_dst = xrt::bo(device, sizeof(int) * edges.size(), update_message_generator_kernel.group_id(3));
+
+    int* src_ptr = bo_src.map<int*>();
+    int* dst_ptr = bo_dst.map<int*>();
+
+    int index = 0;
+    for (const auto& edge : edges) {
+        src_ptr[index] = edge.first;
+        dst_ptr[index] = edge.second;
+        index++;
+    }
 
     auto bo_check_src = xrt::bo(device, sizeof(int) * 1024, check_kernel.group_id(0));
-    auto bo_check_dst = xrt::bo(device, sizeof(int) * 1024, check_kernel.group_id(1));
+    auto bo_check_dst = xrt::bo(device, sizeof(int) * 4096, check_kernel.group_id(1));
     auto check_src = bo_check_src.map<int*>();
     auto check_dst = bo_check_dst.map<int*>();
     auto bo_vertex_attr = xrt::bo(device, sizeof(double) * 1024, check_kernel.group_id(2));
-
-    for (int i = 0 ; i < 1024 ; i++)
-        bo_src.map<int*>()[i] = i;
-    for (int i =  0 ; i < 1024 ; i++)
-        bo_dst.map<int*>()[i] = 1023-i;
 
     std::cout << "Buffers allocated and initialized." << std::endl;
 
@@ -96,8 +141,8 @@ int main(int argc, char** argv)
     run_free_kernel.set_arg(0, bo_valid_array);
     run_pma_read_kernel.set_arg(0, bo_pos_vec_info);
     run_pma_read_kernel.set_arg(1, bo_neg_vec_info);
-    run_update_message_generator_kernel.set_arg(0, 1024);
-    run_update_message_generator_kernel.set_arg(1, 1024);
+    run_update_message_generator_kernel.set_arg(0, max_vertex+1);
+    run_update_message_generator_kernel.set_arg(1, edges.size());
     run_update_message_generator_kernel.set_arg(2,bo_src);
     run_update_message_generator_kernel.set_arg(3,bo_dst);
     run_pma_update_kernel.set_arg(1, bo_pos_vec_info);
@@ -111,7 +156,7 @@ int main(int argc, char** argv)
     bo_dst.sync(XCL_BO_SYNC_BO_TO_DEVICE);
 
     std::cout << "Buffers synchronized to device." << std::endl;
-
+    
     run_read_kernel_1.start();
     run_read_kernel_2.start();
     run_write_kernel_1.start();
@@ -128,26 +173,75 @@ int main(int argc, char** argv)
     run_update_message_generator_kernel.wait();
     run_update_message_router_kernel.wait();
     run_pma_update_kernel.wait();
-    run_pma_read_kernel.start();
+    std::cout << "GRAPH UPDATED." << std::endl;
 
-    for (int i = 0 ; i < 1024 ; i++)
+    std::vector<std::unordered_set<int>> Updated_Graph(max_vertex + 1);
+    for (int i = 0 ; i < max_vertex + 1; i++)
     {
         check_src[0] = i;
-        std::fill(check_dst, check_dst + 1024, -1);
+        std::fill(check_dst, check_dst + 4096, -1);
         bo_check_src.sync(XCL_BO_SYNC_BO_TO_DEVICE);
         bo_check_dst.sync(XCL_BO_SYNC_BO_TO_DEVICE);
         run_check_kernel.set_arg(0, bo_check_src);
         run_check_kernel.set_arg(1, bo_check_dst);
         run_check_kernel.set_arg(3,1);
+        run_pma_read_kernel.start();
         run_check_kernel.start();
         run_check_kernel.wait();
+        run_pma_read_kernel.wait();
         bo_check_dst.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
-        for (int j = 0 ; j < 1024 ; j++)
+        for (int j = 0 ; j < 4096 ; j++)
         {
             if (check_dst[j] == -1) break;
-            std::cout << check_dst[j] << " ";
+            Updated_Graph[i].insert(check_dst[j]);
         }
-        std::cout << std::endl;
+        // std::cout << std::endl;
     }
+    std::cout << "Check kernel finished." << std::endl;
+
+    // Compare Updated_Graph with the original Graph
+    std::fstream output_file("updated_graph.txt", std::ios::out);
+    if (!output_file.is_open()) {
+        std::cerr << "Failed to open output file for updated graph." << std::endl;
+        return 1;
+    }
+    bool all_match = true;
+    for (size_t i = 0; i < Graph.size(); ++i) {
+        if (Graph[i] != Updated_Graph[i]) {
+            std::cout << "Mismatch found at vertex " << i << std::endl;
+            output_file << "MISMATCH AT VERTEX " << i << std::endl;
+            for (auto v : Graph[i])
+            {
+                output_file << "GRAPH EDGE: " << i << " -> " << v << std::endl;
+            }
+            for (auto v : Updated_Graph[i])
+            {
+                output_file << "UPDATED GRAPH EDGE: " << i << " -> " << v << std::endl;
+            }
+            all_match = false;
+        }
+
+    }
+    if (all_match) {
+        std::cout << "Graphs match perfectly!" << std::endl;
+    } else {
+        std::cout << "Graphs do not match. See updated_graph.txt for details." << std::endl;
+    }
+    run_stop_kernel.start();
+    run_stop_kernel.wait();
+    std::cout << "Stop signal sent to memory kernel." <<  std::endl;
+    
+
+    
+    run_read_kernel_1.wait();
+    run_read_kernel_2.wait();
+    run_write_kernel_1.wait();
+    run_write_kernel_2.wait();
+    run_read_mux.wait();
+    run_write_mux.wait();
+    run_allocate_kernel.wait();
+    run_free_kernel.wait();
+    run_memlock.wait();
+    run_app_mem_middle_ware_kernel.wait();
     return 0;
 }

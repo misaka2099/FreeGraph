@@ -6,14 +6,14 @@ TARGET ?= sw_emu
 MEMKERNEL_DIR := ./memkernel
 PMA_KERNEL_DIR := ./pma_kernel
 MEM_XO_FILES := $(addprefix $(MEMKERNEL_DIR)/, memlock.xo read_mux.xo write_mux.xo  write_kernel.xo read_kernel.xo allocate_kernel.xo free_kernel.xo app_mem_middle_ware.xo)
-PMA_XO_FILES := $(addprefix $(PMA_KERNEL_DIR)/, update_message_generator.xo update_message_router.xo pma_update_kernel.xo pma_read_kernel.xo check_kernel.xo)
+PMA_XO_FILES := $(addprefix $(PMA_KERNEL_DIR)/, update_message_generator.xo update_message_router.xo pma_update_kernel.xo pma_read_kernel.xo check_kernel.xo stop_kernel.xo)
 
 XCLBIN_FILE := $(TARGET)_test_all.xclbin
 all: subdirs $(XCLBIN_FILE)
 
 subdirs:
-	$(MAKE) -C memkernel all
-	$(MAKE) -C pma_kernel all
+	$(MAKE) -C memkernel all TARGET=$(TARGET)
+	$(MAKE) -C pma_kernel all TARGET=$(TARGET)
 
 ALL_XO_FILES = $(MEM_XO_FILES) $(PMA_XO_FILES)
 $(XCLBIN_FILE): $(ALL_XO_FILES)
@@ -21,4 +21,4 @@ $(XCLBIN_FILE): $(ALL_XO_FILES)
 	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --config system.cfg -o $@ $^
 	@echo "---- Link done: $@ ----"
 host: host.cpp
-	g++ -std=c++17 $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -lpthread -lrt -ldl -g
+	g++ -std=c++17 $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g

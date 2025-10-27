@@ -1,4 +1,5 @@
 #include "data_type.h"
+#include <cstdio>
 #include <hls_stream.h>
 #include "debug.h"
 extern "C"
@@ -55,8 +56,11 @@ extern "C"
         for (int i = 0 ; i < add_edge_num ; i++)
         {
             PMA_UPDATE_MESSAGE msg;
-            msg.data.range(31,0) = src[i];
-            msg.data.range(63,32) = dst[i];
+            // printf("INSERTING EDGE FROM %d TO %d\n", src[i], dst[i]);
+            // msg.data.range(31,0) = src[i];
+            // msg.data.range(63,32) = dst[i];
+            msg.data.range(31,0) = dst[i];
+            msg.data.range(63,32) = src[i];
             msg.data.range(97,96) = PMA_INSERT_EDGE;
             msg.data.range(98,98) = IN_DIRECTION; //default in direction
             cmd_to_router.write(msg);
