@@ -8,7 +8,6 @@ extern "C"
     void allocate_kernel(
         BYTE* bm_ptr,
         hls::stream<VEC_INFO_STREAM> &vec_info_stream,
-        hls::stream<COMMAND_STREAM> &ack_stream,
         hls::stream<VEC_INFO_STREAM> &vec_info_back
     )
     {
@@ -16,7 +15,6 @@ extern "C"
         #pragma HLS INTERFACE m_axi port=bm_ptr offset=slave bundle=gmem0
         #pragma HLS INTERFACE axis port=vec_info_stream
         #pragma HLS INTERFACE axis port=vec_info_back
-        #pragma HLS INTERFACE axis port=ack_stream
         while (true)
         {
             auto info = vec_info_stream.read();
@@ -37,9 +35,6 @@ extern "C"
             allocate(start_pos, len_in_pages, bm_ptr);
             // printf("LEN IN PAGES %d\n", len_in_pages);
             // printf("ALLOCATED POS %d, SIZE %d\n", start_pos*INIT_VEC_LEN_IN_BYTE, total_size);
-            COMMAND_STREAM ack;
-            ack.data = 1;
-            ack_stream.write(ack);
             vec_info_back.write({.data=start_pos*INIT_VEC_LEN_IN_BYTE | ((VEC_INFO)total_size << 32)});
         }
     }

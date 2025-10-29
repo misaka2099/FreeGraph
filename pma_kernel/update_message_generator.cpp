@@ -65,7 +65,7 @@ extern "C"
             msg.data.range(98,98) = IN_DIRECTION; //default in direction
             cmd_to_router.write(msg);
         }
-        // HERE
+        HERE
         for (int i = 0 ; i < add_edge_num ; i++)
         {
             PMA_UPDATE_MESSAGE msg;
@@ -75,7 +75,7 @@ extern "C"
             msg.data.range(98,98) = OUT_DIRECTION; //default in direction
             cmd_to_router.write(msg);
         }
-        // HERE
+        HERE
         // for (int i = 0 ; i < src_attr_change_num ; i++)
         // {
         //     PMA_UPDATE_MESSAGE msg;

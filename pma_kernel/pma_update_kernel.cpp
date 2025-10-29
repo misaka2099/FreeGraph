@@ -63,25 +63,29 @@ extern "C"
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_stream,
         VEC_INFO* pos_pma_addrs,
         VEC_INFO* neg_pma_addrs,
+        BYTE *hbm_ptr,
         //for memory manage
         hls::stream<VEC_INFO_STREAM> &vec_info_stream,
         hls::stream<COMMAND_STREAM> &cmd_to_mem_stream,
-        hls::stream<BYTE_STREAM> &data_to_mem_stream,
-        hls::stream<BYTE_STREAM> &data_from_mem_stream,
-        hls::stream<VEC_INFO_STREAM> &pma_addr_back_stream
+        // hls::stream<BYTE_STREAM> &data_to_mem_stream,
+        // hls::stream<BYTE_STREAM> &data_from_mem_stream,
+        hls::stream<VEC_INFO_STREAM> &pma_addr_back_stream,
+        hls::stream<COMMAND_STREAM> &ack_back_to_router
         // hls::stream<COMMAND_STREAM> &stop_signal
     )   
     {
         #pragma HLS INTERFACE axis port=cmd_stream
         #pragma HLS INTERFACE axis port=vec_info_stream
         #pragma HLS INTERFACE axis port=cmd_to_mem_stream   
-        #pragma HLS INTERFACE axis port=data_to_mem_stream
-        #pragma HLS INTERFACE axis port=data_from_mem_stream
+        // #pragma HLS INTERFACE axis port=data_to_mem_stream
+        // #pragma HLS INTERFACE axis port=data_from_mem_stream
         #pragma HLS INTERFACE axis port=pma_addr_back_stream
         #pragma HLS INTERFACE m_axi port=pos_pma_addrs offset=slave bundle=gmem0
         #pragma HLS INTERFACE m_axi port=neg_pma_addrs offset=slave bundle=gmem1
+        #pragma HLS INTERFACE m_axi port=hbm_ptr offset=slave bundle=gmem2
+        #pragma HLS INTERFACE axis port=ack_back_to_router
         // #pragma HLS INTERFACE axis port=stop_signal
-        static int cmd_count = 0;
+        int cmd_count = 0;
         PMA_UPDATE_MESSAGE cmd[MAX_CMD_NUM] = {0};
         // VEC_INFO pos_pma_addrs[MAX_PMA_NUM];//对于超大图这一部分可以放到HBM中，片上作为二级缓存
         // VEC_INFO neg_pma_addrs[MAX_PMA_NUM];
@@ -93,17 +97,18 @@ extern "C"
         while (true)
         {    
             //get batch update info vertex update + edge_update
-            bool show =false;
+            // bool show =false;
             // if (!stop_signal.empty())
             // {
             //     stop_signal.read();
             //     break;
             // }
             cmd_count = 0;
-            // HERE
+            HERE
             for (int i = 0 ; i < MAX_CMD_NUM; i++)
             {
                 cmd[i] = cmd_stream.read();
+                // HERE
                 cmd_count++;
                 if (cmd[i].last == 1)
                 {
@@ -115,16 +120,17 @@ extern "C"
                 HERE
                 break;
             }
+            printf("PMA UPDATE KERNEL RECEIVED %d COMMANDS\n", cmd_count);
             for (int i = 0 ; i < cmd_count ; i++)
             {
-                printf("SRC = %d, DST = %d, TYPE = %d, DIRECTION = %d\n", 
-                    int(cmd[i].data.range(31,0)), int(cmd[i].data.range(63,32)), int(cmd[i].data.range(97,96)), int(cmd[i].data.range(98,98)));
-                if (cmd[i].data.range(31,0) / VERTEX_PER_PMA == 0)
-                {
-                    if (cmd[i].data.range(97,96) == PMA_INSERT_EDGE)
-                        if (cmd[i].data.range(98,98) == OUT_DIRECTION)
-                            show = true;
-                }
+                printf("IN WORKER NO. %d SRC = %d, DST = %d, TYPE = %d, DIRECTION = %d\n", 
+                   i, int(cmd[i].data.range(31,0)), int(cmd[i].data.range(63,32)), int(cmd[i].data.range(97,96)), int(cmd[i].data.range(98,98)));
+                // if (cmd[i].data.range(31,0) / VERTEX_PER_PMA == 0)
+                // {
+                //     if (cmd[i].data.range(97,96) == PMA_INSERT_EDGE)
+                //         if (cmd[i].data.range(98,98) == OUT_DIRECTION)
+                //             show = true;
+                // }
             }
             // HERE
             direction = cmd[0].data.range(98,98);
@@ -158,17 +164,18 @@ extern "C"
             if (in_mem)
             {
                 // HERE
-                vec_info.data.range(31,0) = header_start;
-                vec_info.data.range(63,32) = sizeof(PMA_HEADER);
-                vec_info_stream.write(vec_info);
-                cmd_to_mem_stream.write({.data = MEM_READ});
-                for (int i = 0 ; i < sizeof(PMA_HEADER); i++)
-                {
-                    // printf("ITERATION %d\n", i);
-                    BYTE_STREAM byte;
-                    data_from_mem_stream.read(byte);
-                    ((BYTE*)&pma_headers)[i] = byte.data;
-                }
+                // vec_info.data.range(31,0) = header_start;
+                // vec_info.data.range(63,32) = sizeof(PMA_HEADER);
+                // vec_info_stream.write(vec_info);
+                // cmd_to_mem_stream.write({.data = MEM_READ});
+                // for (int i = 0 ; i < sizeof(PMA_HEADER); i++)
+                // {
+                //     // printf("ITERATION %d\n", i);
+                //     BYTE_STREAM byte;
+                //     data_from_mem_stream.read(byte);
+                //     ((BYTE*)&pma_headers)[i] = byte.data;
+                // }
+                memcpy(&pma_headers, hbm_ptr + header_start, sizeof(PMA_HEADER));
                 // HERE
             }
             else  
@@ -226,28 +233,29 @@ extern "C"
             {
                 // printf("IN MEM READ\n");
                 memset(tmp_storge, UNUSED_ICON, sizeof(int) * SEGMENT_SIZE * MAX_TMP_PMA_NUM);
-                vec_info.data.range(31,0) = header_start + sizeof(PMA_HEADER);
-                vec_info.data.range(63,32) = pma_len_in_byte - sizeof(PMA_HEADER);
-                cmd_to_mem_stream.write({.data = MEM_READ});
-                vec_info_stream.write(vec_info);
-                for (int i = 0 ; i < pma_len_in_byte - sizeof(PMA_HEADER); i++)
-                {
-                    BYTE_STREAM byte;
-                    data_from_mem_stream.read(byte);
-                    ((BYTE*)tmp_storge)[i] = byte.data;
-                }
+                // vec_info.data.range(31,0) = header_start + sizeof(PMA_HEADER);
+                // vec_info.data.range(63,32) = pma_len_in_byte - sizeof(PMA_HEADER);
+                // cmd_to_mem_stream.write({.data = MEM_READ});
+                // vec_info_stream.write(vec_info);
+                // for (int i = 0 ; i < pma_len_in_byte - sizeof(PMA_HEADER); i++)
+                // {
+                //     BYTE_STREAM byte;
+                //     data_from_mem_stream.read(byte);
+                //     ((BYTE*)tmp_storge)[i] = byte.data;
+                // }
+                memcpy(tmp_storge, hbm_ptr + header_start + sizeof(PMA_HEADER), pma_len_in_byte - sizeof(PMA_HEADER));
             }
             else  
             {
                 // printf("NOT IN MEM INIT\n");
                 memset(tmp_storge, UNUSED_ICON, sizeof(int) * SEGMENT_SIZE * MAX_TMP_PMA_NUM);
             }
-            if (show)
-            {
-                printf("BEFORE INSERT EDGE\n");
-                show_header(pma_headers);
-                show_raw_pma(tmp_storge, pma_headers);
-            }
+            // if (show)
+            // {
+            //     printf("BEFORE INSERT EDGE\n");
+            //     show_header(pma_headers);
+            //     show_raw_pma(tmp_storge, pma_headers);
+            // }
             // HERE
             //free old mem
             if (in_mem)
@@ -266,6 +274,7 @@ extern "C"
             cmd_to_mem_stream.write({.data = MEM_ALLOC});
             vec_info_stream.write(vec_info);
             pma_addr_back_stream.read(vec_info);
+            // HERE
             new_header_start = vec_info.data.range(31,0);
             // printf("NEW ADDR FROM %d TO %d\n", new_header_start, new_header_start+new_pma_len);
             if (direction == IN_DIRECTION)
@@ -300,29 +309,29 @@ extern "C"
                     int src = cmd[i].data.range(31,0);
                     int dst = cmd[i].data.range(63,32);
                     insert_edge(src, dst, tmp_storge, pma_headers);
-                    if (show)
-                    {   
-                        printf("AFTER INSERT EDGE CMD\n");
-                        show_header(pma_headers);
-                        show_pma(tmp_storge, pma_headers);
-                        if (pma_headers.edge_count[15] == 0)
-                        {
-                            int v = 15;
-                            int start = pma_headers.vertex_range[v - 1] * SEGMENT_SIZE;
-                            int end = pma_headers.vertex_range[v] * SEGMENT_SIZE;
-                            // printf("Vertex %d edges: ", v);
-                            for (int i = start ; i < end ; i++)
-                            {
-                                if (tmp_storge[i] != UNUSED_ICON)
-                                {
-                                    HERE
-                                    show_raw_pma(tmp_storge, pma_headers);
-                                    break;
-                                }
-                            }
+                    // if (show)
+                    // {   
+                    //     printf("AFTER INSERT EDGE CMD\n");
+                    //     show_header(pma_headers);
+                    //     show_pma(tmp_storge, pma_headers);
+                    //     if (pma_headers.edge_count[15] == 0)
+                    //     {
+                    //         int v = 15;
+                    //         int start = pma_headers.vertex_range[v - 1] * SEGMENT_SIZE;
+                    //         int end = pma_headers.vertex_range[v] * SEGMENT_SIZE;
+                    //         // printf("Vertex %d edges: ", v);
+                    //         for (int i = start ; i < end ; i++)
+                    //         {
+                    //             if (tmp_storge[i] != UNUSED_ICON)
+                    //             {
+                    //                 HERE
+                    //                 show_raw_pma(tmp_storge, pma_headers);
+                    //                 break;
+                    //             }
+                    //         }
                             
-                        }
-                    }
+                    //     }
+                    // }
                 }
             }
 
@@ -373,28 +382,28 @@ extern "C"
                 // }
             }
             rebalance(tmp_storge, pma_headers);
-            if (show)
-            {   
-                printf("AFTER INSERT REBALANCE\n");
-                show_header(pma_headers);
-                show_pma(tmp_storge, pma_headers);
-                if (pma_headers.edge_count[15] == 0)
-                {
-                    int v = 15;
-                    int start = pma_headers.vertex_range[v - 1] * SEGMENT_SIZE;
-                    int end = pma_headers.vertex_range[v] * SEGMENT_SIZE;
-                    // printf("Vertex %d edges: ", v);
-                    for (int i = start ; i < end ; i++)
-                    {
-                        if (tmp_storge[i] != UNUSED_ICON)
-                        {
-                            HERE
-                            show_raw_pma(tmp_storge, pma_headers);
-                            break;
-                        }
-                    }
-                }
-            }
+            // if (show)
+            // {   
+            //     printf("AFTER INSERT REBALANCE\n");
+            //     show_header(pma_headers);
+            //     show_pma(tmp_storge, pma_headers);
+            //     if (pma_headers.edge_count[15] == 0)
+            //     {
+            //         int v = 15;
+            //         int start = pma_headers.vertex_range[v - 1] * SEGMENT_SIZE;
+            //         int end = pma_headers.vertex_range[v] * SEGMENT_SIZE;
+            //         // printf("Vertex %d edges: ", v);
+            //         for (int i = start ; i < end ; i++)
+            //         {
+            //             if (tmp_storge[i] != UNUSED_ICON)
+            //             {
+            //                 HERE
+            //                 show_raw_pma(tmp_storge, pma_headers);
+            //                 break;
+            //             }
+            //         }
+            //     }
+            // }
             // if (show)
             // {
             //     printf("AFTER REBALANCE \n");
@@ -415,24 +424,29 @@ extern "C"
             }
 
             //write back to memory  
-            vec_info.data.range(31,0) = new_header_start;
-            vec_info.data.range(63,32) = new_pma_len;
-            cmd_to_mem_stream.write({.data = MEM_WRITE});
-            vec_info_stream.write(vec_info);
-            for (int i = 0 ; i < sizeof(PMA_HEADER); i++)
-            {
-                BYTE_STREAM byte;
-                byte.data = ((BYTE*)&pma_headers)[i];
-                byte.last = (i == sizeof(PMA_HEADER) - 1) ? 1 : 0;
-                data_to_mem_stream.write(byte); 
-            }
-            for (int i = 0 ; i < new_pma_len - sizeof(PMA_HEADER); i++)
-            {
-                BYTE_STREAM byte;
-                byte.data = ((BYTE*)tmp_storge)[i];
-                byte.last = (i == new_pma_len - sizeof(PMA_HEADER) - 1) ? 1 : 0;
-                data_to_mem_stream.write(byte); 
-            }
+            // vec_info.data.range(31,0) = new_header_start;
+            // vec_info.data.range(63,32) = new_pma_len;
+            // cmd_to_mem_stream.write({.data = MEM_WRITE});
+            // vec_info_stream.write(vec_info);
+            // for (int i = 0 ; i < sizeof(PMA_HEADER); i++)
+            // {
+            //     BYTE_STREAM byte;
+            //     byte.data = ((BYTE*)&pma_headers)[i];
+            //     byte.last = (i == sizeof(PMA_HEADER) - 1) ? 1 : 0;
+            //     data_to_mem_stream.write(byte); 
+            // }
+            // for (int i = 0 ; i < new_pma_len - sizeof(PMA_HEADER); i++)
+            // {
+            //     BYTE_STREAM byte;
+            //     byte.data = ((BYTE*)tmp_storge)[i];
+            //     byte.last = (i == new_pma_len - sizeof(PMA_HEADER) - 1) ? 1 : 0;
+            //     data_to_mem_stream.write(byte); 
+            // }
+            memcpy(hbm_ptr + new_header_start, &pma_headers, sizeof(PMA_HEADER));
+            memcpy(hbm_ptr + new_header_start + sizeof(PMA_HEADER), tmp_storge, new_pma_len - sizeof(PMA_HEADER));
+            ack_back_to_router.write({.data = 1});
+            printf("PMA UPDATE DONE FOR PMA IDX %d, DIRECTION %d\n", pma_idx, int(direction));
+            // HERE
         }
     }
 }

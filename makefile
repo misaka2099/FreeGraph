@@ -5,7 +5,7 @@ INCLUDES := -I /home/sail/lyf/pma_demo/stream/include
 TARGET ?= sw_emu
 MEMKERNEL_DIR := ./memkernel
 PMA_KERNEL_DIR := ./pma_kernel
-MEM_XO_FILES := $(addprefix $(MEMKERNEL_DIR)/, memlock.xo read_mux.xo write_mux.xo  write_kernel.xo read_kernel.xo allocate_kernel.xo free_kernel.xo app_mem_middle_ware.xo)
+MEM_XO_FILES := $(addprefix $(MEMKERNEL_DIR)/, allocate_kernel.xo free_kernel.xo  app_mem_middle_ware.xo)
 PMA_XO_FILES := $(addprefix $(PMA_KERNEL_DIR)/, update_message_generator.xo update_message_router.xo pma_update_kernel.xo pma_read_kernel.xo check_kernel.xo stop_kernel.xo)
 
 XCLBIN_FILE := $(TARGET)_test_all.xclbin

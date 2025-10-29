@@ -54,54 +54,39 @@ int main(int argc, char** argv)
     auto device = xrt::device(0);
     auto uuid = device.load_xclbin(xclbin);
 
-    auto write_kernel_1 = xrt::kernel(device, uuid, "write_kernel:{write_kernel_1}");
-    auto write_kernel_2 = xrt::kernel(device, uuid, "write_kernel:{write_kernel_2}");
-    auto read_kernel_1 = xrt::kernel(device, uuid, "read_kernel:{read_kernel_1}");
-    auto read_kernel_2 = xrt::kernel(device, uuid, "read_kernel:{read_kernel_2}");
-    auto read_mux = xrt::kernel(device, uuid, "read_mux");
-    auto write_mux = xrt::kernel(device, uuid, "write_mux");
-    auto memlock = xrt::kernel(device, uuid, "memlock");
     auto allocate_kernel = xrt::kernel(device, uuid, "allocate_kernel");
     auto free_kernel = xrt::kernel(device, uuid, "free_kernel");
     auto app_mem_middle_ware_kernel = xrt::kernel(device, uuid, "app_mem_middle_ware");
     auto pma_read_kernel = xrt::kernel(device, uuid, "pma_read_kernel");
     auto update_message_generator_kernel = xrt::kernel(device, uuid, "update_message_generator");
     auto update_message_router_kernel = xrt::kernel(device, uuid, "update_message_router");
-    auto pma_update_kernel = xrt::kernel(device, uuid, "pma_update_kernel");
-
+    auto pma_update_kernel_1 = xrt::kernel(device, uuid, "pma_update_kernel:{pma_update_kernel_1}");
+    auto pma_update_kernel_2 = xrt::kernel(device, uuid, "pma_update_kernel:{pma_update_kernel_2}");
     auto check_kernel = xrt::kernel(device, uuid, "check_kernel");
     
     auto stop_kernel = xrt::kernel(device, uuid, "stop_kernel");
     std::cout << "Kernels loaded successfully." << std::endl;
-    auto run_write_kernel_1 = xrt::run(write_kernel_1);
-    auto run_write_kernel_2 = xrt::run(write_kernel_2);
-    auto run_read_kernel_1 = xrt::run(read_kernel_1);
-    auto run_read_kernel_2 = xrt::run(read_kernel_2);
-    auto run_read_mux = xrt::run(read_mux);
-    auto run_write_mux = xrt::run(write_mux);
-    auto run_memlock = xrt::run(memlock);
     auto run_allocate_kernel = xrt::run(allocate_kernel);
     auto run_free_kernel = xrt::run(free_kernel);
     auto run_app_mem_middle_ware_kernel = xrt::run(app_mem_middle_ware_kernel);
     auto run_pma_read_kernel = xrt::run(pma_read_kernel);
     auto run_update_message_generator_kernel = xrt::run(update_message_generator_kernel);
     auto run_update_message_router_kernel = xrt::run(update_message_router_kernel);
-    auto run_pma_update_kernel = xrt::run(pma_update_kernel);
+    auto run_pma_update_kernel_1 = xrt::run(pma_update_kernel_1);
+    auto run_pma_update_kernel_2 = xrt::run(pma_update_kernel_2);
     auto run_check_kernel = xrt::run(check_kernel);
     auto run_stop_kernel = xrt::run(stop_kernel);
     std::cout << "Kernels are created..." << std::endl;
 
-    auto bo_hbm_base_addr_1 = xrt::bo(device, sizeof(BYTE) * CHANNEL_CAPACITY, write_kernel_1.group_id(0));
-    auto bo_hbm_base_addr_2 = xrt::bo(device, sizeof(BYTE) * CHANNEL_CAPACITY, write_kernel_2.group_id(0));
-    auto bo_valid_array = xrt::bo(device, sizeof(BYTE) * (CHANNEL_CAPACITY / 8), allocate_kernel.group_id(0));
+    auto bo_hbm_base_addr = xrt::bo(device, sizeof(BYTE) * CHANNEL_CAPACITY * CHANNEL_NUM, pma_update_kernel_1.group_id(3));
+    auto bo_valid_array = xrt::bo(device, sizeof(BYTE) * (CHANNEL_CAPACITY * CHANNEL_NUM / 8), allocate_kernel.group_id(0));
 
-    BYTE* hbm_base_address_1 = bo_hbm_base_addr_1.map<BYTE*>();
-    BYTE* hbm_base_address_2 = bo_hbm_base_addr_2.map<BYTE*>();
+
+    BYTE* hbm_base_address = bo_hbm_base_addr.map<BYTE*>();
     BYTE* valid_array = bo_valid_array.map<BYTE*>();
 
     // 初始化 HBM 和有效性数组
-    std::fill_n(hbm_base_address_1, CHANNEL_CAPACITY, 0);
-    std::fill_n(hbm_base_address_2, CHANNEL_CAPACITY, 0);
+    std::fill_n(hbm_base_address, CHANNEL_CAPACITY, 0);
     std::fill_n(valid_array, CHANNEL_CAPACITY / 8, 0);
 
     auto bo_pos_vec_info = xrt::bo(device, sizeof(VEC_INFO) * MAX_PMA_NUM, pma_read_kernel.group_id(0));
@@ -133,22 +118,21 @@ int main(int argc, char** argv)
 
     std::cout << "Buffers allocated and initialized." << std::endl;
 
-    run_write_kernel_1.set_arg(0, bo_hbm_base_addr_1);
-    run_write_kernel_2.set_arg(0, bo_hbm_base_addr_2);
-    run_read_kernel_1.set_arg(0, bo_hbm_base_addr_1);
-    run_read_kernel_2.set_arg(0, bo_hbm_base_addr_2);
     run_allocate_kernel.set_arg(0, bo_valid_array);
     run_free_kernel.set_arg(0, bo_valid_array);
     run_pma_read_kernel.set_arg(0, bo_pos_vec_info);
     run_pma_read_kernel.set_arg(1, bo_neg_vec_info);
+    run_pma_read_kernel.set_arg(2, bo_hbm_base_addr);
     run_update_message_generator_kernel.set_arg(0, max_vertex+1);
     run_update_message_generator_kernel.set_arg(1, edges.size());
     run_update_message_generator_kernel.set_arg(2,bo_src);
     run_update_message_generator_kernel.set_arg(3,bo_dst);
-    run_pma_update_kernel.set_arg(1, bo_pos_vec_info);
-    run_pma_update_kernel.set_arg(2, bo_neg_vec_info);
-    bo_hbm_base_addr_1.sync(XCL_BO_SYNC_BO_TO_DEVICE);
-    bo_hbm_base_addr_2.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+    run_pma_update_kernel_1.set_arg(1, bo_pos_vec_info);
+    run_pma_update_kernel_1.set_arg(2, bo_neg_vec_info);
+    run_pma_update_kernel_1.set_arg(3, bo_hbm_base_addr);
+    run_pma_update_kernel_2.set_arg(1, bo_pos_vec_info);
+    run_pma_update_kernel_2.set_arg(2, bo_neg_vec_info);
+    run_pma_update_kernel_2.set_arg(3, bo_hbm_base_addr);
     bo_valid_array.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     bo_pos_vec_info.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     bo_neg_vec_info.sync(XCL_BO_SYNC_BO_TO_DEVICE);
@@ -156,23 +140,19 @@ int main(int argc, char** argv)
     bo_dst.sync(XCL_BO_SYNC_BO_TO_DEVICE);
 
     std::cout << "Buffers synchronized to device." << std::endl;
-    
-    run_read_kernel_1.start();
-    run_read_kernel_2.start();
-    run_write_kernel_1.start();
-    run_write_kernel_2.start();
-    run_read_mux.start();
-    run_write_mux.start();
+
     run_allocate_kernel.start();
     run_free_kernel.start();
-    run_memlock.start();
     run_app_mem_middle_ware_kernel.start();
-    run_pma_update_kernel.start();
+    run_pma_update_kernel_1.start();
+    run_pma_update_kernel_2.start();
     run_update_message_router_kernel.start();
     run_update_message_generator_kernel.start();
     run_update_message_generator_kernel.wait();
     run_update_message_router_kernel.wait();
-    run_pma_update_kernel.wait();
+    run_pma_update_kernel_1.wait();
+    run_pma_update_kernel_2.wait();
+
     std::cout << "GRAPH UPDATED." << std::endl;
 
     std::vector<std::unordered_set<int>> Updated_Graph(max_vertex + 1);
@@ -232,16 +212,9 @@ int main(int argc, char** argv)
     std::cout << "Stop signal sent to memory kernel." <<  std::endl;
     
 
-    
-    run_read_kernel_1.wait();
-    run_read_kernel_2.wait();
-    run_write_kernel_1.wait();
-    run_write_kernel_2.wait();
-    run_read_mux.wait();
-    run_write_mux.wait();
+
     run_allocate_kernel.wait();
     run_free_kernel.wait();
-    run_memlock.wait();
     run_app_mem_middle_ware_kernel.wait();
     return 0;
 }

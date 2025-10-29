@@ -55,6 +55,8 @@ struct PMA_HEADER
     double attr[VERTEX_PER_PMA];//every vertex in PMA's attr
 };
 
+typedef ap_uint<512> memroy_chunk; 
+#define MAX_WORKERS 2
 
 #define MAX_COMMAND_BUFFER_LENGTH 16
 #define MAX_COMMAND_BUFFER_NUM 16

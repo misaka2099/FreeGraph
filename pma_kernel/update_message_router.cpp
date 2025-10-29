@@ -4,7 +4,7 @@
 #include "hls_stream.h"
 #include <cstdio>
 
-void flush_buffer(
+void flush_buffer_aux(
     int buffer_idx,
     hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_pma,
     ap_uint<128> msg_buffer[MAX_COMMAND_BUFFER_NUM][MAX_COMMAND_BUFFER_LENGTH],
@@ -18,23 +18,127 @@ void flush_buffer(
         tmp.data = msg_buffer[buffer_idx][j];
         tmp.last = (j == c - 1) ? 1 : 0;
         cmd_to_pma.write(tmp);
-        // printf("Flushing buffer %d, command type: %d\n", buffer_idx, int(tmp.data.range(97,96)));
-        // printf("SRC =%d, DST=%d\n", int(tmp.data.range(31,0)), int(tmp.data.range(63,32)));
+        printf("Flushing buffer %d, command type: %d, SRC = %d, DST = %d\n", buffer_idx, int(tmp.data.range(97,96)), 
+        int(tmp.data.range(31,0)), int(tmp.data.range(63,32)));
     }
     count_arr[buffer_idx] = 0;
+}
+void check_ack(
+    hls::stream<COMMAND_STREAM> &ack_from_pma_1,
+    hls::stream<COMMAND_STREAM> &ack_from_pma_2,
+    int* processing_pma_idx
+)
+{
+    COMMAND_STREAM ack_val_1, ack_val_2;
+    auto ack_1 = ack_from_pma_1.read_nb(ack_val_1);
+    auto ack_2 = ack_from_pma_2.read_nb(ack_val_2);
+    if (ack_1)
+    {
+        processing_pma_idx[0] = -1;
+        printf("ack received from pma 1\n");
+    }
+    if (ack_2)
+    {
+        processing_pma_idx[1] = -1;
+        printf("ack received from pma 2\n");
+    }
+    // printf("prossessing_pma_idx[0]: %d, processing_pma_idx[1]: %d\n", processing_pma_idx[0], processing_pma_idx[1]);
+}
+
+void flush_buffer(
+    int buffer_idx,
+    hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_pma_1,
+    hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_pma_2,
+    hls::stream<COMMAND_STREAM> &ack_from_pma_1,
+    hls::stream<COMMAND_STREAM> &ack_from_pma_2,
+    ap_uint<128> msg_buffer[MAX_COMMAND_BUFFER_NUM][MAX_COMMAND_BUFFER_LENGTH],
+    int *processing_pma_idx,
+    int *count_arr
+)
+{
+    if (count_arr[buffer_idx] == 0)
+    {
+        return;
+    }
+    bool complete = false;
+    int pma_idx = msg_buffer[buffer_idx][0].range(31,0) / VERTEX_PER_PMA;
+    while (!complete)
+    {
+        // HERE
+        check_ack(ack_from_pma_1, ack_from_pma_2, processing_pma_idx);
+        for (int i = 0 ; i < MAX_WORKERS ; i++)
+        {
+            // HERE
+            if (processing_pma_idx[i] == -1)
+            {
+                bool not_conflict = true;
+                for (int w = 0; w < MAX_WORKERS ; w++)
+                {
+                    if (processing_pma_idx[w] == pma_idx)
+                    {
+                        // HERE
+                        not_conflict = false;
+                        break;
+                    }
+                }
+                if (not_conflict)
+                {
+                    // HERE
+                    for (int debug = 0 ; debug < MAX_WORKERS ; debug++)
+                    {
+                        printf("processing_pma_idx[%d] = %d\n", debug, processing_pma_idx[debug]);
+                    }
+                    if (i == 0)
+                    {
+                        printf("Assigned PMA IDX %d to worker %d\n", pma_idx, i);
+                        flush_buffer_aux(
+                            buffer_idx,
+                            cmd_to_pma_1,
+                            msg_buffer,
+                            count_arr
+                        );
+                    }
+                    else  
+                    {
+                        printf("Assigned PMA IDX %d to worker %d\n", pma_idx, i);
+                        flush_buffer_aux(
+                            buffer_idx,
+                            cmd_to_pma_2,
+                            msg_buffer,
+                            count_arr
+                        );
+                    }
+                    processing_pma_idx[i] = pma_idx;
+                    complete = true;
+                    break;
+                }
+            }
+        }
+    }
 }
 extern "C"
 {
     void update_message_router(
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_from_generator,
-        hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_pma
+        hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_pma_1,
+        hls::stream<COMMAND_STREAM> &ack_from_pma_1,
+        hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_pma_2,
+        hls::stream<COMMAND_STREAM> &ack_from_pma_2
         // hls::stream<CLEAR_ICON> &clear_message_from_generator
     )
     {
         #pragma HLS INTERFACE axis port=cmd_from_generator
-        #pragma HLS INTERFACE axis port=cmd_to_pma
+        #pragma HLS INTERFACE axis port=cmd_to_pma_1
+        #pragma HLS INTERFACE axis port=ack_from_pma_1
+        #pragma HLS INTERFACE axis port=cmd_to_pma_2
+        #pragma HLS INTERFACE axis port=ack_from_pma_2
         // #pragma HLS INTERFACE axis port=clear_message_from_generator
-        
+        int processing_pma_idx[MAX_WORKERS] = {-1};
+        for (int i = 0 ; i < MAX_WORKERS ; i++)
+        {
+            #pragma HLS UNROLL
+            processing_pma_idx[i] = -1;
+        }
         ap_uint<128> msg_buffer[MAX_COMMAND_BUFFER_NUM][MAX_COMMAND_BUFFER_LENGTH];
         #pragma HLS BIND_STORAGE variable=msg_buffer type=RAM_2P impl=BRAM
         int count[MAX_COMMAND_BUFFER_NUM]; 
@@ -68,15 +172,21 @@ extern "C"
                 {
                     flush_buffer(
                         i,
-                        cmd_to_pma,
+                        cmd_to_pma_1,
+                        cmd_to_pma_2,
+                        ack_from_pma_1,
+                        ack_from_pma_2,
                         msg_buffer,
+                        processing_pma_idx,
                         count
                     );
                 }
+                HERE
                 if (cmd.last == 1)
                 {
                     HERE
-                    cmd_to_pma.write({.data=PMA_STOP, .last=1});
+                    cmd_to_pma_1.write({.data=PMA_STOP, .last=1});
+                    cmd_to_pma_2.write({.data=PMA_STOP, .last=1});
                     return;
                 }
                 continue;   
@@ -102,8 +212,12 @@ extern "C"
                     // Flush the buffer if the PMA index does not match
                     flush_buffer(
                         hash_idx,
-                        cmd_to_pma,
+                        cmd_to_pma_1,
+                        cmd_to_pma_2,
+                        ack_from_pma_1,
+                        ack_from_pma_2,
                         msg_buffer,
+                        processing_pma_idx,
                         count
                     );
                 }
@@ -113,12 +227,16 @@ extern "C"
             }
             else  
             {
-                // HERE
+                HERE
                 //flush
                 flush_buffer(
                     hash_idx,
-                    cmd_to_pma,
+                    cmd_to_pma_1,
+                    cmd_to_pma_2,
+                    ack_from_pma_1,
+                    ack_from_pma_2,
                     msg_buffer,
+                    processing_pma_idx,
                     count
                 );
                 msg_buffer[hash_idx][0] = cmd_data;

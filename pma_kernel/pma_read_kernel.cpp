@@ -1,38 +1,16 @@
 #include "data_type.h"
 #include "debug.h"
 #include <cstdio>
+#include <cstring>
 #include <hls_stream.h>
 #include <ap_int.h> 
 #define NONE 123
 
-void read_header(
-    int header_start,
-    hls::stream<VEC_INFO_STREAM> &vec_info_stream,
-    hls::stream<COMMAND_STREAM> &cmd_to_mem_stream,
-    hls::stream<BYTE_STREAM> &data_from_mem_stream,
-    PMA_HEADER &pma_header
-)
-{
-    VEC_INFO_STREAM header_vec_info;
-    cmd_to_mem_stream.write({.data=MEM_READ});
-    header_vec_info.data.range(31,0) = header_start;
-    header_vec_info.data.range(63,32) = sizeof(PMA_HEADER);
-    vec_info_stream.write(header_vec_info);
-    for (int i = 0 ; i < sizeof(PMA_HEADER); i++)
-    {
-        // printf("ITERATION %d\n", i);
-        BYTE_STREAM byte;
-        data_from_mem_stream.read(byte);
-        ((BYTE*)&pma_header)[i] = byte.data;
-    }
-}
 void read_edge(
     int src,
     PMA_HEADER &pma_header,
     int header_start,
-    hls::stream<VEC_INFO_STREAM> &vec_info_stream,
-    hls::stream<COMMAND_STREAM> &cmd_to_mem_stream,
-    hls::stream<BYTE_STREAM> &data_from_mem_stream,
+    BYTE *hbm_ptr,
     hls::stream<ap_axiu<32,0,0,0>> &data_to_nei_query
 )
 {
@@ -41,30 +19,31 @@ void read_edge(
     int src_seg = pma_header.vertex_range[local_src] - start_seg_offset;
     int edge_start = header_start + sizeof(PMA_HEADER) + start_seg_offset * sizeof(int) * SEGMENT_SIZE;
     int edge_len = src_seg * sizeof(int) * SEGMENT_SIZE;
-    VEC_INFO_STREAM edge_vec_info;
-    edge_vec_info.data.range(31,0) = edge_start;
-    edge_vec_info.data.range(63,32) = edge_len;
-    vec_info_stream.write(edge_vec_info);
-    cmd_to_mem_stream.write({.data=MEM_READ});
-    // printf("Reading edges for vertex %d: start=%d, length=%d bytes\n", src, edge_start, edge_len);
-    // show_header(pma_header);
-    printf("EDGE COUNT: %d\n", pma_header.edge_count[local_src]);
-    for (int i = 0 ; i < edge_len / sizeof(int);  i++)
+    
+    // int aligned_len = ((edge_len + 63) / 64) * 64;
+
+    int aligned_len = (edge_len + 63) & ~0x3F;
+    // BYTE local_buffer[64];
+    int local_buffer[16];
+
+    for (int i = 0 ; i < aligned_len ; i+= 64)
     {
-        int dst;
-        BYTE_STREAM byte;
-        for (int j = 0 ; j < sizeof(int); j++)
+        memcpy(local_buffer, hbm_ptr + edge_start + i, 64); // 读取 64 字节到本地缓冲区
+        for (int j = 0 ; j < 16 ; j++)
         {
-            data_from_mem_stream.read(byte);
-            ((BYTE*)&dst)[j] = byte.data;
+            if (i + j * 4 >= edge_len)
+            {
+                break;
+            }
+            int neighbor = local_buffer[j];
+            if (neighbor == UNUSED_ICON)
+            {
+                continue;
+            }
+            data_to_nei_query.write({.data=neighbor});
         }
-        // data_from_mem_stream.read(byte);
-        if (dst == -1)
-        {
-            continue;
-        }
-        data_to_nei_query.write({.data=dst});
     }
+
     data_to_nei_query.write({.data=-1});
 }
 extern "C"
@@ -72,15 +51,16 @@ extern "C"
     void pma_read_kernel(
         VEC_INFO* pos_pma_addrs,
         VEC_INFO* neg_pma_addrs,
+        BYTE *hbm_ptr,
         hls::stream<READ_COMMAND_STREAM> &cmd_stream,
         hls::stream<ap_axiu<32,0,0,0>> &data_to_nei_query,
-        hls::stream<ap_axiu<64,0,0,0>> &data_to_attr_query,
+        hls::stream<ap_axiu<64,0,0,0>> &data_to_attr_query
         //memory
-        hls::stream<VEC_INFO_STREAM> &vec_info_stream,
-        hls::stream<COMMAND_STREAM> &cmd_to_mem_stream,
-        hls::stream<BYTE_STREAM> &data_from_mem_stream,
-        hls::stream<VEC_INFO_STREAM> &vec_info_from_mem,
-        hls::stream<BYTE_STREAM> &data_to_mem_stream
+        // hls::stream<VEC_INFO_STREAM> &vec_info_stream,
+        // hls::stream<COMMAND_STREAM> &cmd_to_mem_stream,
+        // hls::stream<BYTE_STREAM> &data_from_mem_stream,
+        // hls::stream<VEC_INFO_STREAM> &vec_info_from_mem,
+        // hls::stream<BYTE_STREAM> &data_to_mem_stream
         // hls::stream<COMMAND_STREAM> &stop_signal
     )
     {
@@ -89,11 +69,11 @@ extern "C"
         #pragma HLS INTERFACE axis port=cmd_stream
         #pragma HLS INTERFACE axis port=data_to_nei_query
         #pragma HLS INTERFACE axis port=data_to_attr_query
-        #pragma HLS INTERFACE axis port=vec_info_stream
-        #pragma HLS INTERFACE axis port=cmd_to_mem_stream   
-        #pragma HLS INTERFACE axis port=data_to_mem_stream
-        #pragma HLS INTERFACE axis port=data_from_mem_stream
-        #pragma HLS INTERFACE axis port=vec_info_from_mem
+        // #pragma HLS INTERFACE axis port=vec_info_stream
+        // #pragma HLS INTERFACE axis port=cmd_to_mem_stream   
+        // #pragma HLS INTERFACE axis port=data_to_mem_stream
+        // #pragma HLS INTERFACE axis port=data_from_mem_stream
+        // #pragma HLS INTERFACE axis port=vec_info_from_mem
         // #pragma HLS INTERFACE axis port=stop_signal
         while (true)
         {
@@ -112,6 +92,8 @@ extern "C"
                     int pma_idx = src / VERTEX_PER_PMA;
                     VEC_INFO vec_info;
                     vec_info = pos_pma_addrs[pma_idx];
+                    int start_addr = vec_info.range(31,0);
+                    int pma_len = vec_info.range(63,32);
                     if (vec_info == 0) // empty PMA
                     {
                         data_to_nei_query.write({.data=-1});
@@ -120,24 +102,33 @@ extern "C"
                     PMA_HEADER pma_header;
                     HERE
                     // read header
-                    read_header(
-                        vec_info.range(31,0),
-                        vec_info_stream,
-                        cmd_to_mem_stream,
-                        data_from_mem_stream,
-                        pma_header
-                    );
+                    // read_header(
+                    //     vec_info.range(31,0),
+                    //     vec_info_stream,
+                    //     cmd_to_mem_stream,
+                    //     data_from_mem_stream,
+                    //     pma_header
+                    // );
                     // printf("READING OUT EDGE FOR VERTEX %d\n", src);
                     // show_header(pma_header);
                     // HERE
                     // send edge data
+                    // read_edge(
+                    //     src,
+                    //     pma_header,
+                    //     vec_info.range(31,0),
+                    //     vec_info_stream,
+                    //     cmd_to_mem_stream,
+                    //     data_from_mem_stream,
+                    //     data_to_nei_query
+                    // );
+                    memcpy(&pma_header, hbm_ptr + start_addr, sizeof(PMA_HEADER));
+                    
                     read_edge(
                         src,
                         pma_header,
                         vec_info.range(31,0),
-                        vec_info_stream,
-                        cmd_to_mem_stream,
-                        data_from_mem_stream,
+                        hbm_ptr,
                         data_to_nei_query
                     );
                     HERE
@@ -149,6 +140,8 @@ extern "C"
                     int pma_idx = src / VERTEX_PER_PMA;
                     VEC_INFO vec_info;
                     vec_info = neg_pma_addrs[pma_idx];
+                    int start_addr = vec_info.range(31,0);
+                    int pma_len = vec_info.range(63,32);
                     if (vec_info == 0) // empty PMA
                     {
                         data_to_nei_query.write({.data=-1});
@@ -156,21 +149,30 @@ extern "C"
                     }
                     PMA_HEADER pma_header;
                     // read header
-                    read_header(
-                        vec_info.range(31,0),
-                        vec_info_stream,
-                        cmd_to_mem_stream,
-                        data_from_mem_stream,
-                        pma_header
-                    );
+                    // read_header(
+                    //     vec_info.range(31,0),
+                    //     vec_info_stream,
+                    //     cmd_to_mem_stream,
+                    //     data_from_mem_stream,
+                    //     pma_header
+                    // );
                     // send edge data
+                    // read_edge(
+                    //     src,
+                    //     pma_header,
+                    //     vec_info.range(31,0),
+                    //     vec_info_stream,
+                    //     cmd_to_mem_stream,
+                    //     data_from_mem_stream,
+                    //     data_to_nei_query
+                    // );
+                    memcpy(&pma_header, hbm_ptr + start_addr, sizeof(PMA_HEADER));
+                    
                     read_edge(
                         src,
                         pma_header,
                         vec_info.range(31,0),
-                        vec_info_stream,
-                        cmd_to_mem_stream,
-                        data_from_mem_stream,
+                        hbm_ptr,
                         data_to_nei_query
                     );
                     break;
@@ -187,21 +189,21 @@ extern "C"
                     }
                     PMA_HEADER pma_header;
                     // read header
-                    read_header(
-                        vec_info.range(31,0),
-                        vec_info_stream,
-                        cmd_to_mem_stream,
-                        data_from_mem_stream,
-                        pma_header
-                    );
+                    // read_header(
+                    //     vec_info.range(31,0),
+                    //     vec_info_stream,
+                    //     cmd_to_mem_stream,
+                    //     data_from_mem_stream,
+                    //     pma_header
+                    // );
                     double attr = pma_header.attr[vertex % VERTEX_PER_PMA];
                     data_to_attr_query.write({.data=attr});
                     break;
                 }
                 case NONE:
                 {
-                    vec_info_from_mem.read();
-                    data_to_mem_stream.write({.data=0});
+                    // vec_info_from_mem.read();
+                    // data_to_mem_stream.write({.data=0});
                     break;
                 }
             }

@@ -2,42 +2,62 @@
 #include <hls_stream.h>
 #include "data_type.h"
 #include "debug.h"
+
+
+
+void connect(
+    hls::stream<COMMAND_STREAM> &cmd_from_app,
+    hls::stream<VEC_INFO_STREAM> &vec_from_app,
+    hls::stream<VEC_INFO_STREAM> &vec_to_app,
+    hls::stream<VEC_INFO_STREAM> &vec_to_alloc,
+    hls::stream<VEC_INFO_STREAM> &vec_to_free,
+    hls::stream<VEC_INFO_STREAM> &vec_from_mem
+)
+{
+    if (cmd_from_app.empty() == false)
+    {
+        auto cmd = cmd_from_app.read();
+        auto info = vec_from_app.read();
+        if (cmd.data == MEM_ALLOC)
+        {
+            vec_to_alloc.write(info);
+            auto info_back = vec_from_mem.read();
+            vec_to_app.write(info_back);
+        }
+        else if (cmd.data == MEM_FREE)
+        {
+            vec_to_free.write(info);
+        }
+    }
+}
 extern "C"
 {
     void app_mem_middle_ware(
         hls::stream<COMMAND_STREAM> &cmd_from_app_1,
-        hls::stream<COMMAND_STREAM> &cmd_from_app_2,
-        hls::stream<COMMAND_STREAM> &cmd_to_mem,
-        hls::stream<BYTE_STREAM> &data_from_app_1,
-        hls::stream<BYTE_STREAM> &data_from_app_2,
-        hls::stream<BYTE_STREAM> &data_to_mem,//只有write mux需要数据
-        hls::stream<BYTE_STREAM> &data_from_mem,
-        hls::stream<BYTE_STREAM> &data_to_app_1,
-        hls::stream<BYTE_STREAM> &data_to_app_2,
         hls::stream<VEC_INFO_STREAM> &vec_info_from_app_1,
-        hls::stream<VEC_INFO_STREAM> &vec_info_from_app_2,
-        hls::stream<VEC_INFO_STREAM> &vec_info_from_mem,
         hls::stream<VEC_INFO_STREAM> &vec_info_to_app_1,
+
+        hls::stream<COMMAND_STREAM> &cmd_from_app_2,
+        hls::stream<VEC_INFO_STREAM> &vec_info_from_app_2,
         hls::stream<VEC_INFO_STREAM> &vec_info_to_app_2,
-        hls::stream<VEC_INFO_STREAM> &vec_info_to_mem,
+
+        hls::stream<VEC_INFO_STREAM> &vec_info_to_alloc,
+        hls::stream<VEC_INFO_STREAM> &vec_info_to_free,
+        hls::stream<VEC_INFO_STREAM> &vec_info_from_mem,
+
+
         hls::stream<COMMAND_STREAM> &stop_signal
     )
     {
         #pragma HLS INTERFACE axis port=cmd_from_app_1
-        #pragma HLS INTERFACE axis port=cmd_from_app_2
-        #pragma HLS INTERFACE axis port=cmd_to_mem
-        #pragma HLS INTERFACE axis port=data_from_app_1
-        #pragma HLS INTERFACE axis port=data_from_app_2
-        #pragma HLS INTERFACE axis port=data_to_mem
-        #pragma HLS INTERFACE axis port=data_from_mem
-        #pragma HLS INTERFACE axis port=data_to_app_1
-        #pragma HLS INTERFACE axis port=data_to_app_2
         #pragma HLS INTERFACE axis port=vec_info_from_app_1
-        #pragma HLS INTERFACE axis port=vec_info_from_app_2
-        #pragma HLS INTERFACE axis port=vec_info_from_mem
         #pragma HLS INTERFACE axis port=vec_info_to_app_1
+        #pragma HLS INTERFACE axis port=cmd_from_app_2
+        #pragma HLS INTERFACE axis port=vec_info_from_app_2
         #pragma HLS INTERFACE axis port=vec_info_to_app_2
-        #pragma HLS INTERFACE axis port=vec_info_to_mem
+        #pragma HLS INTERFACE axis port=vec_info_to_alloc
+        #pragma HLS INTERFACE axis port=vec_info_to_free
+        #pragma HLS INTERFACE axis port=vec_info_from_mem
         #pragma HLS INTERFACE axis port=stop_signal
         while (true)
         {
@@ -45,95 +65,28 @@ extern "C"
             if (stop_signal.empty() == false)
             {
                 stop_signal.read();
-                cmd_to_mem.write({.data = MEM_STOP});
-                vec_info_to_mem.write({.last = 1});
-                // HERE
+                vec_info_to_alloc.write({.data=0, .last=1});
+                vec_info_to_free.write({.data=0, .last=1});
+                HERE
                 break;
             }
-            if (!cmd_from_app_1.empty())
-            {
-                COMMAND_STREAM cmd = cmd_from_app_1.read();
-                cmd_to_mem.write(cmd);
-                if (cmd.data == MEM_WRITE)
-                {
-                    auto vec_info = vec_info_from_app_1.read();
-                    vec_info_to_mem.write(vec_info);
-                    for (int i = 0 ; i < vec_info.data.range(63,32) ; i++)
-                    {
-                        auto byte = data_from_app_1.read();
-                        data_to_mem.write(byte);
-                    }
-                }
-                else if (cmd.data == MEM_READ)
-                {
-                    // HERE
-                    auto vec_info = vec_info_from_app_1.read();
-                    // HERE
-                    vec_info_to_mem.write(vec_info);
-                    for (int i = 0 ; i < vec_info.data.range(63,32) ; i++)
-                    {
-                        // printf("ITERATION IN MIDDLE_WARE %d/%d\n", i, int(vec_info.data.range(63,32)));
-                        auto byte = data_from_mem.read();
-                        data_to_app_1.write(byte);
-                    }
-                    // HERE
-                }
-                else if (cmd.data == MEM_ALLOC)
-                {
-                    auto vec_info = vec_info_from_app_1.read();
-                    vec_info_to_mem.write(vec_info);
-                    auto back = vec_info_from_mem.read();
-                    vec_info_to_app_1.write(back);
-                }
-                else if (cmd.data == MEM_FREE)
-                {
-                    auto vec_info = vec_info_from_app_1.read();
-                    vec_info_to_mem.write(vec_info);
-                }
-            }
-
-            // Process commands from app 2
-            if (!cmd_from_app_2.empty())
-            {
-                COMMAND_STREAM cmd = cmd_from_app_2.read();
-                // HERE
-                cmd_to_mem.write(cmd);
-                if (cmd.data == MEM_WRITE)
-                {
-                    auto vec_info = vec_info_from_app_2.read();
-                    vec_info_to_mem.write(vec_info);
-                    for (int i = 0 ; i < vec_info.data.range(63,32) ; i++)
-                    {
-                        auto byte = data_from_app_2.read();
-                        data_to_mem.write(byte);
-                    }
-                }
-                else if (cmd.data == MEM_READ)
-                {
-                    // HERE
-                    auto vec_info = vec_info_from_app_2.read();
-                    vec_info_to_mem.write(vec_info);
-                    for (int i = 0 ; i < vec_info.data.range(63,32) ; i++)
-                    {
-                        auto byte = data_from_mem.read();
-                        // printf("ITERATION IN MIDDLE_WARE %d/%d\n", i, int(vec_info.data.range(63,32)));
-                        data_to_app_2.write(byte);
-                    }
-                    // HERE
-                }
-                else if (cmd.data == MEM_ALLOC)
-                {
-                    auto vec_info = vec_info_from_app_2.read();
-                    vec_info_to_mem.write(vec_info);
-                    auto back = vec_info_from_mem.read();
-                    vec_info_to_app_2.write(back);
-                }
-                else if (cmd.data == MEM_FREE)
-                {
-                    auto vec_info = vec_info_from_app_2.read();
-                    vec_info_to_mem.write(vec_info);
-                }
-            }
+            
+            connect(
+                cmd_from_app_1,
+                vec_info_from_app_1,
+                vec_info_to_app_1,
+                vec_info_to_alloc,
+                vec_info_to_free,
+                vec_info_from_mem
+            );
+            connect(
+                cmd_from_app_2,
+                vec_info_from_app_2,
+                vec_info_to_app_2,
+                vec_info_to_alloc,
+                vec_info_to_free,
+                vec_info_from_mem
+            );
         }
     }
 }

@@ -6,14 +6,12 @@ extern "C"
 {
     void free_kernel(
         BYTE* bm_ptr,
-        hls::stream<VEC_INFO_STREAM> &vec_info_stream,
-        hls::stream<COMMAND_STREAM> &ack_stream
+        hls::stream<VEC_INFO_STREAM> &vec_info_stream
     )
     {
         #pragma HLS INTERFACE s_axilite port=return
         #pragma HLS INTERFACE m_axi port=bm_ptr offset=slave bundle=gmem0
         #pragma HLS INTERFACE axis port=vec_info_stream
-        #pragma HLS INTERFACE axis port=ack_stream
         while (true)
         {
             auto info = vec_info_stream.read();
@@ -32,9 +30,6 @@ extern "C"
                 len_in_pages++;
             }
             deallocate(start_page, len_in_pages, bm_ptr);
-            COMMAND_STREAM ack;
-            ack.data = 1;
-            ack_stream.write(ack);
         }
     }
 }
