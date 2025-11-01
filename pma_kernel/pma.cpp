@@ -14,6 +14,7 @@ void binary_search(int val, int left, int right, int *storage, int &out_idx, int
 
     out_idx = left - 1;
     out_val = -1;
+    BINARY_SEARCH:
     while (low_seg <= high_seg)
     {
         int mid = low_seg + (high_seg - low_seg) / 2;
@@ -23,6 +24,7 @@ void binary_search(int val, int left, int right, int *storage, int &out_idx, int
         int maximum = INT_MIN;
         int max_idx = 0;
         bool find = false;
+        INTRA_SEG_ITERATION:
         for (int i = 0 ; i < SEGMENT_SIZE ; i++)
         {
             #pragma HLS PIPELINE II=1
@@ -82,6 +84,7 @@ void insert_edge(int src, int dst, int* pma_data, PMA_HEADER& pma_header)
         return;
     }
     int to_move_pos = -1;
+    FIND_SHIT_POS:
     for (int i = out_idx + 1; i < pma_header.vertex_range[local_src] * SEGMENT_SIZE; i++)
     {
         #pragma HLS PIPELINE II=1
@@ -92,6 +95,8 @@ void insert_edge(int src, int dst, int* pma_data, PMA_HEADER& pma_header)
             break;
         }
     }
+    
+    INSERT_EDGE_SHIFT:
     for (int i = to_move_pos; i > out_idx + 1; i--)
     {
         #pragma HLS PIPELINE II=1
@@ -104,6 +109,7 @@ void insert_edge(int src, int dst, int* pma_data, PMA_HEADER& pma_header)
 void rebalance(int* pma_data, PMA_HEADER& pma_header)
 {
     int end = -1;
+    FIND_LAST:
     for (int i = 0 ; i < VERTEX_PER_PMA ; i++)
     {
         if (pma_header.vertex_range[i] == UNUSED_ICON)
@@ -118,6 +124,8 @@ void rebalance(int* pma_data, PMA_HEADER& pma_header)
     }
     int pack_ptr = end;
     //把所有数据放在最后
+    
+    REBALANCE_PACK:
     for (int i = end - 1 ; i >= 0 ; i--)
     {
         if (pma_data[i] != UNUSED_ICON)
@@ -127,6 +135,7 @@ void rebalance(int* pma_data, PMA_HEADER& pma_header)
             pma_data[i] = UNUSED_ICON;
         }
     }
+    REBALANCING:
     for (int i = 0 ; i < VERTEX_PER_PMA ; i++)
     {
         if (pma_header.vertex_range[i] == UNUSED_ICON)

@@ -60,5 +60,4 @@ clean:
 	@rm -rf _x
 	@rm v++_*
 	@rm *_summary
-	@rm *.info
 	@echo "done."

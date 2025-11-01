@@ -1,4 +1,5 @@
 #include "data_type.h"
+#include <chrono>
 #include <iostream>
 #include <string>
 #include <utility>
@@ -140,7 +141,7 @@ int main(int argc, char** argv)
     bo_dst.sync(XCL_BO_SYNC_BO_TO_DEVICE);
 
     std::cout << "Buffers synchronized to device." << std::endl;
-
+    auto start_time = std::chrono::high_resolution_clock::now();
     run_allocate_kernel.start();
     run_free_kernel.start();
     run_app_mem_middle_ware_kernel.start();
@@ -152,7 +153,7 @@ int main(int argc, char** argv)
     run_update_message_router_kernel.wait();
     run_pma_update_kernel_1.wait();
     run_pma_update_kernel_2.wait();
-
+    auto end_time = std::chrono::high_resolution_clock::now();
     std::cout << "GRAPH UPDATED." << std::endl;
 
     std::vector<std::unordered_set<int>> Updated_Graph(max_vertex + 1);
@@ -210,8 +211,8 @@ int main(int argc, char** argv)
     run_stop_kernel.start();
     run_stop_kernel.wait();
     std::cout << "Stop signal sent to memory kernel." <<  std::endl;
-    
-
+    std::cout << "update edges " << edges.size() << " in " << std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count() 
+              << " ms" << std::endl;
 
     run_allocate_kernel.wait();
     run_free_kernel.wait();
