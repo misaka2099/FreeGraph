@@ -3,12 +3,13 @@
 #include "debug.h"
 #include "hls_stream.h"
 #include <cstdio>
-
+static int task_tag = 0;
 void flush_buffer_aux(
     int buffer_idx,
     hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_pma,
     ap_uint<128> msg_buffer[MAX_COMMAND_BUFFER_NUM][MAX_COMMAND_BUFFER_LENGTH],
-    int *count_arr
+    int *count_arr,
+    int worker_tag
 )
 {
     int c = count_arr[buffer_idx];
@@ -17,6 +18,8 @@ void flush_buffer_aux(
         PMA_UPDATE_MESSAGE tmp;
         tmp.data = msg_buffer[buffer_idx][j];
         tmp.last = (j == c - 1) ? 1 : 0;
+        tmp.data(123, 100) = task_tag++;
+        tmp.data(99,99) = worker_tag;
         cmd_to_pma.write(tmp);
         printf("Flushing buffer %d, command type: %d, SRC = %d, DST = %d\n", buffer_idx, int(tmp.data.range(97,96)), 
         int(tmp.data.range(31,0)), int(tmp.data.range(63,32)));
@@ -95,7 +98,8 @@ void flush_buffer(
                             buffer_idx,
                             cmd_to_pma_1,
                             msg_buffer,
-                            count_arr
+                            count_arr,
+                            0
                         );
                     }
                     else  
@@ -105,7 +109,8 @@ void flush_buffer(
                             buffer_idx,
                             cmd_to_pma_2,
                             msg_buffer,
-                            count_arr
+                            count_arr,
+                            1
                         );
                     }
                     processing_pma_idx[i] = pma_idx;

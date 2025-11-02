@@ -87,8 +87,8 @@ int main(int argc, char** argv)
     BYTE* valid_array = bo_valid_array.map<BYTE*>();
 
     // 初始化 HBM 和有效性数组
-    std::fill_n(hbm_base_address, CHANNEL_CAPACITY, 0);
-    std::fill_n(valid_array, CHANNEL_CAPACITY / 8, 0);
+    std::fill_n(hbm_base_address, CHANNEL_CAPACITY * CHANNEL_NUM, 0);
+    std::fill_n(valid_array, CHANNEL_CAPACITY * CHANNEL_NUM / 8, 0);
 
     auto bo_pos_vec_info = xrt::bo(device, sizeof(VEC_INFO) * MAX_PMA_NUM, pma_read_kernel.group_id(0));
     auto bo_neg_vec_info = xrt::bo(device, sizeof(VEC_INFO) * MAX_PMA_NUM, pma_read_kernel.group_id(1));
