@@ -100,7 +100,7 @@ void insert_edge(int src, int dst, int* pma_data, PMA_HEADER& pma_header)
     for (int i = to_move_pos; i > out_idx + 1; i--)
     {
         #pragma HLS PIPELINE II=1
-        #pragma HLS LOOP_TRIPCOUNT min=0 max=4096
+        // #pragma HLS LOOP_TRIPCOUNT min=0 max=4096
         pma_data[i] = pma_data[i - 1];
     }
     pma_data[out_idx+1] = dst;
@@ -112,6 +112,7 @@ void rebalance(int* pma_data, PMA_HEADER& pma_header)
     FIND_LAST:
     for (int i = 0 ; i < VERTEX_PER_PMA ; i++)
     {
+        #pragma HLS PIPELINE II = 1
         if (pma_header.vertex_range[i] == UNUSED_ICON)
         {
             break;
@@ -128,6 +129,7 @@ void rebalance(int* pma_data, PMA_HEADER& pma_header)
     REBALANCE_PACK:
     for (int i = end - 1 ; i >= 0 ; i--)
     {
+        #pragma HLS PIPELINE II = 1
         if (pma_data[i] != UNUSED_ICON)
         {
             pack_ptr--;
@@ -150,12 +152,15 @@ void rebalance(int* pma_data, PMA_HEADER& pma_header)
         int base = edge_num / seg_count;
         int extra = edge_num % seg_count;
         if (edge_num == 0) continue;
+        REBALANCE_SEG_AUX:
+        #pragma HLS LOOP_TRIPCOUNT min=0 max=64
         for (int s = 0 ; s < seg_count ; s++)
         {
             int cur_seg_valid = base + (s < extra ? 1 : 0);
             int cur_seg_start = seg_start + s * SEGMENT_SIZE;
             for (int k = cur_seg_start; k < cur_seg_start + cur_seg_valid; k++)
             {
+                #pragma HLS PIPELINE II = 1
                 int tmp = pma_data[pack_ptr];
                 pma_data[pack_ptr] = UNUSED_ICON;
                 ++pack_ptr;

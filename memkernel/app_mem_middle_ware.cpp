@@ -3,33 +3,6 @@
 #include "data_type.h"
 #include "debug.h"
 
-
-
-// void connect(
-//     hls::stream<COMMAND_STREAM> &cmd_from_app,
-//     hls::stream<VEC_INFO_STREAM> &vec_from_app,
-//     hls::stream<VEC_INFO_STREAM> &vec_to_app,
-//     hls::stream<VEC_INFO_STREAM> &vec_to_alloc,
-//     hls::stream<VEC_INFO_STREAM> &vec_to_free,
-//     hls::stream<VEC_INFO_STREAM> &vec_from_mem
-// )
-// {
-//     if (cmd_from_app.empty() == false && vec_from_app.empty() == false)
-//     {
-//         auto cmd = cmd_from_app.read();
-//         auto info = vec_from_app.read();
-//         if (cmd.data == MEM_ALLOC)
-//         {
-//             vec_to_alloc.write(info);
-//             auto info_back = vec_from_mem.read();
-//             vec_to_app.write(info_back);
-//         }
-//         else if (cmd.data == MEM_FREE)
-//         {
-//             vec_to_free.write(info);
-//         }
-//     }
-// }
 extern "C"
 {
     void app_mem_middle_ware(
@@ -41,8 +14,8 @@ extern "C"
         hls::stream<VEC_INFO_STREAM> &vec_info_from_app_2,
         hls::stream<VEC_INFO_STREAM> &vec_info_to_app_2,
 
-        hls::stream<VEC_INFO_STREAM> &vec_info_to_alloc,
-        hls::stream<VEC_INFO_STREAM> &vec_info_to_free,
+        hls::stream<VEC_INFO_STREAM> &vec_info_to_mem,
+        hls::stream<COMMAND_STREAM> &cmd_to_mem,
         hls::stream<VEC_INFO_STREAM> &vec_info_from_mem,
 
 
@@ -55,88 +28,188 @@ extern "C"
         #pragma HLS INTERFACE axis port=cmd_from_app_2
         #pragma HLS INTERFACE axis port=vec_info_from_app_2
         #pragma HLS INTERFACE axis port=vec_info_to_app_2
-        #pragma HLS INTERFACE axis port=vec_info_to_alloc
-        #pragma HLS INTERFACE axis port=vec_info_to_free
+        #pragma HLS INTERFACE axis port=vec_info_to_mem
+        #pragma HLS INTERFACE axis port=cmd_to_mem
         #pragma HLS INTERFACE axis port=vec_info_from_mem
         #pragma HLS INTERFACE axis port=stop_signal
         bool alloc_app_1 = false;
         bool alloc_app_2 = false;
+        bool free_app_1 = false;
+        bool free_app_2 = false;
+        bool stopping = false;
+        int next_worker_ptr = 0;
         while (true)
         {
-            // Process commands from app 1
-            if (stop_signal.empty() == false)
+            // 进入停止流程：不再接收新请求，只清空在途请求
+            #pragma HLS PIPELINE II = 1
+            if (!stopping && stop_signal.empty() == false)
             {
-                stop_signal.read();
-                vec_info_to_alloc.write({.data=0, .last=1});
-                vec_info_to_free.write({.data=0, .last=1});
-                HERE
-                break;
+                (void)stop_signal.read();
+                stopping = true;
             }
-            COMMAND_STREAM cmd;
-            VEC_INFO_STREAM info;
-            if (alloc_app_1 || alloc_app_2)
+
+            // 处理返回路径：无论是否 stopping 都要及时清空在途响应
+            if (alloc_app_1 || alloc_app_2 || free_app_1 || free_app_2)
             {
-                bool is_back = false;
                 VEC_INFO_STREAM info_back;
-                is_back = vec_info_from_mem.read_nb(info_back);
+                bool is_back = vec_info_from_mem.read_nb(info_back);
                 if (is_back)
                 {
                     if (alloc_app_1)
                     {
+                        HERE
                         vec_info_to_app_1.write(info_back);
                         alloc_app_1 = false;
                     }
                     else if (alloc_app_2)
                     {
+                        HERE
                         vec_info_to_app_2.write(info_back);
                         alloc_app_2 = false;
                     }
+                    else if (free_app_1)
+                    {
+                        HERE
+                        free_app_1 = false; // free 不回传给 app
+                    }
+                    else if (free_app_2)
+                    {
+                        HERE
+                        free_app_2 = false;
+                    }
                 }
             }
-            if (cmd_from_app_1.empty() == false && vec_info_from_app_1.empty() == false && alloc_app_1 == false && alloc_app_2 == false)
+
+            // 若处于 stopping，等待在途清空后发终止标记
+            if (stopping)
             {
-                cmd = cmd_from_app_1.read();
-                info = vec_info_from_app_1.read();
-                if (cmd.data == MEM_ALLOC)
+                HERE
+                if (!(alloc_app_1 || alloc_app_2 || free_app_1 || free_app_2))
                 {
-                    vec_info_to_alloc.write(info);
-                    alloc_app_1 = true;
+                    HERE
+                    VEC_INFO_STREAM term; term.data = 0; term.last = 1;
+                    vec_info_to_mem.write(term);
+                    COMMAND_STREAM to_stop; to_stop.data = 0; to_stop.last = 1;
+                    cmd_to_mem.write(to_stop);
+                    break;
                 }
-                else if (cmd.data == MEM_FREE)
-                {
-                    vec_info_to_free.write(info);
-                }
+                // 仍有在途，继续循环收敛
+                continue;
             }
-            if (cmd_from_app_2.empty() == false && vec_info_from_app_2.empty() == false && alloc_app_2 == false && alloc_app_1 == false)
+
+            bool process_in_this_cycle = false;
+
+            switch (next_worker_ptr) 
             {
-                cmd = cmd_from_app_2.read();
-                info = vec_info_from_app_2.read();
-                if (cmd.data == MEM_ALLOC)
+                case 0:
                 {
-                    vec_info_to_alloc.write(info);
-                    alloc_app_2 = true;
+                    process_in_this_cycle = cmd_from_app_1.empty() == false && vec_info_from_app_1.empty() == false && 
+                            alloc_app_1 == false && alloc_app_2 == false && free_app_1 == false && free_app_2 == false;
+                    break;
                 }
-                else if (cmd.data == MEM_FREE)
+                case 1:
                 {
-                    vec_info_to_free.write(info);
+                    process_in_this_cycle = cmd_from_app_2.empty() == false && vec_info_from_app_2.empty() == false && 
+                            alloc_app_1 == false && alloc_app_2 == false && free_app_1 == false && free_app_2 == false;
+                    break;
                 }
             }
-            // connect(
-            //     cmd_from_app_1,
-            //     vec_info_from_app_1,
-            //     vec_info_to_app_1,
-            //     vec_info_to_alloc,
-            //     vec_info_to_free,
-            //     vec_info_from_mem
-            // );
-            // connect(
-            //     cmd_from_app_2,
-            //     vec_info_from_app_2,
-            //     vec_info_to_app_2,
-            //     vec_info_to_alloc,
-            //     vec_info_to_free,
-            //     vec_info_from_mem
-            // );
+            if (process_in_this_cycle)
+            {
+                switch (next_worker_ptr) 
+                {
+                    case 0:
+                    {
+                        VEC_INFO_STREAM info = vec_info_from_app_1.read();
+                        COMMAND_STREAM cmd = cmd_from_app_1.read();
+                        if (cmd.data == MEM_ALLOC)
+                        {
+                            HERE
+                            COMMAND_STREAM outc; outc.data = MEM_ALLOC; outc.last = 0;
+                            vec_info_to_mem.write(info);
+                            cmd_to_mem.write(outc);
+                            alloc_app_1 = true;
+                        }
+                        else if (cmd.data == MEM_FREE)
+                        {
+                            HERE
+                            COMMAND_STREAM outc; outc.data = MEM_FREE; outc.last = 0;
+                            vec_info_to_mem.write(info);
+                            cmd_to_mem.write(outc);
+                            free_app_1 = true;
+                        }
+                        break;
+                    }
+                    case 1:
+                    {
+                        VEC_INFO_STREAM info = vec_info_from_app_2.read();
+                        COMMAND_STREAM cmd = cmd_from_app_2.read();
+                        if (cmd.data == MEM_ALLOC)
+                        {
+                            HERE
+                            COMMAND_STREAM outc; outc.data = MEM_ALLOC; outc.last = 0;
+                            vec_info_to_mem.write(info);
+                            cmd_to_mem.write(outc);
+                            alloc_app_2 = true;
+                        }
+                        else if (cmd.data == MEM_FREE)
+                        {
+                            HERE
+                            COMMAND_STREAM outc; outc.data = MEM_FREE; outc.last = 0;
+                            vec_info_to_mem.write(info);
+                            cmd_to_mem.write(outc);
+                            free_app_2 = true;
+                        }
+                        break;
+                    }
+                }
+            }
+            next_worker_ptr  = (next_worker_ptr + 1) % MAX_WORKERS;
+            // 正常接收新请求（仅在没有在途事务时）
+            // if (cmd_from_app_1.empty() == false && vec_info_from_app_1.empty() == false && 
+            //     alloc_app_1 == false && alloc_app_2 == false && free_app_1 == false && free_app_2 == false)
+            // {
+            //     VEC_INFO_STREAM info = vec_info_from_app_1.read();
+            //     COMMAND_STREAM cmd = cmd_from_app_1.read();
+            //     if (cmd.data == MEM_ALLOC)
+            //     {
+            //         HERE
+            //         COMMAND_STREAM outc; outc.data = MEM_ALLOC; outc.last = 0;
+            //         vec_info_to_mem.write(info);
+            //         cmd_to_mem.write(outc);
+            //         alloc_app_1 = true;
+            //     }
+            //     else if (cmd.data == MEM_FREE)
+            //     {
+            //         HERE
+            //         COMMAND_STREAM outc; outc.data = MEM_FREE; outc.last = 0;
+            //         vec_info_to_mem.write(info);
+            //         cmd_to_mem.write(outc);
+            //         free_app_1 = true;
+            //     }
+            // }
+            // if (cmd_from_app_2.empty() == false && vec_info_from_app_2.empty() == false && 
+            //    alloc_app_1 == false && alloc_app_2 == false && free_app_1 == false && free_app_2 == false)
+            // {
+            //     VEC_INFO_STREAM info = vec_info_from_app_2.read();
+            //     COMMAND_STREAM cmd = cmd_from_app_2.read();
+            //     if (cmd.data == MEM_ALLOC)
+            //     {
+            //         HERE
+            //         COMMAND_STREAM outc; outc.data = MEM_ALLOC; outc.last = 0;
+            //         vec_info_to_mem.write(info);
+            //         cmd_to_mem.write(outc);
+            //         alloc_app_2 = true;
+            //     }
+            //     else if (cmd.data == MEM_FREE)
+            //     {
+            //         HERE
+            //         COMMAND_STREAM outc; outc.data = MEM_FREE; outc.last = 0;
+            //         vec_info_to_mem.write(info);
+            //         cmd_to_mem.write(outc);
+            //         free_app_2 = true;
+            //     }
+            // }
         }
     }
 }

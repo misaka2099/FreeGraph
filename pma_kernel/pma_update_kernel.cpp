@@ -37,11 +37,16 @@ extern "C"
         #pragma HLS INTERFACE m_axi port=hbm_ptr offset=slave bundle=gmem2
         #pragma HLS INTERFACE axis port=ack_back_to_router
         // #pragma HLS INTERFACE axis port=stop_signal
+
+
         int cmd_count = 0;
         PMA_UPDATE_MESSAGE cmd[MAX_CMD_NUM] = {0};
+        #pragma HLS ARRAY_PARTITION variable=cmd complete
         // VEC_INFO pos_pma_addrs[MAX_PMA_NUM];//对于超大图这一部分可以放到HBM中，片上作为二级缓存
         // VEC_INFO neg_pma_addrs[MAX_PMA_NUM];
-        int tmp_storge[SEGMENT_SIZE * MAX_TMP_PMA_NUM];
+        int tmp_storage[SEGMENT_SIZE * MAX_TMP_PMA_NUM];
+        #pragma HLS bind_storage variable=tmp_storage type=ram_t2p impl=uram
+        
         const int TMP_BYTES = (int)sizeof(int) * SEGMENT_SIZE * MAX_TMP_PMA_NUM;
         bool direction = 0;//0 for out edge, 1 for in edge
         PMA_HEADER pma_headers; 
@@ -55,10 +60,12 @@ extern "C"
             READ_COMMAND:
             for (int i = 0 ; i < MAX_CMD_NUM ; i++)
             {
+                #pragma HLS UNROLL
                 cmd[i].data = 0;
             }
             for (int i = 0 ; i < MAX_CMD_NUM; i++)
             {
+                #pragma HLS PIPELINE II = 1
                 cmd[i] = cmd_stream.read();
                 // HERE
                 cmd_count++;
@@ -73,11 +80,11 @@ extern "C"
                 break;
             }
             int pma_idx = cmd[0].data.range(31,0) / VERTEX_PER_PMA;
-            printf("PMA UPDATE KERNEL RECEIVED %d COMMANDS NO %d\n", cmd_count, pma_idx);
-            for (int i = 0 ; i < cmd_count ; i++)
-            {
-                printf("WORK WITH COMMAND %d TYPE %d, SRC %d, DST %d, TAG %d\n",i, int(cmd[i].data.range(97,96)), int(cmd[i].data.range(31,0)), int(cmd[i].data.range(63,32)), int(cmd[i].data.range(123,100)));
-            }
+            // printf("PMA UPDATE KERNEL RECEIVED %d COMMANDS NO %d\n", cmd_count, pma_idx);
+            // for (int i = 0 ; i < cmd_count ; i++)
+            // {
+            //     printf("WORK WITH COMMAND %d TYPE %d, SRC %d, DST %d, TAG %d\n",i, int(cmd[i].data.range(97,96)), int(cmd[i].data.range(31,0)), int(cmd[i].data.range(63,32)), int(cmd[i].data.range(123,100)));
+            // }
             // HERE
             direction = cmd[0].data.range(98,98);
             // read_header from HBM
@@ -159,13 +166,13 @@ extern "C"
             if (in_mem)
             {
                 // printf("IN MEM READ\n");
-                memset(tmp_storge, UNUSED_ICON, sizeof(int) * SEGMENT_SIZE * MAX_TMP_PMA_NUM);
-                memcpy(tmp_storge, hbm_ptr + header_start + sizeof(PMA_HEADER), pma_len_in_byte - sizeof(PMA_HEADER));
+                memset(tmp_storage, UNUSED_ICON, sizeof(int) * SEGMENT_SIZE * MAX_TMP_PMA_NUM);
+                memcpy(tmp_storage, hbm_ptr + header_start + sizeof(PMA_HEADER), pma_len_in_byte - sizeof(PMA_HEADER));
             }
             else  
             {
                 // printf("NOT IN MEM INIT\n");
-                memset(tmp_storge, UNUSED_ICON, sizeof(int) * SEGMENT_SIZE * MAX_TMP_PMA_NUM);
+                memset(tmp_storage, UNUSED_ICON, sizeof(int) * SEGMENT_SIZE * MAX_TMP_PMA_NUM);
             }
             if (in_mem)
             {
@@ -211,16 +218,17 @@ extern "C"
             int total_extra_segs = 0;
 
             //insert edge 反向信息由调用者保证
-            printf("INSERT EDGE FOR DIRECTION %d PMA IDX %d WORKER %d TOTAL CMDS %d\n ",direction, int(cmd[0].data.range(31,0) / VERTEX_PER_PMA), int(cmd[0].data.range(99,99)), int(cmd_count));
+            // printf("INSERT EDGE FOR DIRECTION %d PMA IDX %d WORKER %d TOTAL CMDS %d\n ",direction, int(cmd[0].data.range(31,0) / VERTEX_PER_PMA), int(cmd[0].data.range(99,99)), int(cmd_count));
             INSERT_EDGE:
             for (int i = 0 ; i < cmd_count; i++)
             {
+                // #pragma HLS PIPELINE II=1
                 if (cmd[i].data.range(97,96) == PMA_INSERT_EDGE)
                 {
                     int src = cmd[i].data.range(31,0);
                     int dst = cmd[i].data.range(63,32);
-                    printf("INSERT WITH COMMAND %d TYPE %d, SRC %d, DST %d, TAG %d, WORKER %d\n",i, int(cmd[i].data.range(97,96)), int(cmd[i].data.range(31,0)), int(cmd[i].data.range(63,32)), int(cmd[i].data.range(123,100)), int(cmd[i].data.range(99,99)));
-                    insert_edge(src, dst, tmp_storge, pma_headers);
+                    // printf("INSERT WITH COMMAND %d TYPE %d, SRC %d, DST %d, TAG %d, WORKER %d\n",i, int(cmd[i].data.range(97,96)), int(cmd[i].data.range(31,0)), int(cmd[i].data.range(63,32)), int(cmd[i].data.range(123,100)), int(cmd[i].data.range(99,99)));
+                    insert_edge(src, dst, tmp_storage, pma_headers);
                 }
             }
 
@@ -228,6 +236,7 @@ extern "C"
             STASTISTIC_ENLARGE_SEGS:
             for (int i = 0 ; i < VERTEX_PER_PMA ; i++)
             {
+                #pragma HLS PIPELINE II=1
                 if (pma_headers.vertex_range[i] == UNUSED_ICON)
                 {
                     continue;
@@ -253,6 +262,7 @@ extern "C"
             for (int i = 0; i < VERTEX_PER_PMA; i++) 
             {
                 // HERE
+                #pragma HLS PIPELINE II=1
                 if (pma_headers.vertex_range[i] == UNUSED_ICON) 
                 {
                     break;
@@ -262,10 +272,11 @@ extern "C"
                 total_extra_segs += enlarged_segs[i];
                 pma_headers.vertex_range[i] += total_extra_segs;
             }
-            rebalance(tmp_storge, pma_headers);
+            rebalance(tmp_storage, pma_headers);
             CHANGE_ATTR:
             for (int i = 0 ; i < cmd_count; i++)
             {
+                #pragma HLS PIPELINE II=1
                 if (cmd[i].data.range(97,96) == PMA_CHANGE_ATTR)
                 {
                     int vertex = cmd[i].data.range(31,0);
@@ -277,9 +288,9 @@ extern "C"
                 }
             }
             memcpy(hbm_ptr + new_header_start, &pma_headers, sizeof(PMA_HEADER));
-            memcpy(hbm_ptr + new_header_start + sizeof(PMA_HEADER), tmp_storge, new_pma_len - sizeof(PMA_HEADER));
+            memcpy(hbm_ptr + new_header_start + sizeof(PMA_HEADER), tmp_storage, new_pma_len - sizeof(PMA_HEADER));
             ack_back_to_router.write({.data = 1});
-            printf("PMA UPDATE DONE FOR PMA IDX %d, DIRECTION %d\n", pma_idx, int(direction));
+            // printf("PMA UPDATE DONE FOR PMA IDX %d, DIRECTION %d\n", pma_idx, int(direction));
             // HERE
         }
     }

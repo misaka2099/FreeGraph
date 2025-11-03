@@ -32,6 +32,7 @@ extern "C"
         // HERE
         for (int i = 0 ; i < add_vertex_num ; i++)
         {
+            #pragma HLS PIPELINE II=1
             PMA_UPDATE_MESSAGE msg;
             msg.data.range(31,0) = i;
             msg.data.range(63,32) = 0;
@@ -42,6 +43,7 @@ extern "C"
         // HERE
         for (int i = 0 ; i < add_vertex_num ; i++)
         {
+            #pragma HLS PIPELINE II=1
             PMA_UPDATE_MESSAGE msg;
             msg.data.range(31,0) = i;
             msg.data.range(63,32) = 0;
@@ -55,6 +57,7 @@ extern "C"
         // clear_message_to_router.write({.data = 111});
         for (int i = 0 ; i < add_edge_num ; i++)
         {
+            #pragma HLS PIPELINE II=1
             PMA_UPDATE_MESSAGE msg;
             // printf("INSERTING EDGE FROM %d TO %d\n", src[i], dst[i]);
             // msg.data.range(31,0) = src[i];
@@ -68,6 +71,7 @@ extern "C"
         HERE
         for (int i = 0 ; i < add_edge_num ; i++)
         {
+            #pragma HLS PIPELINE II=1
             PMA_UPDATE_MESSAGE msg;
             msg.data.range(31,0) = src[i];
             msg.data.range(63,32) = dst[i];

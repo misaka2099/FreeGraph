@@ -14,7 +14,7 @@ INCLUDES := -I/home/sail/lyf/pma_demo/stream/include
 TARGET ?= sw_emu
 
 # List of kernels (file names without .cpp and matching extern "C" function names)
-KERNELS :=  allocate_kernel free_kernel  app_mem_middle_ware
+KERNELS :=  alloc_free_kernel  app_mem_middle_ware
 
 XO_FILES := $(patsubst %,%.xo,$(KERNELS))
 
@@ -33,13 +33,13 @@ all: $(XO_FILES)
 	@echo "---- Building kernel $* -> $@ (target=$(TARGET)) ----"
 	$(VPP) -c -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) -k $* -o $@ $<
 	@echo "---- done: $@ ----"
-allocate_kernel.xo: allocate_kernel.cpp memory_manage_alloc.cpp
-	@echo "---- Building allocate_kernel -> $@ ----"
-	$(VPP) -c -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) -k allocate_kernel -o $@ allocate_kernel.cpp memory_manage_alloc.cpp
+# allocate_kernel.xo: allocate_kernel.cpp memory_manage_alloc.cpp
+# 	@echo "---- Building allocate_kernel -> $@ ----"
+# 	$(VPP) -c -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) -k allocate_kernel -o $@ allocate_kernel.cpp memory_manage_alloc.cpp
 
-free_kernel.xo: free_kernel.cpp memory_manage_free.cpp
-	@echo "---- Building free_kernel -> $@ ----"
-	$(VPP) -c -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) -k free_kernel -o $@ free_kernel.cpp memory_manage_free.cpp
+# free_kernel.xo: free_kernel.cpp memory_manage_free.cpp
+# 	@echo "---- Building free_kernel -> $@ ----"
+# 	$(VPP) -c -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) -k free_kernel -o $@ free_kernel.cpp memory_manage_free.cpp
 
 host: host.cpp
 	@echo "---- Building host executable ----"

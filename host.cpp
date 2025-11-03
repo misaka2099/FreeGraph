@@ -55,8 +55,9 @@ int main(int argc, char** argv)
     auto device = xrt::device(0);
     auto uuid = device.load_xclbin(xclbin);
 
-    auto allocate_kernel = xrt::kernel(device, uuid, "allocate_kernel");
-    auto free_kernel = xrt::kernel(device, uuid, "free_kernel");
+    // auto allocate_kernel = xrt::kernel(device, uuid, "allocate_kernel");
+    // auto free_kernel = xrt::kernel(device, uuid, "free_kernel");
+    auto alloc_free_kernel = xrt::kernel(device, uuid, "alloc_free_kernel");
     auto app_mem_middle_ware_kernel = xrt::kernel(device, uuid, "app_mem_middle_ware");
     auto pma_read_kernel = xrt::kernel(device, uuid, "pma_read_kernel");
     auto update_message_generator_kernel = xrt::kernel(device, uuid, "update_message_generator");
@@ -67,8 +68,9 @@ int main(int argc, char** argv)
     
     auto stop_kernel = xrt::kernel(device, uuid, "stop_kernel");
     std::cout << "Kernels loaded successfully." << std::endl;
-    auto run_allocate_kernel = xrt::run(allocate_kernel);
-    auto run_free_kernel = xrt::run(free_kernel);
+    // auto run_allocate_kernel = xrt::run(allocate_kernel);
+    // auto run_free_kernel = xrt::run(free_kernel);
+    auto run_alloc_free_kernel = xrt::run(alloc_free_kernel);
     auto run_app_mem_middle_ware_kernel = xrt::run(app_mem_middle_ware_kernel);
     auto run_pma_read_kernel = xrt::run(pma_read_kernel);
     auto run_update_message_generator_kernel = xrt::run(update_message_generator_kernel);
@@ -80,15 +82,15 @@ int main(int argc, char** argv)
     std::cout << "Kernels are created..." << std::endl;
 
     auto bo_hbm_base_addr = xrt::bo(device, sizeof(BYTE) * CHANNEL_CAPACITY * CHANNEL_NUM, pma_update_kernel_1.group_id(3));
-    auto bo_valid_array = xrt::bo(device, sizeof(BYTE) * (CHANNEL_CAPACITY * CHANNEL_NUM / 8), allocate_kernel.group_id(0));
+    // auto bo_valid_array = xrt::bo(device, sizeof(BYTE) * (CHANNEL_CAPACITY * CHANNEL_NUM / 8), allocate_kernel.group_id(0));
 
 
     BYTE* hbm_base_address = bo_hbm_base_addr.map<BYTE*>();
-    BYTE* valid_array = bo_valid_array.map<BYTE*>();
+    // BYTE* valid_array = bo_valid_array.map<BYTE*>();
 
     // 初始化 HBM 和有效性数组
     std::fill_n(hbm_base_address, CHANNEL_CAPACITY * CHANNEL_NUM, 0);
-    std::fill_n(valid_array, CHANNEL_CAPACITY * CHANNEL_NUM / 8, 0);
+    // std::fill_n(valid_array, CHANNEL_CAPACITY / 8, 0);
 
     auto bo_pos_vec_info = xrt::bo(device, sizeof(VEC_INFO) * MAX_PMA_NUM, pma_read_kernel.group_id(0));
     auto bo_neg_vec_info = xrt::bo(device, sizeof(VEC_INFO) * MAX_PMA_NUM, pma_read_kernel.group_id(1));
@@ -119,8 +121,8 @@ int main(int argc, char** argv)
 
     std::cout << "Buffers allocated and initialized." << std::endl;
 
-    run_allocate_kernel.set_arg(0, bo_valid_array);
-    run_free_kernel.set_arg(0, bo_valid_array);
+    // run_allocate_kernel.set_arg(0, bo_valid_array);
+    // run_free_kernel.set_arg(0, bo_valid_array);
     run_pma_read_kernel.set_arg(0, bo_pos_vec_info);
     run_pma_read_kernel.set_arg(1, bo_neg_vec_info);
     run_pma_read_kernel.set_arg(2, bo_hbm_base_addr);
@@ -134,7 +136,7 @@ int main(int argc, char** argv)
     run_pma_update_kernel_2.set_arg(1, bo_pos_vec_info);
     run_pma_update_kernel_2.set_arg(2, bo_neg_vec_info);
     run_pma_update_kernel_2.set_arg(3, bo_hbm_base_addr);
-    bo_valid_array.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+    // bo_valid_array.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     bo_pos_vec_info.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     bo_neg_vec_info.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     bo_src.sync(XCL_BO_SYNC_BO_TO_DEVICE);
@@ -142,8 +144,9 @@ int main(int argc, char** argv)
 
     std::cout << "Buffers synchronized to device." << std::endl;
     auto start_time = std::chrono::high_resolution_clock::now();
-    run_allocate_kernel.start();
-    run_free_kernel.start();
+    // run_allocate_kernel.start();
+    // run_free_kernel.start();
+    run_alloc_free_kernel.start();
     run_app_mem_middle_ware_kernel.start();
     run_pma_update_kernel_1.start();
     run_pma_update_kernel_2.start();
@@ -214,8 +217,9 @@ int main(int argc, char** argv)
     std::cout << "update edges " << edges.size() << " in " << std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count() 
               << " ms" << std::endl;
 
-    run_allocate_kernel.wait();
-    run_free_kernel.wait();
+    // run_allocate_kernel.wait();
+    // run_free_kernel.wait();
+    run_alloc_free_kernel.wait();
     run_app_mem_middle_ware_kernel.wait();
     return 0;
 }

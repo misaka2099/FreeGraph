@@ -20,22 +20,25 @@ void read_edge(
     int edge_start = header_start + sizeof(PMA_HEADER) + start_seg_offset * sizeof(int) * SEGMENT_SIZE;
     int edge_len = src_seg * sizeof(int) * SEGMENT_SIZE;
     
-    // int aligned_len = ((edge_len + 63) / 64) * 64;
-
     int aligned_len = (edge_len + 63) & ~0x3F;
-    // BYTE local_buffer[64];
-    int local_buffer[16];
-
+    // 使用 512bit 行缓冲，避免对小数组的整数组装 memcpy 触发 array transformation 冲突
+    // int local_buffer[16];
+    // #pragma HLS bind_storage variable=local_buffer type=ram_t2p impl=uram
     for (int i = 0 ; i < aligned_len ; i+= 64)
     {
-        memcpy(local_buffer, hbm_ptr + edge_start + i, 64); // 读取 64 字节到本地缓冲区
+        #pragma HLS PIPELINE II=1
+        ap_uint<512> line = 0;
+        memcpy(&line, hbm_ptr + edge_start + i, 64); // 读取 64 字节到本地缓冲区
         for (int j = 0 ; j < 16 ; j++)
         {
-            if (i + j * 4 >= edge_len)
+            #pragma HLS UNROLL
+            int byte_off = i + j * 4;
+            if (byte_off >= edge_len)
             {
                 break;
             }
-            int neighbor = local_buffer[j];
+            ap_uint<32> w = line.range(32*(j+1)-1, 32*j);
+            int neighbor = (int)w;
             if (neighbor == UNUSED_ICON)
             {
                 continue;
@@ -46,6 +49,7 @@ void read_edge(
 
     data_to_nei_query.write({.data=-1});
 }
+
 extern "C"
 {
     void pma_read_kernel(

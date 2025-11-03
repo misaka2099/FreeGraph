@@ -139,17 +139,19 @@ extern "C"
         #pragma HLS INTERFACE axis port=ack_from_pma_2
         // #pragma HLS INTERFACE axis port=clear_message_from_generator
         int processing_pma_idx[MAX_WORKERS] = {-1};
+        #pragma HLS ARRAY_PARTITION variable=processing_pma_idx complete
         for (int i = 0 ; i < MAX_WORKERS ; i++)
         {
             #pragma HLS UNROLL
             processing_pma_idx[i] = -1;
         }
         ap_uint<128> msg_buffer[MAX_COMMAND_BUFFER_NUM][MAX_COMMAND_BUFFER_LENGTH];
-        #pragma HLS BIND_STORAGE variable=msg_buffer type=RAM_2P impl=BRAM
+        #pragma HLS BIND_STORAGE variable=msg_buffer type=RAM_2P impl=URAM
         int count[MAX_COMMAND_BUFFER_NUM]; 
+        #pragma HLS ARRAY_PARTITION variable=count complete
         for (int i = 0 ; i < MAX_COMMAND_BUFFER_NUM ; i++)
         {
-            #pragma HLS UNROLL
+            // #pragma HLS UNROLL
             for (int j = 0 ; j < MAX_COMMAND_BUFFER_LENGTH ; j++)
             {
                 #pragma HLS UNROLL

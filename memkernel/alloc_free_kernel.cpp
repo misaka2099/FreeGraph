@@ -11,12 +11,13 @@ struct seg_node
     int lazy; // -1: no op, 0: set to used, 1: set to free
 };
 
-const int MAX_LEN = 64*1024*1024;
-const int UNIT_BYTE = 1024;
-const int MAX_DEPTH = (64);
-seg_node storage[(MAX_LEN / UNIT_BYTE) * 2 + 10];
+// 由系统参数计算总页数，替代固定 64MB 限制
+const int TOTAL_PAGES = CHANNEL_CAPACITY * CHANNEL_NUM / INIT_VEC_LEN_IN_BYTE;
+const int MAX_DEPTH = 64;
+seg_node storage[TOTAL_PAGES * 2 + 10];
 void push_down(int node_idx)
 {
+    #pragma HLS INLINE
     if (storage[node_idx].lazy == -1) return; // no op
     int val = storage[node_idx].lazy; // 使用当前节点的 lazy 标记
 
@@ -53,7 +54,6 @@ void push_up(int node_idx)
     int mid_max = storage[node_idx * 2].right_max + storage[node_idx * 2 + 1].left_max;
     storage[node_idx].max_free = std::max(storage[node_idx * 2].max_free, storage[node_idx * 2 + 1].max_free);
     storage[node_idx].max_free = std::max(storage[node_idx].max_free, mid_max);
-    // storage[node_idx].lazy = -1;
 }   
 struct stack_frame
 {
@@ -71,6 +71,7 @@ void modify_range(int l, int r, int val)
     
     while (top != 0)
     {
+        #pragma HLS PIPELINE II=1
         stack_frame &current = frame_stack[top];
         int cur_l = current.l;
         int cur_r = current.r;
@@ -134,11 +135,19 @@ void alloc(int len, int &start)
     start = -1;
     while (!complete)
     {
+        #pragma HLS PIPELINE II=1
         if (storage[cur_idx].max_free < len)
         {
             break;
         }
-        push_down(cur_idx );
+        // 叶子节点直接满足
+        if (storage[cur_idx].left == storage[cur_idx].right)
+        {
+            start = storage[cur_idx].left;
+            complete = true;
+            break;
+        }
+        push_down(cur_idx);
         if (storage[cur_idx * 2].max_free >= len)
         {
             cur_idx = cur_idx * 2;
@@ -151,6 +160,11 @@ void alloc(int len, int &start)
         {
             start = storage[cur_idx * 2].right - storage[cur_idx * 2].right_max + 1;
             complete = true;
+        }
+        else
+        {
+            // 不应到这里：理论上 max_free < len 已在顶部截断
+            break;
         }
     }   
     if (complete)
@@ -179,6 +193,7 @@ void init(int len)
     storage[1].lazy = -1;
     for (int i = 2 ; i <= len * 2 - 1 ; i++)
     {
+        #pragma HLS PIPELINE II=1
         int father_left = storage[i / 2].left;
         int father_right = storage[i / 2].right;
         int mid = (father_left + father_right) / 2;
@@ -197,36 +212,51 @@ void init(int len)
 extern "C"
 {
     void alloc_free_kernel(
-        hls::stream<COMMAND_STREAM> cmd,
-        hls::stream<VEC_INFO_STREAM> vec_info_in,
-        hls::stream<VEC_INFO_STREAM> vec_info_back
+        hls::stream<COMMAND_STREAM> &cmd,
+        hls::stream<VEC_INFO_STREAM> &vec_info_in,
+        hls::stream<VEC_INFO_STREAM> &vec_info_back
     )
     {
         #pragma HLS INTERFACE axis port=cmd
         #pragma HLS INTERFACE axis port=vec_info_in
         #pragma HLS INTERFACE axis port=vec_info_back
-        init(CHANNEL_CAPACITY * CHANNEL_NUM / INIT_VEC_LEN_IN_BYTE);
+        #pragma HLS bind_storage variable=storage type=ram_t2p impl=uram
+        init(TOTAL_PAGES);
         while (true)
         {
+            #pragma HLS PIPELINE II=1
             auto command = cmd.read();
             auto vec_info = vec_info_in.read();
+            if (command.last == 1)
+            {
+                break;
+            }
             VEC_INFO back_info;
             if (command.data == MEM_ALLOC)
             {
-                int request_len = vec_info.data.range(63,32);
-                int start;
-                alloc(request_len, start);
-                back_info.range(31,0) = start;
-                back_info.range(63,32) = request_len;
+                int req_bytes = vec_info.data.range(63,32);
+                int len_segs = (req_bytes + INIT_VEC_LEN_IN_BYTE - 1) / INIT_VEC_LEN_IN_BYTE;
+                int start_seg;
+                alloc(len_segs, start_seg);
+                int start_bytes = (start_seg < 0) ? 0xFFFFFFFF : start_seg * INIT_VEC_LEN_IN_BYTE;
+                back_info.range(31,0) = start_bytes;
+                back_info.range(63,32) = req_bytes;
             }
             else if (command.data == MEM_FREE)
             {
-                int start = vec_info.data.range(31,0);
-                int len = vec_info.data.range(63,32);
-                dealloc(start, len);
-                back_info= 0;
+                int start_bytes = vec_info.data.range(31,0);
+                int len_bytes = vec_info.data.range(63,32);
+                int start_seg = (start_bytes == 0xFFFFFFFF) ? -1 : start_bytes / INIT_VEC_LEN_IN_BYTE;
+                int len_segs  = (len_bytes + INIT_VEC_LEN_IN_BYTE - 1) / INIT_VEC_LEN_IN_BYTE;
+                if (start_seg >= 0 && len_segs > 0 && (start_seg + len_segs) <= TOTAL_PAGES) {
+                    dealloc(start_seg, len_segs);
+                }
+                back_info = 0;
             }
-            vec_info_back.write({.data=back_info});
+            VEC_INFO_STREAM out;
+            out.data = back_info;
+            out.last = 0;
+            vec_info_back.write(out);
         }
     }
 }
