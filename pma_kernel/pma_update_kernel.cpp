@@ -163,25 +163,22 @@ extern "C"
             
             // HERE
             //read data from memory
+            bool cacheable = false;
             if (in_mem)
             {
                 // printf("IN MEM READ\n");
                 memset(tmp_storage, UNUSED_ICON, sizeof(int) * SEGMENT_SIZE * MAX_TMP_PMA_NUM);
-                memcpy(tmp_storage, hbm_ptr + header_start + sizeof(PMA_HEADER), pma_len_in_byte - sizeof(PMA_HEADER));
+                if (pma_len_in_byte < SEGMENT_SIZE * MAX_TMP_PMA_NUM)
+                {
+                    cacheable = true;
+                    memcpy(tmp_storage, hbm_ptr + header_start + sizeof(PMA_HEADER), pma_len_in_byte - sizeof(PMA_HEADER));
+                }
+                
             }
             else  
             {
                 // printf("NOT IN MEM INIT\n");
                 memset(tmp_storage, UNUSED_ICON, sizeof(int) * SEGMENT_SIZE * MAX_TMP_PMA_NUM);
-            }
-            if (in_mem)
-            {
-                vec_info.data.range(31,0) = header_start;
-                vec_info.data.range(63,32) = pma_len_in_byte;
-                // 顺序必须是 vec_info -> command，避免死锁/错配
-                vec_info_stream.write(vec_info);
-                COMMAND_STREAM cfree; cfree.data = MEM_FREE; cfree.last = 0;
-                cmd_to_mem_stream.write(cfree);
             }
             //process data
             int new_pma_len = pma_len_in_byte + extra_mem_needed + sizeof(PMA_HEADER);
@@ -228,7 +225,10 @@ extern "C"
                     int src = cmd[i].data.range(31,0);
                     int dst = cmd[i].data.range(63,32);
                     // printf("INSERT WITH COMMAND %d TYPE %d, SRC %d, DST %d, TAG %d, WORKER %d\n",i, int(cmd[i].data.range(97,96)), int(cmd[i].data.range(31,0)), int(cmd[i].data.range(63,32)), int(cmd[i].data.range(123,100)), int(cmd[i].data.range(99,99)));
-                    insert_edge(src, dst, tmp_storage, pma_headers);
+                    if (cacheable)
+                        insert_edge(src, dst, tmp_storage, pma_headers);
+                    else
+                        insert_edge(src, dst, (int*) (hbm_ptr + header_start + sizeof(PMA_HEADER)), pma_headers);
                 }
             }
 
@@ -272,7 +272,10 @@ extern "C"
                 total_extra_segs += enlarged_segs[i];
                 pma_headers.vertex_range[i] += total_extra_segs;
             }
-            rebalance(tmp_storage, pma_headers);
+            if (cacheable)
+                rebalance(tmp_storage, pma_headers);
+            else  
+                rebalance((int*) (hbm_ptr + header_start + sizeof(PMA_HEADER)), pma_headers);
             CHANGE_ATTR:
             for (int i = 0 ; i < cmd_count; i++)
             {
@@ -288,10 +291,20 @@ extern "C"
                 }
             }
             memcpy(hbm_ptr + new_header_start, &pma_headers, sizeof(PMA_HEADER));
-            memcpy(hbm_ptr + new_header_start + sizeof(PMA_HEADER), tmp_storage, new_pma_len - sizeof(PMA_HEADER));
+            if (cacheable)
+                memcpy(hbm_ptr + new_header_start + sizeof(PMA_HEADER), tmp_storage, new_pma_len - sizeof(PMA_HEADER));
+            else 
+                memcpy(hbm_ptr + new_header_start + sizeof(PMA_HEADER), (hbm_ptr + header_start + sizeof(PMA_HEADER)), new_pma_len - sizeof(PMA_HEADER));
+            if (in_mem)
+            {
+                vec_info.data.range(31,0) = header_start;
+                vec_info.data.range(63,32) = pma_len_in_byte;
+                // 顺序必须是 vec_info -> command，避免死锁/错配
+                vec_info_stream.write(vec_info);
+                COMMAND_STREAM cfree; cfree.data = MEM_FREE; cfree.last = 0;
+                cmd_to_mem_stream.write(cfree);
+            }
             ack_back_to_router.write({.data = 1});
-            // printf("PMA UPDATE DONE FOR PMA IDX %d, DIRECTION %d\n", pma_idx, int(direction));
-            // HERE
         }
     }
 }

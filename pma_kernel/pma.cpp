@@ -70,41 +70,42 @@ void binary_search(int val, int left, int right, int *storage, int &out_idx, int
     }
     return;
 }
-void insert_edge(int src, int dst, int* pma_data, PMA_HEADER& pma_header)
+void insert_edge(int dst, int* pma_data, PMA_HEADER& pma_header, int find_pos)
 {
-    int local_src = src % VERTEX_PER_PMA;
-    int left = local_src == 0 ? 0 : pma_header.vertex_range[local_src - 1] * SEGMENT_SIZE;
-    int right = pma_header.vertex_range[local_src] * SEGMENT_SIZE ;
-    int out_idx, out_val;
-    binary_search(dst, left, right, pma_data, out_idx, out_val);
-    if (out_val == dst)
-    {
-        HERE
-        printf("Edge %d -> %d already exists. Skipping insertion.\n", src, dst);
-        return;
-    }
-    int to_move_pos = -1;
-    FIND_SHIT_POS:
-    for (int i = out_idx + 1; i < pma_header.vertex_range[local_src] * SEGMENT_SIZE; i++)
-    {
-        #pragma HLS PIPELINE II=1
-        #pragma HLS LOOP_TRIPCOUNT min=0 max=4096
-        if (pma_data[i] == UNUSED_ICON)
-        {
-            to_move_pos = i;
-            break;
-        }
-    }
-    
-    INSERT_EDGE_SHIFT:
-    for (int i = to_move_pos; i > out_idx + 1; i--)
+    // int local_src = src % VERTEX_PER_PMA;
+    // int left = local_src == 0 ? 0 : pma_header.vertex_range[local_src - 1] * SEGMENT_SIZE;
+    // int right = pma_header.vertex_range[local_src] * SEGMENT_SIZE ;
+    // int out_idx, out_val;
+    // binary_search(dst, left, right, pma_data, out_idx, out_val);
+    // if (out_val == dst)
+    // {
+    //     HERE
+    //     printf("Edge %d -> %d already exists. Skipping insertion.\n", src, dst);
+    //     return;
+    // }
+
+
+    const int BITS_PER_SEG = SEGMENT_SIZE * 32;  // 2048
+    int seg_idx = find_pos / SEGMENT_SIZE;
+    int seg_start = seg_idx * SEGMENT_SIZE;
+    int insert_offset = find_pos - seg_start;
+
+    ap_uint<BITS_PER_SEG> seg_data = 0;
+    LOAD_SEG:
+    for (int i = 0; i < SEGMENT_SIZE; i++)
     {
         #pragma HLS PIPELINE II=1
-        // #pragma HLS LOOP_TRIPCOUNT min=0 max=4096
-        pma_data[i] = pma_data[i - 1];
+        seg_data.range((i+1)*32 - 1, i*32) = pma_data[seg_start + i];
     }
-    pma_data[out_idx+1] = dst;
-    pma_header.edge_count[local_src]++;
+
+    int shift_start = insert_offset + 1;  // 从插入后第一个位置开始移
+    ap_uint<BITS_PER_SEG> shifted_data = seg_data;
+    ap_uint<BITS_PER_SEG> mask = (ap_uint<BITS_PER_SEG>(1) << (insert_offset * 32)) - 1;
+    seg_data &= mask;
+    shifted_data &= ~mask;
+    shifted_data <<= 32;
+    seg_data |= shifted_data;
+    seg_data.range((insert_offset + 1) * 32 + 31, (insert_offset + 1) * 32) = dst;
 }
 void rebalance(int* pma_data, PMA_HEADER& pma_header)
 {

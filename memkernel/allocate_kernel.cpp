@@ -6,15 +6,18 @@
 extern "C"
 {
     void allocate_kernel(
-        BYTE* bm_ptr,
+        // BYTE* bm_ptr,
         hls::stream<VEC_INFO_STREAM> &vec_info_stream,
         hls::stream<VEC_INFO_STREAM> &vec_info_back
     )
     {
         #pragma HLS INTERFACE s_axilite port=return
-        #pragma HLS INTERFACE m_axi port=bm_ptr offset=slave bundle=gmem0
+        // #pragma HLS INTERFACE m_axi port=bm_ptr offset=slave bundle=gmem0
         #pragma HLS INTERFACE axis port=vec_info_stream
         #pragma HLS INTERFACE axis port=vec_info_back
+        BYTE bm_ptr[CHANNEL_CAPACITY / INIT_VEC_LEN_IN_BYTE / 8];
+        #pragma HLS bind_storage variable=ram_t2p impl=uram
+
         while (true)
         {
             auto info = vec_info_stream.read();
