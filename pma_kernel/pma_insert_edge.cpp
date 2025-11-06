@@ -6,7 +6,7 @@
 #include "pma.h"
 #include <ap_utils.h>
 
-
+#define MAX_REQUEST 10
 struct InsertPos {
     int idx;      // 插入索引
     int val;      // 查找结果值
@@ -275,10 +275,188 @@ void binary_search_cu(
 }
 
 
+void rebalance_cu(
+    hls::stream<PMA_HEADER>& pma_header_in,
+    hls::stream<VEC_INFO>& pma_addr_in,
+    hls::stream<int>& pma_idx,
+    hls::stream<COMMAND_STREAM>& ack_back,
+
+    hls::stream<VEC_INFO>& read_req_out,         // 输出: 发送读段请求
+    hls::stream<ap_uint<512>>& read_data_in,     // 输入: 接收段数据
+    hls::stream<VEC_INFO>& write_req_out,        // 输出: 发送写段请求
+    hls::stream<ap_uint<512>>& write_data_out   // 输出: 发送要写入的段数据
+)
+{
+    PMA_HEADER pma_header = pma_header_in.read();
+    VEC_INFO pma_addr = pma_addr_in.read();
 
 
+    const int pma_data_base_addr = pma_addr.range(31,0) + sizeof(PMA_HEADER);
+    const int pma_data_size_bytes = pma_addr.range(63,32) - sizeof(PMA_HEADER);
+    const int pma_data_size_ints = pma_data_size_bytes / sizeof(int);
+    const int num_chunks_total = (pma_data_size_bytes + 63) / 64;
+    const int INTS_PER_CHUNK = 512 / 32;
+    
+    int valid_data_buffer[INTS_PER_CHUNK];
+    #pragma HLS ARRAY_PARTITION variable=valid_data_buffer complete
+    for (int k = 0 ; k < INTS_PER_CHUNK ; k++)
+    {
+        #pragma HLS UNROLL 
+        valid_data_buffer[k] = UNUSED_ICON;
+    }
+    //PACK_PHASE:
+    int pack_ptr_ints = pma_data_size_ints;
+    int buffer_count = INTS_PER_CHUNK - 1;
+    PACK_MAIN_LOOP:
+    for (int i = num_chunks_total - 1; i >= 0; --i) {
+        #pragma HLS LOOP_TRIPCOUNT min=1 max=4096
+        VEC_INFO read_req;
+        read_req.range(31,0) = pma_data_base_addr + i * 64;
+        read_req.range(63,32) = 64;
+        read_req_out.write(read_req);
 
-void insert_element(
+        ap_uint<512> chunk_data = read_data_in.read();
+        int* chunk_data_ints = (int*)(&chunk_data);
+        
+        PACK_INNER_LOOP:
+        for (int j = INTS_PER_CHUNK - 1; j >= 0; --j) {
+            #pragma HLS PIPELINE II=1
+            if (chunk_data_ints[j] != UNUSED_ICON) {
+                valid_data_buffer[buffer_count] = chunk_data_ints[j];
+                buffer_count--;
+                if (buffer_count == -1) {
+                    pack_ptr_ints -= INTS_PER_CHUNK;
+                    VEC_INFO write_req;
+                    write_req.range(31,0) = pma_data_base_addr + pack_ptr_ints * sizeof(int);
+                    write_req.range(63,32) = 64;
+                    write_req_out.write(write_req);
+                    
+                    ap_uint<512> write_chunk;
+                    int* write_chunk_ints = (int*)(&write_chunk);
+                    for(int k=0; k<INTS_PER_CHUNK; ++k) {
+                        #pragma HLS UNROLL
+                        write_chunk_ints[k] = valid_data_buffer[k];
+                    }
+                    for (int k = 0 ; k < INTS_PER_CHUNK ; k++)
+                    {
+                        #pragma HLS UNROLL 
+                        valid_data_buffer[k] = UNUSED_ICON;
+                    }
+                    write_data_out.write(write_chunk);
+                    buffer_count = INTS_PER_CHUNK - 1;
+                }
+            }
+        }
+    }
+    // 处理缓冲区中剩余的数据
+    if (buffer_count < INTS_PER_CHUNK - 1) {
+        int element_num = INTS_PER_CHUNK - buffer_count - 1;
+        pack_ptr_ints -= element_num;
+        VEC_INFO write_req;
+        write_req.range(31,0) = pma_data_base_addr + pack_ptr_ints * sizeof(int);
+        write_req.range(63,32) = element_num * sizeof(int);
+        write_req_out.write(write_req);
+
+        ap_uint<512> write_chunk;
+        int* write_chunk_ints = (int*)(&write_chunk);
+        for(int k=0; k < element_num; ++k) {
+            #pragma HLS UNROLL
+            write_chunk_ints[k] = valid_data_buffer[buffer_count + 1 + k];
+        }
+        write_data_out.write(write_chunk);
+    }
+    //SPARSE_PHASE: 
+    int current_read_ptr_ints = pack_ptr_ints;
+
+    for (int v = 0 ; v < VERTEX_PER_PMA ; v++)
+    {
+        #pragma HLS LOOP_TRIPCOUNT min=16 max=16
+        int seg_start_idx = (v == 0) ? 0 : pma_header.vertex_range[v - 1];
+        int seg_end_idx = pma_header.vertex_range[v];
+        int seg_count = seg_end_idx - seg_start_idx;
+        if (seg_count == 0) continue;
+
+        int edge_num = pma_header.edge_count[v];
+        // if (edge_num == 0) continue;
+
+        int base = edge_num / seg_count;
+        int extra = edge_num % seg_count;
+
+        REBALANCE_SEG_LOOP:
+        for (int s = 0; s < seg_count; ++s) {
+            #pragma HLS LOOP_TRIPCOUNT min=0 max=64
+            int num_to_move = base + (s < extra ? 1 : 0);
+            int target_seg_start_addr = pma_data_base_addr + (seg_start_idx + s) * SEGMENT_SIZE * sizeof(int);
+            const int CHUNKS_PER_SEGMENT = SEGMENT_SIZE * sizeof(int) / 64;
+            // if (num_to_move == 0) continue;
+            if (num_to_move == 0)
+            {
+                VEC_INFO write_req;
+                write_req.range(31,0) = target_seg_start_addr;
+                write_req.range(63,32) = SEGMENT_SIZE * sizeof(int);
+                write_req_out.write(write_req);
+
+                ap_uint<512> unused_chunk;
+                int* unused_chunk_ints = (int*)(&unused_chunk);
+                for(int i=0; i<INTS_PER_CHUNK; ++i) {
+                    #pragma HLS UNROLL
+                    unused_chunk_ints[i] = UNUSED_ICON;
+                }
+                for (int k = 0; k < CHUNKS_PER_SEGMENT; ++k) {
+                    #pragma HLS PIPELINE II=1
+                    write_data_out.write(unused_chunk);
+                }
+                continue;
+            }
+
+            
+            // 从紧缩区域读取数据并写到新的位置
+            // 这是一个简化的内存到内存移动，实际可能需要一个中间CU来处理
+            VEC_INFO read_req;
+            read_req.range(31,0) = pma_data_base_addr + current_read_ptr_ints * sizeof(int);
+            read_req.range(63,32) = num_to_move * sizeof(int);
+            read_req_out.write(read_req);
+
+            ap_uint<2048> segment_buffer;
+            int* seg_int_ptr = (int*)(&segment_buffer);
+            
+            ap_uint<2048> valid_data;
+            for (int k = 0 ; k < (num_to_move * sizeof(int) + 63) / 64 ; k++)
+            {
+                ap_uint<512>* chunk_ptr = (ap_uint<512>*)(&valid_data);
+                chunk_ptr[k] = read_data_in.read();
+            }
+            int intra_seg_ptr = 0;
+            for (;intra_seg_ptr < num_to_move; intra_seg_ptr++)
+            {
+                int *data_int_ptr = (int*)(&valid_data);
+                seg_int_ptr[intra_seg_ptr] = data_int_ptr[intra_seg_ptr];
+            }
+            for (; intra_seg_ptr < SEGMENT_SIZE ; intra_seg_ptr++)
+            {
+                seg_int_ptr[intra_seg_ptr] = UNUSED_ICON;
+            }
+
+            VEC_INFO write_req;
+            write_req.range(31,0) = target_seg_start_addr;
+            write_req.range(63,32) = SEGMENT_SIZE * sizeof(int);
+            write_req_out.write(write_req);
+            ap_uint<512>* chunk_ptr = (ap_uint<512>*)(&segment_buffer);
+            MOVE_DATA_CHUNKS:
+            for (int k = 0; k < CHUNKS_PER_SEGMENT; ++k) {
+                #pragma HLS PIPELINE II=1
+                auto data = chunk_ptr[k];
+                write_data_out.write(data);
+            }
+            current_read_ptr_ints += num_to_move;
+        }
+    }
+    int idx = pma_idx.read();
+    ack_back.write({.data=idx});
+}   
+
+
+void insert_element_cu(
     hls::stream<InsertPos> &insert_info,
     hls::stream<int> &insert_count,
     hls::stream<VEC_INFO> &pma_addr,
@@ -387,8 +565,8 @@ void insert_element(
             one_seg_updates++;
         }
         VEC_INFO write_req;
-        write_req.range(31,0) = pma_base_addr.range(31,0) + current_seg_idx * sizeof(int);
-        write_req.range(63,32) = SEGMENT_SIZE * SEGMENT_SIZE * sizeof(int);
+        write_req.range(31,0) = pma_base_addr.range(31,0) + current_seg_idx * sizeof(int) * SEGMENT_SIZE;
+        write_req.range(63,32) = SEGMENT_SIZE * sizeof(int);
         write_req_out.write(write_req);
         for (int i = 0; i < chunks_per_segment; i++) 
         {
@@ -397,7 +575,7 @@ void insert_element(
         }
     }
 }
-void vec_info_writer(
+void write_vec_info(
     hls::stream<VEC_INFO>& vec_info_stream,
     hls::stream<int>& pma_idx,
     hls::stream<int>& direction,
@@ -429,7 +607,12 @@ void move_and_change_header(
     hls::stream<int>& direction_in,
     hls::stream<int>& direction_out,
     hls::stream<int>& pma_index_in,
-    hls::stream<int>& pma_idx_out
+    hls::stream<int>& pma_idx_out,
+
+    hls::stream<VEC_INFO>& mem_read_req,
+    hls::stream<ap_uint<512>>& mem_read_data,
+    hls::stream<VEC_INFO>& mem_write_req,
+    hls::stream<ap_uint<512>>& mem_write_data
 )
 {
     while (true)
@@ -438,13 +621,18 @@ void move_and_change_header(
         int direction = direction_in.read();
         int pma_index = pma_index_in.read();
         int enlarge_segs[16];
+        for (int i = 0 ; i < 16 ; i++)
+        {
+            #pragma HLS UNROLL
+            enlarge_segs[i] = 0;
+        }
         bool enlarged = false;
         for (int v = 0 ; v < VERTEX_PER_PMA ; v++)
         {
             int seg_start = v == 0 ? 0 : header.vertex_range[v-1];
             int seg_end = header.vertex_range[v];
             int max_edge = (seg_end - seg_start) * SEGMENT_SIZE * DENSITY_BOUND;
-            if (max_edge > header.edge_count[v])
+            if (max_edge < header.edge_count[v])
             {
                 enlarged = true;
                 enlarge_segs[v] = seg_end - seg_start;
@@ -456,21 +644,39 @@ void move_and_change_header(
             total_enlarge_segs += enlarge_segs[i];
             header.vertex_range[i] += total_enlarge_segs;
         }
+        VEC_INFO old_addr = pma_addr_in.read();
+        VEC_INFO new_addr;
         if (enlarged)
         {
-            VEC_INFO old_addr = pma_addr_in.read();
-            VEC_INFO new_addr = new_alloc_addr.read();
-            pma_addr_out.write(new_addr);
+            new_addr = new_alloc_addr.read();
+            updated_pma_addr_to_mem.write(new_addr);
             updated_pma_addr_to_mem.write(new_addr);
             direction_out.write(direction);
             pma_idx_out.write(pma_index);
             to_free_pos.write(old_addr);
-            
 
+            mem_read_req.write(old_addr);
+            VEC_INFO write_addr;
+            write_addr.range(31,0) = new_addr.range(31,0);
+            write_addr.range(63,32) = old_addr.range(63,32);
+            mem_write_req.write(write_addr);
+            //分配时候按照1024对齐的因此不会有余数
+            for (int i = 0 ; i < old_addr.range(63,32) / 64 ; i++)
+            {
+                auto data = mem_read_data.read();
+                ap_wait();
+                mem_write_data.write(data);
+            }
             //to be done move data
+            to_free_cmd.write(MEM_FREE);
+            to_free_pos.write(new_addr);
+        }
+        else  
+        {
+            new_addr = old_addr;
         }
 
-
+        pma_addr_out.write(new_addr);
         new_header_stream.write(header);
     }
 }
@@ -542,15 +748,23 @@ void read_vec_info(
     }
 }
 
+
+
+
 void read_hbm(
     BYTE* hbm_ptr,
-    hls::stream<VEC_INFO>& vec_info_stream,
-    hls::stream<ap_uint<512>>& memory_chunk
+    hls::stream<VEC_INFO> vec_info_stream[MAX_REQUEST],
+    hls::stream<ap_uint<512>> memory_chunk[MAX_REQUEST]
 )
 {
+    int idx = 0;
+    VEC_INFO vec_info;
+    ap_uint<512> data;
     while (true)
     {
-        auto vec_info = vec_info_stream.read();
+        idx = (idx + 1) % MAX_REQUEST;
+        bool request = vec_info_stream[idx].read_nb(vec_info);
+        if (!request) continue;
         if (vec_info == PMA_STOP)
         {
             break;
@@ -558,25 +772,29 @@ void read_hbm(
         int start = vec_info.range(31,0);
         int len = vec_info.range(63,32);
         int num_chunks = (len + 63) / 64;
-        ap_uint<512> data;
         for (int i = 0; i < num_chunks; i++)
         {
             #pragma HLS PIPELINE II=1
             memcpy(&data, hbm_ptr + start + i * 64, 64);
-            memory_chunk.write(data);
+            memory_chunk[idx].write(data);
         }
     }
 }
 
 void write_hbm(
     BYTE* hbm_ptr,
-    hls::stream<VEC_INFO>& vec_info_stream,
-    hls::stream<ap_uint<512>>& memory_chunk
+    hls::stream<VEC_INFO> vec_info_stream[MAX_REQUEST],
+    hls::stream<ap_uint<512>> memory_chunk[MAX_REQUEST]
 )
 {
+    int idx = 0;
+    VEC_INFO vec_info;
+    ap_uint<512> data;
     while (true)
     {
-        auto vec_info = vec_info_stream.read();
+        idx = (idx + 1) % MAX_REQUEST;
+        bool request = vec_info_stream[idx].read_nb(vec_info);
+        if (!request) continue;
         if (vec_info == PMA_STOP)
         {
             break;
@@ -590,15 +808,16 @@ void write_hbm(
         for (int i = 0; i < num_chunks; i++)
         {
             #pragma HLS PIPELINE II=1
-            data = memory_chunk.read();
+            data = memory_chunk[idx].read();
             hbm_chunk_ptr[i] = data;
             // memcpy(hbm_ptr + start + i * 64, &data, 64);
         }
         if (extra)
         {
-            data = memory_chunk.read();
+            data = memory_chunk[idx].read();
             memcpy(hbm_ptr + start + num_chunks * 64, &data, extra);
         }
+
     }
 }
 
@@ -625,118 +844,19 @@ extern "C"
         #pragma HLS INTERFACE axis port=vec_info_to_mem_stream
         #pragma HLS INTERFACE axis port=cmd_to_mem_stream
         #pragma HLS INTERFACE axis port=vec_info_back_stream
-      
-            // int cmd_count = 0;
-            // PMA_UPDATE_MESSAGE cmd[MAX_CMD_NUM] = {0};
-            // #pragma HLS ARRAY_PARTITION variable=cmd complete
-            // const int TMP_BYTES = sizeof(int) * SEGMENT_SIZE * MAX_PMA_NUM;
-            // static int tmp_storage[TMP_BYTES / sizeof(int)];
-            
-            // while (true)
-            // {
-            //     cmd_count = 0;
-            //     for (int i = 0 ; i < MAX_CMD_NUM; i++)
-            //     {
-            //         #pragma HLS PIPELINE II = 1
-            //         cmd[i] = cmd_stream.read();
-            //         // HERE
-            //         cmd_count++;
-            //         if (cmd[i].last == 1)
-            //         {
-            //             break;
-            //         }
-            //     }
-            //     if (cmd_count == 1 && cmd[0].data == PMA_STOP)
-            //     {
-            //         HERE
-            //         break;
-            //     }
-            //     int pma_idx = cmd[0].data.range(31,0) / VERTEX_PER_PMA;
-            //     int direction = cmd[0].data.range(98,98);
-            //     int header_start = 0;
-            //     int pma_len_in_byte = 0;
-            //     if (direction == IN_DIRECTION)
-            //     {
-            //         if (neg_pma_addrs[pma_idx] != 0)
-            //         {
-            //             header_start = neg_pma_addrs[pma_idx].range(31,0);
-            //             pma_len_in_byte = neg_pma_addrs[pma_idx].range(63,32);
-            //         }
-            //     }
-            //     else
-            //     {
-            //         if (pos_pma_addrs[pma_idx] != 0)
-            //         {
-            //             header_start = pos_pma_addrs[pma_idx].range(31,0);
-            //             pma_len_in_byte = pos_pma_addrs[pma_idx].range(63,32);
-            //         }
-            //     }  
-            //     VEC_INFO_STREAM vec_info;
-            //     PMA_HEADER header;
-            //     memcpy(&header, hbm_ptr + header_start, sizeof(PMA_HEADER));
-            //     ap_uint<64> edge_info[MAX_CMD_NUM];
-            //     #pragma HLS ARRAY_PARTITION variable=batch_src complete
-            //     #pragma HLS ARRAY_PARTITION variable=batch_dst complete
-
-            //     // 收集所有要插入的 edge 到数组 便于排序
-            //     for (int i = 0; i < cmd_count; ++i) 
-            //     {
-            //         #pragma HLS PIPELINE II=1
-            //         edge_info[i].range(63,32) = cmd[i].data.range(31,0);
-            //         edge_info[i].range(31,0) = cmd[i].data.range(63,32);
-            //     }
-            //     for (int i = 0; i < cmd_count; ++i) {
-            //         #pragma HLS PIPELINE II=1
-            //         edge_info[i].range(63,32) = cmd[i].data.range(31,0); // src
-            //         edge_info[i].range(31,0)  = cmd[i].data.range(63,32); // dst
-            //     }
-
-            //     // 插入排序：按 src 升序；src 相同时按 dst 升序（适合 MAX_CMD_NUM 小的情况）
-            //     SORT_EDGES:
-            //     for (int i = 1; i < cmd_count; ++i) {
-            //         #pragma HLS LOOP_TRIPCOUNT min=0 max=MAX_CMD_NUM
-            //         ap_uint<64> key = edge_info[i];
-            //         int j = i - 1;
-            //         SHIFT_LOOP:
-            //         while (j >= 0 && edge_info[j] > key) {
-            //             #pragma HLS LOOP_TRIPCOUNT min=0 max=MAX_CMD_NUM
-            //             #pragma HLS PIPELINE II=1
-            //             edge_info[j + 1] = edge_info[j];
-            //             j--;
-            //         }
-            //         edge_info[j + 1] = key;
-            //     }
-                
-            //     int* storage;
-            //     bool cacheable = false;
-            //     int data_start = header_start + sizeof(PMA_HEADER);
-            //     int total_ints = pma_len_in_byte / sizeof(int);
-            //     if (total_ints * sizeof(int) <= TMP_BYTES) {
-            //         cacheable = true;
-            //         memcpy(tmp_storage, hbm_ptr + data_start, pma_len_in_byte);
-            //         storage = tmp_storage;
-            //     } else {
-            //         storage = (int*)(hbm_ptr + data_start);
-            //     }
-            //     InsertPos pos_info[MAX_CMD_NUM];
-            //     for (int i = 0 ; i < cmd_count ; i++)
-            //     {
-            //         int src = edge_info[i].range(63,32);
-            //         int dst = edge_info[i].range(31,0);
-            //         int local_src = src % VERTEX_PER_PMA;
-            //         int left = (local_src == 0 ? 0 : header.vertex_range[local_src - 1]);
-            //         int right = header.vertex_range[local_src];
-            //         binary_search(dst, left, right, storage, cacheable, addr_fifo, data_fifo, pos_info[i].idx, pos_info[i].val);
-            //         pos_info[i].exists = (pos_info[i].val == dst);
-            //     }
-
-            //     if (cacheable) {
-            //         memcpy(hbm_ptr + data_start, tmp_storage, pma_len_in_byte);
-            //     }
-            //     memcpy(hbm_ptr + header_start, &header, sizeof(PMA_HEADER));
-
-            //     // 发送ACK（已有）
-            //     ack_back_to_router.write({.data=pma_idx});
-            // }
+        #pragma HLS DATAFLOW
+        read_hbm();
+        read_hbm();
+        read_vec_info();
+        write_vec_info();
+        send_alloc_free_request();
+        receive_alloc_request();
+        process_cmd();
+        sort_cu();
+        head_read();
+        binary_search_cu();
+        insert_element_cu();
+        move_and_change_header();
+        rebalance_cu();
     }
 }
