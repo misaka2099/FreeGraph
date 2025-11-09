@@ -6,7 +6,17 @@
 #include "pma.h"
 #include <ap_utils.h>
 
-#define MAX_REQUEST 10
+#define MAX_READ_REQUEST 5
+#define MAX_WRITE_REQUEST 3
+#define MAX_ALLOC_FREE 3
+#define MAX_PMA_IDX_INFO_REQUEST 3
+#define MAX_PMA_ADDR_REQUEST 3
+#define MAX_PMA_HEADER_REQUEST 3
+struct pma_idx_info
+{
+    int pma_idx;
+    int direction;
+};
 struct InsertPos {
     int idx;      // 插入索引
     int val;      // 查找结果值
@@ -18,7 +28,7 @@ void process_cmd(
     hls::stream<PMA_UPDATE_MESSAGE> &cmd_stream,
     hls::stream<int> &cmd_count_stream,
     hls::stream<PMA_UPDATE_MESSAGE> &cmd_batch_stream,
-    hls::stream<PMA_UPDATE_MESSAGE> &first_cmd_to_header_read_info
+    hls::stream<pma_idx_info> pma_info_request[MAX_PMA_IDX_INFO_REQUEST]
 )
 {
     while(true)
@@ -26,7 +36,6 @@ void process_cmd(
         PMA_UPDATE_MESSAGE cmd_batch[MAX_CMD_NUM];
         #pragma HLS ARRAY_PARTITION variable=cmd_batch complete
         int cmd_count = 0;
-
         // 读取直到 last=1
         for (int i = 0; i < MAX_CMD_NUM; i++) {
             #pragma HLS PIPELINE II=1
@@ -36,7 +45,15 @@ void process_cmd(
                 break;
             }
         }
-
+        pma_idx_info info;
+        info.direction = cmd_batch[0].data.range(98,98);
+        info.pma_idx = cmd_batch[0].data.range(31,0) / VERTEX_PER_PMA;
+        
+        for (int i = 0 ; i < MAX_PMA_IDX_INFO_REQUEST ; i++)
+        {
+            #pragma HLS UNROLL
+            pma_info_request[i].write(info);
+        }
         // 将批次数据和数量写入输出流
         cmd_count_stream.write(cmd_count);
         for (int i = 0; i < cmd_count; i++) {
@@ -51,9 +68,9 @@ void process_cmd(
 }
 
 void sort_cu(
-    hls::stream<int> cmd_count_stream,
-    hls::stream<PMA_UPDATE_MESSAGE> cmd_batch_stream,
-    hls::stream<ap_uint<64>> edge_info_stream,
+    hls::stream<int>& cmd_count_stream,
+    hls::stream<PMA_UPDATE_MESSAGE>& cmd_batch_stream,
+    hls::stream<ap_uint<64>>& edge_info_stream,
     hls::stream<int> &edge_count
 )
 {
@@ -99,23 +116,20 @@ void sort_cu(
 void head_read(
     VEC_INFO* pos_pma_addrs,
     VEC_INFO* neg_pma_addrs,
-    hls::stream<PMA_UPDATE_MESSAGE> &first_cmd_to_header_read_info,
-    hls::stream<PMA_HEADER>& header_out,
+    hls::stream<pma_idx_info> &pma_idx_info_request,
+    hls::stream<PMA_HEADER> header_out[MAX_PMA_HEADER_REQUEST],
+    hls::stream<VEC_INFO> pma_addr[MAX_PMA_ADDR_REQUEST],
     hls::stream<VEC_INFO>& request_addr,
-    hls::stream<VEC_INFO>& pma_addr,
     hls::stream<ap_uint<512>>& memory_chunk
 )
 {
     while (true)
     {
-        auto cmd = first_cmd_to_header_read_info.read();
-        if (cmd.data == PMA_STOP)
-        {
-            break;
-        }
-        int pma_idx = cmd.data.range(31,0) / VERTEX_PER_PMA;
+        auto info = pma_idx_info_request.read();
+        int pma_idx = info.pma_idx;
+        int direction = info.direction;
         VEC_INFO vec;
-        if (cmd.data.range(98,98) == IN_DIRECTION)
+        if (direction == IN_DIRECTION)
         {
             vec = neg_pma_addrs[pma_idx];
         }
@@ -123,7 +137,12 @@ void head_read(
         {
             vec = pos_pma_addrs[pma_idx];
         }
-        pma_addr.write(vec);
+        for (int i = 0 ; i < MAX_PMA_ADDR_REQUEST ; i++)
+        {
+            #pragma HLS UNROLL
+            pma_addr[i].write(vec);
+        }
+            
         vec.range(63,32) = sizeof(PMA_HEADER);
         
         PMA_HEADER header;
@@ -134,7 +153,11 @@ void head_read(
             ap_uint<512> chunk = memory_chunk.read();
             header_ptr[i] = chunk;
         }
-        header_out.write(header);
+        for (int i = 0 ; i < MAX_PMA_HEADER_REQUEST ; i++)
+        {    
+            #pragma HLS UNROLL
+            header_out[i].write(header);
+        }
     }
 }
 void binary_search_cu(
@@ -146,7 +169,8 @@ void binary_search_cu(
     hls::stream<int> &edge_count,
     hls::stream<InsertPos> &insert_info,
     hls::stream<int> &insert_count,
-    hls::stream<VEC_INFO> &new_alloc_addr
+    hls::stream<VEC_INFO> &new_alloc_addr,
+    hls::stream<COMMAND> &alloc_free_cmd
 )
 {
     while (true)
@@ -250,6 +274,7 @@ void binary_search_cu(
                 header.vertex_range[local_src]++;
             }
             insert_info.write(to_insert);
+            alloc_free_cmd.write(MEM_ALLOC);
         }
         insert_count.write(find_count);
         int need_extra_seg = 0;
@@ -270,6 +295,7 @@ void binary_search_cu(
             vec_info.range(31,0) = 0;//alloc 只看长度
             vec_info.range(63,32) = pma_data_base_addr + need_extra_seg * sizeof(BYTE) * SEGMENT_SIZE;
             new_alloc_addr.write(vec_info);
+
         }
     }
 }
@@ -278,7 +304,7 @@ void binary_search_cu(
 void rebalance_cu(
     hls::stream<PMA_HEADER>& pma_header_in,
     hls::stream<VEC_INFO>& pma_addr_in,
-    hls::stream<int>& pma_idx,
+    hls::stream<pma_idx_info>& pma_idx,
     hls::stream<COMMAND_STREAM>& ack_back,
 
     hls::stream<VEC_INFO>& read_req_out,         // 输出: 发送读段请求
@@ -451,7 +477,7 @@ void rebalance_cu(
             current_read_ptr_ints += num_to_move;
         }
     }
-    int idx = pma_idx.read();
+    int idx = pma_idx.read().pma_idx;
     ack_back.write({.data=idx});
 }   
 
@@ -464,11 +490,9 @@ void insert_element_cu(
     hls::stream<VEC_INFO>& read_req_out,         // 输出: 发送读段请求
     hls::stream<ap_uint<512>>& read_data_in,     // 输入: 接收段数据
     hls::stream<VEC_INFO>& write_req_out,        // 输出: 发送写段请求
-    hls::stream<ap_uint<512>>& write_data_out,   // 输出: 发送要写入的段数据
-    hls::stream<COMMAND>& cmd_to_mem,
-    hls::stream<VEC_INFO>& new_alloc_addr,
-    hls::stream<PMA_HEADER>& pma_header_out,
-    hls::stream<VEC_INFO>& pma_addr_out
+    hls::stream<ap_uint<512>>& write_data_out   // 输出: 发送要写入的段数据
+    // hls::stream<COMMAND>& cmd_to_mem,
+    // hls::stream<VEC_INFO>& new_alloc_addr
 )
 {
     while (true)
@@ -479,8 +503,6 @@ void insert_element_cu(
         }
         VEC_INFO pma_base_addr = pma_addr.read();
         PMA_HEADER header = pma_header.read();
-        pma_header_out.write(header);
-        pma_addr_out.write(pma_base_addr);
         InsertPos pos_batch[MAX_CMD_NUM];
         for (int k = 0 ; k < count ; k++)
         {
@@ -498,14 +520,6 @@ void insert_element_cu(
             {
                 need_extra_seg += seg_end - seg_start;
             }
-        }
-
-        if (need_extra_seg)
-        {
-            VEC_INFO vec_info;
-            vec_info.range(31,0) = 0;//alloc 只看长度
-            vec_info.range(63,32) = pma_base_addr.range(63,32) + need_extra_seg * sizeof(BYTE) * SEGMENT_SIZE;
-            new_alloc_addr.write(vec_info);
         }
         
         
@@ -577,8 +591,7 @@ void insert_element_cu(
 }
 void write_vec_info(
     hls::stream<VEC_INFO>& vec_info_stream,
-    hls::stream<int>& pma_idx,
-    hls::stream<int>& direction,
+    hls::stream<pma_idx_info>& pma_idx_info_stream,
     VEC_INFO *pos_addr,
     VEC_INFO *neg_addr
 )
@@ -587,8 +600,9 @@ void write_vec_info(
     {
         //处理退出逻辑
         auto vec_info = vec_info_stream.read();
-        auto dir = direction.read();
-        int idx = pma_idx.read();
+        auto info = pma_idx_info_stream.read();
+        auto dir = info.direction;
+        int idx = info.pma_idx;
         if (dir == OUT_DIRECTION)
             pos_addr[idx] = vec_info;
         else if (dir == IN_DIRECTION)
@@ -604,11 +618,8 @@ void move_and_change_header(
     hls::stream<VEC_INFO>& pma_addr_out,
     hls::stream<VEC_INFO>& to_free_pos,
     hls::stream<VEC_INFO>& updated_pma_addr_to_mem,
-    hls::stream<int>& direction_in,
-    hls::stream<int>& direction_out,
-    hls::stream<int>& pma_index_in,
-    hls::stream<int>& pma_idx_out,
-
+    hls::stream<pma_idx_info>& pma_update_idx,
+    hls::stream<pma_idx_info>& pma_idx_info_in,
     hls::stream<VEC_INFO>& mem_read_req,
     hls::stream<ap_uint<512>>& mem_read_data,
     hls::stream<VEC_INFO>& mem_write_req,
@@ -618,8 +629,9 @@ void move_and_change_header(
     while (true)
     {
         auto header = header_stream.read();
-        int direction = direction_in.read();
-        int pma_index = pma_index_in.read();
+        auto pma_info = pma_idx_info_in.read();
+        int direction = pma_info.direction;
+        int pma_index = pma_info.pma_idx;
         int enlarge_segs[16];
         for (int i = 0 ; i < 16 ; i++)
         {
@@ -650,11 +662,8 @@ void move_and_change_header(
         {
             new_addr = new_alloc_addr.read();
             updated_pma_addr_to_mem.write(new_addr);
-            updated_pma_addr_to_mem.write(new_addr);
-            direction_out.write(direction);
-            pma_idx_out.write(pma_index);
+            pma_update_idx.write(pma_info);
             to_free_pos.write(old_addr);
-
             mem_read_req.write(old_addr);
             VEC_INFO write_addr;
             write_addr.range(31,0) = new_addr.range(31,0);
@@ -681,80 +690,81 @@ void move_and_change_header(
     }
 }
 void send_alloc_free_request(
-    hls::stream<VEC_INFO>& request_in,
-    hls::stream<COMMAND>& cmd_in,
+    hls::stream<VEC_INFO> request_in[MAX_ALLOC_FREE],
+    hls::stream<COMMAND> cmd_in[MAX_ALLOC_FREE],
+    hls::stream<VEC_INFO> pma_addr_back[MAX_ALLOC_FREE],
     hls::stream<VEC_INFO_STREAM>& request_to_mem,
+    hls::stream<VEC_INFO_STREAM>& request_mem_back,
     hls::stream<COMMAND_STREAM>& cmd_to_mem
 )
 {
+    int idx = 0;
+    int resp_idx = 0;
+    ap_uint<MAX_ALLOC_FREE> waiting_for_alloc;
+    for(int i=0; i<MAX_ALLOC_FREE; ++i) waiting_for_alloc[i] = 0;
     while (true)
     {
-        auto cmd = cmd_in.read();
+        idx = (idx + 1) % MAX_ALLOC_FREE;
+        resp_idx = (resp_idx + 1) % MAX_ALLOC_FREE;
+
+        VEC_INFO_STREAM vec_info_back;
+        bool is_back = request_mem_back.read_nb(vec_info_back);
+        if (is_back)
+        {
+            pma_addr_back[vec_info_back.user].write(vec_info_back.data);   
+        }
+
+        
+        bool request = !cmd_in[idx].empty() && !request_in[idx].empty();
+        if (!request) continue;
+        
+        auto cmd = cmd_in[idx].read();
+        auto request_info = request_in[idx].read();
         if (cmd == PMA_STOP)
         {
             break;
         }
         // Send the request to memory
-        auto request_info = request_in.read();
-        request_to_mem.write({.data = request_info});
+        request_to_mem.write({.data = request_info, .user = idx});
         cmd_to_mem.write({.data = cmd});
-    }
-}
-void receive_alloc_request(
-    hls::stream<VEC_INFO_STREAM>& request_back,
-    hls::stream<VEC_INFO>& pma_addr_back
-)
-{
-    while(true)
-    {
-        auto request_info = request_back.read();
-        pma_addr_back.write(request_info.data);
-    }
-}
-void read_vec_info(
-    BYTE* hbm_ptr,
-    VEC_INFO* pos_pma_addrs,
-    VEC_INFO* neg_pma_addrs,
-    hls::stream<PMA_UPDATE_MESSAGE>& first_cmd_stream,
-    hls::stream<VEC_INFO>& vec_info_stream
-)
-{
-    
-    int cache[max_cache_size / sizeof(int)];
-    #pragma HLS bind_storage variable=cache type=ram_t2p impl=uram
-    while (true)
-    {
-        auto cmd = first_cmd_stream.read();
-        if (cmd.data == PMA_STOP)
-        {
-            break;
-        }
-        int pma_idx = cmd.data.range(31,0) / VERTEX_PER_PMA;
-        int direction = cmd.data.range(98,98);
-        VEC_INFO out;
-        if (direction == IN_DIRECTION)
-        {
-            out = neg_pma_addrs[pma_idx];
-        }
-        else
-        {
-            out = pos_pma_addrs[pma_idx];
-        }
-        bool cacheable = false;
-        int start = out.range(31,0);
-        int len = out.range(63,32);
-        vec_info_stream.write(out);
         
     }
 }
+// void read_vec_info(
+//     VEC_INFO* pos_pma_addrs,
+//     VEC_INFO* neg_pma_addrs,
+//     hls::stream<pma_idx_info>& pma_idx_info_request,
+//     hls::stream<VEC_INFO>& vec_info_stream
+// )
+// {
+//     while (true)
+//     {
+//         auto info = pma_idx_info_request.read();
+//         int pma_idx = info.pma_idx;
+//         int direction = info.direction;
+//         VEC_INFO out;
+//         if (direction == IN_DIRECTION)
+//         {
+//             out = neg_pma_addrs[pma_idx];
+//         }
+//         else
+//         {
+//             out = pos_pma_addrs[pma_idx];
+//         }
+//         int start = out.range(31,0);
+//         int len = out.range(63,32);
+//         vec_info_stream.write(out);
+        
+//     }
+// }
 
 
 
 
 void read_hbm(
     BYTE* hbm_ptr,
-    hls::stream<VEC_INFO> vec_info_stream[MAX_REQUEST],
-    hls::stream<ap_uint<512>> memory_chunk[MAX_REQUEST]
+    hls::stream<VEC_INFO> vec_info_stream[MAX_READ_REQUEST],
+    hls::stream<ap_uint<512>> memory_chunk[MAX_READ_REQUEST]
 )
 {
     int idx = 0;
@@ -762,7 +772,7 @@ void read_hbm(
     ap_uint<512> data;
     while (true)
     {
-        idx = (idx + 1) % MAX_REQUEST;
+        idx = (idx + 1) % MAX_READ_REQUEST;
         bool request = vec_info_stream[idx].read_nb(vec_info);
         if (!request) continue;
         if (vec_info == PMA_STOP)
@@ -783,8 +793,8 @@ void read_hbm(
 
 void write_hbm(
     BYTE* hbm_ptr,
-    hls::stream<VEC_INFO> vec_info_stream[MAX_REQUEST],
-    hls::stream<ap_uint<512>> memory_chunk[MAX_REQUEST]
+    hls::stream<VEC_INFO> vec_info_stream[MAX_WRITE_REQUEST],
+    hls::stream<ap_uint<512>> memory_chunk[MAX_WRITE_REQUEST]
 )
 {
     int idx = 0;
@@ -792,7 +802,7 @@ void write_hbm(
     ap_uint<512> data;
     while (true)
     {
-        idx = (idx + 1) % MAX_REQUEST;
+        idx = (idx + 1) % MAX_WRITE_REQUEST;
         bool request = vec_info_stream[idx].read_nb(vec_info);
         if (!request) continue;
         if (vec_info == PMA_STOP)
@@ -845,18 +855,145 @@ extern "C"
         #pragma HLS INTERFACE axis port=cmd_to_mem_stream
         #pragma HLS INTERFACE axis port=vec_info_back_stream
         #pragma HLS DATAFLOW
-        read_hbm();
-        read_hbm();
-        read_vec_info();
-        write_vec_info();
-        send_alloc_free_request();
-        receive_alloc_request();
-        process_cmd();
-        sort_cu();
-        head_read();
-        binary_search_cu();
-        insert_element_cu();
-        move_and_change_header();
-        rebalance_cu();
+        
+        
+        hls::stream<VEC_INFO> read_req_streams[MAX_READ_REQUEST];
+        hls::stream<ap_uint<512>> read_data_streams[MAX_READ_REQUEST];
+        hls::stream<VEC_INFO> write_req_streams[MAX_WRITE_REQUEST];
+        hls::stream<ap_uint<512>> write_data_streams[MAX_WRITE_REQUEST];
+        hls::stream<VEC_INFO> alloc_free_addr[MAX_ALLOC_FREE];
+        hls::stream<COMMAND> alloc_free_cmd[MAX_ALLOC_FREE];
+        hls::stream<VEC_INFO> alloc_free_addr_back[MAX_ALLOC_FREE];
+        hls::stream<pma_idx_info> pma_idx_info_request[MAX_PMA_IDX_INFO_REQUEST];
+        hls::stream<VEC_INFO> pma_addr_request[MAX_PMA_ADDR_REQUEST];
+        hls::stream<PMA_HEADER> pma_header_request[MAX_PMA_HEADER_REQUEST];
+        #pragma HLS STREAM variable=read_req_streams depth=4
+        #pragma HLS STREAM variable=read_data_streams depth=4
+        #pragma HLS STREAM variable=write_req_streams depth=4
+        #pragma HLS STREAM variable=write_data_streams depth=4
+
+        // --- 内部CU连接流 ---
+        hls::stream<int> cmd_count_stream("cmd_count_stream");
+        hls::stream<PMA_UPDATE_MESSAGE> cmd_batch_stream("cmd_batch_stream");
+
+        hls::stream<ap_uint<64>> edge_info_stream("edge_info_stream");
+        hls::stream<int> edge_count_stream("edge_count_stream");
+
+        hls::stream<VEC_INFO> pma_addr_to_bs("pma_addr_to_bs");
+        hls::stream<VEC_INFO> pma_addr_from_read_vec("pma_addr_from_read_vec");
+
+        hls::stream<InsertPos> insert_info_stream("insert_info_stream");
+        hls::stream<int> insert_count_stream("insert_count_stream");
+        hls::stream<VEC_INFO> new_alloc_addr_request("new_alloc_addr_request");
+
+        hls::stream<VEC_INFO> pma_addr_to_insert("pma_addr_to_insert");
+
+        hls::stream<VEC_INFO> pma_addr_to_free("pma_addr_to_free");
+        hls::stream<PMA_HEADER> new_pma_header("new_pma_header");
+        hls::stream<VEC_INFO> pma_addr_to_rebalance("pma_addr_to_rebalance");
+
+        hls::stream<COMMAND> to_free_cmd_stream("to_free_cmd_stream");
+        hls::stream<VEC_INFO> to_free_pos_stream("to_free_pos_stream");
+        hls::stream<VEC_INFO> updated_pma_addr_to_write("updated_pma_addr_to_write");
+
+        hls::stream<pma_idx_info> pma_vec_info_idx_to_write("pma_vec_info_idx_to_write"); 
+
+        hls::stream<VEC_INFO> pma_addr_from_alloc("pma_addr_from_alloc");
+
+        
+        read_hbm(hbm_ptr, read_req_streams, read_data_streams);
+        write_hbm(hbm_ptr, write_req_streams, write_data_streams);
+        // read_vec_info(
+        //     pos_pma_addrs,
+        //     neg_pma_addrs,
+        //     pma_idx_info_request[0],
+        //     pma_addr_from_read_vec
+        // );
+        write_vec_info(
+            updated_pma_addr_to_write,
+            pma_vec_info_idx_to_write,
+            pos_pma_addrs,
+            neg_pma_addrs
+
+        );
+        send_alloc_free_request(
+            alloc_free_addr, 
+            alloc_free_cmd, 
+            alloc_free_addr_back,
+            vec_info_to_mem_stream, 
+            vec_info_back_stream, 
+            cmd_to_mem_stream
+        );
+        process_cmd(
+            cmd_stream,
+            cmd_count_stream,
+            cmd_batch_stream,
+            pma_idx_info_request
+        );
+        sort_cu(
+            cmd_count_stream,
+            cmd_batch_stream,
+            edge_info_stream,
+            edge_count_stream
+        );
+        head_read(
+            pos_pma_addrs, 
+            neg_pma_addrs, 
+            pma_idx_info_request[0],
+            pma_header_request,
+            pma_addr_request,
+            read_req_streams[0],
+            read_data_streams[0]
+        );
+        binary_search_cu(
+            pma_header_request[0],
+            pma_addr_request[0],
+            read_data_streams[1],
+            read_req_streams[1],
+            edge_info_stream,
+            edge_count_stream,
+            insert_info_stream,
+            insert_count_stream,
+            alloc_free_addr[0],
+            alloc_free_cmd[0]
+        );
+        insert_element_cu(
+            insert_info_stream,
+            insert_count_stream,
+            pma_addr_request[1],
+            pma_header_request[1],
+            read_req_streams[2],         // 输出: 发送读段请求
+            read_data_streams[2],     // 输入: 接收段数据
+            write_req_streams[0],        // 输出: 发送写段请求
+            write_data_streams[0]   // 输出: 发送要写入的段数据
+
+        );
+        move_and_change_header(
+            pma_header_request[2], 
+            new_pma_header, 
+            alloc_free_addr_back[0], 
+            alloc_free_cmd[1],
+            alloc_free_addr[1],
+            pma_addr_to_rebalance, 
+            pma_addr_to_free, 
+            updated_pma_addr_to_write, 
+            pma_vec_info_idx_to_write,
+            pma_idx_info_request[1], 
+            read_req_streams[3], 
+            read_data_streams[3], 
+            write_req_streams[1], 
+            write_data_streams[1]
+        );
+        rebalance_cu(
+            new_pma_header,
+            pma_addr_to_rebalance,
+            pma_idx_info_request[2],
+            ack_back_to_router,
+
+            read_req_streams[4], 
+            read_data_streams[4], 
+            write_req_streams[2], 
+            write_data_streams[2]
+        );
     }
 }
