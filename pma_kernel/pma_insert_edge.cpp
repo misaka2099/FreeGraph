@@ -562,7 +562,6 @@ void move_and_change_header(
                 pos_addr[pma_index] = new_addr;
             }
             memmove(hbm_ptr + (int)new_addr.range(31,0),  hbm_ptr + (int)old_addr.range(31,0), (int)old_addr.range(63,32));
-            memcpy(hbm_ptr + (int)new_addr.range(31,0), &header, sizeof(PMA_HEADER));
             cmd_to_mem.write({.data = MEM_FREE});
             vec_info_to_mem.write({.data=old_addr});
             int new_data_start = (int)new_addr.range(31,0) + (int)old_addr.range(63,32);
@@ -582,7 +581,7 @@ void move_and_change_header(
         {
             new_addr = old_addr;
         }
-
+        memcpy(hbm_ptr + (int)new_addr.range(31,0), &header, sizeof(PMA_HEADER));
         pma_addr_out.write(new_addr);
         new_header_stream.write(header);
     }

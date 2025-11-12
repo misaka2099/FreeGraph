@@ -205,7 +205,7 @@ int main()
     }
     std::cout << std::endl;
     int check_storage[17*SEGMENT_SIZE];
-    memcpy(check_storage, storage, check_header.vertex_range[15] * SEGMENT_SIZE * sizeof(int));
+    memcpy(check_storage, storage + int(pma_idx_info.range(31,0)) + sizeof(PMA_HEADER), check_header.vertex_range[15] * SEGMENT_SIZE * sizeof(int));
     for (int i = 0 ; i < 16 ; i++)
     {
         int start_seg = i == 0 ? 0 : check_header.vertex_range[i-1];
