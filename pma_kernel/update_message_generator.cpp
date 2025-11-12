@@ -30,22 +30,22 @@ extern "C"
         //(66,66) for direction (65,64) for command type (63,32) for dst (31,0) for src
         // static int total_vertex_num_out = 0;
         // HERE
-        for (int i = 0 ; i < add_vertex_num ; i++)
+        for (int i = 0 ; i < (add_vertex_num + VERTEX_PER_PMA - 1) / VERTEX_PER_PMA ; i++)
         {
             #pragma HLS PIPELINE II=1
             PMA_UPDATE_MESSAGE msg;
-            msg.data.range(31,0) = i;
+            msg.data.range(31,0) = i * VERTEX_PER_PMA;
             msg.data.range(63,32) = 0;
             msg.data.range(97,96) = PMA_INSERT_VERTEX;
             msg.data.range(98,98) = IN_DIRECTION; //default in direction
             cmd_to_router.write(msg);
         }
         // HERE
-        for (int i = 0 ; i < add_vertex_num ; i++)
+        for (int i = 0 ; i < (add_vertex_num + VERTEX_PER_PMA - 1) / VERTEX_PER_PMA ; i++)
         {
             #pragma HLS PIPELINE II=1
             PMA_UPDATE_MESSAGE msg;
-            msg.data.range(31,0) = i;
+            msg.data.range(31,0) = i * VERTEX_PER_PMA;
             msg.data.range(63,32) = 0;
             msg.data.range(97,96) = PMA_INSERT_VERTEX;
             msg.data.range(98,98) = OUT_DIRECTION; //default in direction

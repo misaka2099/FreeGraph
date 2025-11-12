@@ -121,6 +121,7 @@ int main()
         }
         if (cmd.data == 0)
         {
+            std::cout << "NOT VALID REQUEST "<<std::endl;
             continue;
         }
         std::cout << "HOST RECEIVE COMMAND " << cmd.data << std::endl;

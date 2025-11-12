@@ -14,7 +14,9 @@ void read_cmd(
 )
 {
     printf("read_cmd\n");
+    READ_CMD:
     while(true) {
+        #pragma HLS PIPELINE II=1
         PMA_UPDATE_MESSAGE cmd = cmd_stream.read();
         cmd_to_alloc.write(cmd.data);
         cmd_to_header.write(cmd.data);
@@ -32,8 +34,14 @@ void send_alloc_request(
 {
     
     printf("send_alloc_request\n");
+    SEND_ALLOC_REQUEST:
     while (true)
     {
+        #pragma HLS PIPELINE II=1
+        if (cmd_in_stream.empty()) {
+            ap_wait();
+            continue;
+        }
         auto cmd = cmd_in_stream.read();
         if (cmd == PMA_STOP) {
             break;
@@ -57,6 +65,12 @@ void process_header(
     INSERT_VERTEX:
     while (true)
     {
+        #pragma HLS PIPELINE II=1
+        if (cmd_in_stream.empty()) {
+            // 如果流为空，则等待一个周期，避免阻塞
+            ap_wait();
+            continue;
+        }
         auto cmd = cmd_in_stream.read();
         if (cmd == PMA_STOP)
         {
@@ -80,7 +94,6 @@ void write_hbm(
     VEC_INFO* pos_pma_addrs,
     VEC_INFO* neg_pma_addrs,
     BYTE* hbm_ptr,
-    hls::stream<COMMAND_STREAM> &ack_back_to_router,
     hls::stream<ap_uint<128>>& cmd_in,
     hls::stream<VEC_INFO_STREAM> &vec_info_back_stream,
     hls::stream<PMA_HEADER>& header_in
@@ -88,12 +101,13 @@ void write_hbm(
 {
     
     printf("write_hbm\n");
+    WRITE_HBM:
     while(true)
     {
+        #pragma HLS PIPELINE II=1
         auto cmd = cmd_in.read();
         if (cmd == PMA_STOP)
         {
-            ack_back_to_router.write({.data=1});    
             break;
         }        
         VEC_INFO vec_info = vec_info_back_stream.read().data;
@@ -113,11 +127,9 @@ void write_hbm(
         int start_addr = vec_info.range(31,0);
         int len = vec_info.range(63,32);
         // memcpy(hbm_ptr + start_addr, &header, sizeof(PMA_HEADER));
-        char* header_ptr = (char*)&header;
-        for (unsigned int i = 0; i < sizeof(PMA_HEADER); ++i) {
-            #pragma HLS PIPELINE II=1
-            hbm_ptr[start_addr + i] = header_ptr[i];
-        }
+        PMA_HEADER* write_header = (PMA_HEADER*)hbm_ptr;
+        write_header[0] = header;
+        WRITE_EMPTY_RAW_PMA:
         for (int i = 0 ; i < 16 * SEGMENT_SIZE  ; i++)
         {
             #pragma HLS PIPELINE II=1
@@ -126,7 +138,6 @@ void write_hbm(
             int* target_ptr = (int*)(hbm_ptr + start_addr + sizeof(PMA_HEADER) + i * 4);
             *target_ptr = (int)UNUSED_ICON;
         }
-        ack_back_to_router.write({.data=1});    
     }
 }
 extern "C"
@@ -137,18 +148,16 @@ extern "C"
         VEC_INFO* neg_pma_addrs,
         BYTE* hbm_ptr,
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_stream,
-        hls::stream<COMMAND_STREAM> &ack_back_to_router,
         //mem operation
         hls::stream<VEC_INFO_STREAM> &vec_info_to_mem_stream,
         hls::stream<COMMAND_STREAM> &cmd_to_mem_stream,
         hls::stream<VEC_INFO_STREAM> &vec_info_back_stream
     )
     {
-        #pragma HLS INTERFACE m_axi port=pos_pma_addrs offset=slave bundle=gmem0
-        #pragma HLS INTERFACE m_axi port=neg_pma_addrs offset=slave bundle=gmem1
-        #pragma HLS INTERFACE m_axi port=hbm_ptr offset=slave bundle=gmem2
+        #pragma HLS INTERFACE m_axi port=pos_pma_addrs offset=slave bundle=gmem0 depth=512
+        #pragma HLS INTERFACE m_axi port=neg_pma_addrs offset=slave bundle=gmem1 depth=512
+        #pragma HLS INTERFACE m_axi port=hbm_ptr offset=slave bundle=gmem2 depth=512
         #pragma HLS INTERFACE axis port=cmd_stream
-        #pragma HLS INTERFACE axis port=ack_back_to_router
         #pragma HLS INTERFACE axis port=vec_info_to_mem_stream
         #pragma HLS INTERFACE axis port=cmd_to_mem_stream
         #pragma HLS INTERFACE axis port=vec_info_back_stream
@@ -173,7 +182,7 @@ extern "C"
         process_header(cmd_to_header, header_to_writer);
         
         // 3. 唯一的接收者和最终写入
-        write_hbm(pos_pma_addrs, neg_pma_addrs, hbm_ptr, ack_back_to_router, 
+        write_hbm(pos_pma_addrs, neg_pma_addrs, hbm_ptr, 
                   cmd_to_writer, vec_info_back_stream, header_to_writer);
 
     }
