@@ -242,9 +242,13 @@ extern "C"
                 {
                     if(cmd_from_generator.read_nb(msg))
                     {
-                        if (msg.data == 0)
+                        if (msg.data == -1)
                         {
                             stage++;
+                            msg.data = PMA_STOP;
+                            msg.last = 1;
+                            cmd_to_insert_vertex_1.write(msg);
+                            cmd_to_insert_vertex_2.write(msg);
                         }
                         int src = msg.data.range(31,0);  
                         if (src % 2 == 0) {
@@ -265,7 +269,7 @@ extern "C"
                     );
                     if(cmd_from_generator.read_nb(msg))
                     {
-                        if (msg.data == 0)
+                        if (msg.data == -1)
                         {
                             stage++;
                         }
