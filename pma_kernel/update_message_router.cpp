@@ -118,6 +118,73 @@ void flush_buffer_aux(
 //         }
 //     }
 // }
+
+bool check_inflight(
+    int *in_flight_arr,
+    int pma_idx
+)
+{
+    for (int i = 0 ; i < 16 ; i++)
+    {
+        if (in_flight_arr[i] == pma_idx)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+void check_ack_back(
+    int *in_flight_arr,
+    int &in_flight_count,
+    hls::stream<COMMAND_STREAM>& ack_from_insert_edge_1,
+    hls::stream<COMMAND_STREAM>& ack_from_insert_edge_2
+)
+{
+    COMMAND_STREAM ack;
+    if (ack_from_insert_edge_1.read_nb(ack))
+    {
+        int pma_idx = ack.data;
+        for (int i = 0 ; i < 16 ; i++)
+        {
+            if (in_flight_arr[i] == pma_idx)
+            {
+                in_flight_arr[i] = -1;
+                in_flight_count--;
+                break;
+            }
+        }
+    }
+    if (ack_from_insert_edge_2.read_nb(ack))
+    {
+        int pma_idx = ack.data;
+        for (int i = 0 ; i < 16 ; i++)
+        {
+            if (in_flight_arr[i] == pma_idx)
+            {
+                in_flight_arr[i] = -1;
+                in_flight_count--;
+                break;
+            }
+        }
+    }
+}
+void add_inflight(
+    int *in_flight_arr,
+    int &in_flight_count,
+    int pma_idx
+)
+{
+    for (int i  = 0 ; i < 16 ; i++)
+    {
+        if (in_flight_arr[i] == -1)
+        {
+            in_flight_arr[i] = pma_idx;
+            in_flight_count++;
+            break;
+        }
+    }
+}
 extern "C"
 {
     void update_message_router(
@@ -125,7 +192,9 @@ extern "C"
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_vertex_1,
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_vertex_2,
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_1,
-        hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_2
+        hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_2,
+        hls::stream<COMMAND_STREAM> &ack_from_insert_edge_1,
+        hls::stream<COMMAND_STREAM> &ack_from_insert_edge_2 
         // hls::stream<CLEAR_ICON> &clear_message_from_generator
     )
     {
@@ -146,6 +215,12 @@ extern "C"
         #pragma HLS BIND_STORAGE variable=msg_buffer type=RAM_2P impl=URAM
         int count[MAX_COMMAND_BUFFER_NUM]; 
         #pragma HLS ARRAY_PARTITION variable=count complete
+        int in_flight[16];
+        for (int i = 0 ; i < 16 ; i++)
+        {
+            in_flight[i] = -1;
+        }
+        int in_flight_count = 0;
         for (int i = 0 ; i < MAX_COMMAND_BUFFER_NUM ; i++)
         {
             // #pragma HLS UNROLL
@@ -182,6 +257,12 @@ extern "C"
                 }
                 case 1:
                 {
+                    check_ack_back(
+                        in_flight,
+                        in_flight_count,
+                        ack_from_insert_edge_1,
+                        ack_from_insert_edge_2
+                    );
                     if(cmd_from_generator.read_nb(msg))
                     {
                         if (msg.data == 0)
@@ -210,17 +291,67 @@ extern "C"
                             else  
                             {
                                 if (hash % 2 == 0)
+                                {
+                                    while (check_inflight(in_flight, pma_idx) || in_flight_count == 16)
+                                    {
+                                        check_ack_back(
+                                            in_flight,
+                                            in_flight_count,
+                                            ack_from_insert_edge_1,
+                                            ack_from_insert_edge_2
+                                        );
+                                    }
                                     flush_buffer_aux(hash, cmd_to_insert_edge_1, msg_buffer, count);
+                                    add_inflight(in_flight, in_flight_count, pma_idx);
+                                }
                                 else  
+                                {
+                                    
+                                    while (check_inflight(in_flight, pma_idx) || in_flight_count == 16)
+                                    {
+                                        check_ack_back(
+                                            in_flight,
+                                            in_flight_count,
+                                            ack_from_insert_edge_1,
+                                            ack_from_insert_edge_2
+                                        );
+                                    }
                                     flush_buffer_aux(hash, cmd_to_insert_edge_2, msg_buffer, count);
+                                    add_inflight(in_flight, in_flight_count, pma_idx);
+                                }
                             }
                         }
                         else  
                         {
                             if (hash % 2 == 0)
+                            {
+                                
+                                while (check_inflight(in_flight, pma_idx) || in_flight_count == 16)
+                                {
+                                    check_ack_back(
+                                        in_flight,
+                                        in_flight_count,
+                                        ack_from_insert_edge_1,
+                                        ack_from_insert_edge_2
+                                    );
+                                }
                                 flush_buffer_aux(hash, cmd_to_insert_edge_1, msg_buffer, count);
+                                add_inflight(in_flight, in_flight_count, pma_idx);
+                            }
                             else  
+                            {
+                                while (check_inflight(in_flight, pma_idx) || in_flight_count == 16)
+                                {
+                                    check_ack_back(
+                                        in_flight,
+                                        in_flight_count,
+                                        ack_from_insert_edge_1,
+                                        ack_from_insert_edge_2
+                                    );
+                                }
                                 flush_buffer_aux(hash, cmd_to_insert_edge_2, msg_buffer, count);
+                                add_inflight(in_flight, in_flight_count, pma_idx);
+                            }
                         }
                     }
                 }

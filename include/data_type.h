@@ -5,7 +5,7 @@
 #define CHANNEL_CAPACITY (64*1024*1024)
 #define CHANNEL_NUM 2
 typedef ap_axiu<8,0,0,0> BYTE_STREAM ;
-typedef ap_axiu<32,0,0,0> COMMAND_STREAM;
+typedef ap_axiu<32,3,0,0> COMMAND_STREAM;
 typedef ap_uint<32> COMMAND;
 typedef ap_uint<8> BYTE;
 // typedef double ATTR_STREAM;
@@ -29,7 +29,7 @@ typedef ap_uint<8> BYTE;
 //0-31 start address
 //32-63 length
 typedef ap_uint<64> VEC_INFO;
-typedef ap_axiu<64, 0, 0, 0> VEC_INFO_STREAM;
+typedef ap_axiu<64, 3, 0, 0> VEC_INFO_STREAM;
 //0-31: start position
 //32-63: length
 // typedef ap_uint<64> ACCESS_POS ;
@@ -59,7 +59,6 @@ typedef ap_uint<512> memory_chunk;
 
 
 
-#define MAX_WORKERS 2
 
 #define MAX_COMMAND_BUFFER_LENGTH 16
 #define MAX_COMMAND_BUFFER_NUM 16

@@ -38,7 +38,7 @@ extern "C"
             allocate(start_pos, len_in_pages, bm_ptr);
             // printf("LEN IN PAGES %d\n", len_in_pages);
             // printf("ALLOCATED POS %d, SIZE %d\n", start_pos*INIT_VEC_LEN_IN_BYTE, total_size);
-            vec_info_back.write({.data=start_pos*INIT_VEC_LEN_IN_BYTE | ((VEC_INFO)total_size << 32)});
+            vec_info_back.write({.data=start_pos*INIT_VEC_LEN_IN_BYTE | ((VEC_INFO)total_size << 32), .user = info.user});
         }
     }
 }

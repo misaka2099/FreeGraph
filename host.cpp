@@ -62,8 +62,10 @@ int main(int argc, char** argv)
     auto pma_read_kernel = xrt::kernel(device, uuid, "pma_read_kernel");
     auto update_message_generator_kernel = xrt::kernel(device, uuid, "update_message_generator");
     auto update_message_router_kernel = xrt::kernel(device, uuid, "update_message_router");
-    auto pma_update_kernel_1 = xrt::kernel(device, uuid, "pma_update_kernel:{pma_update_kernel_1}");
-    auto pma_update_kernel_2 = xrt::kernel(device, uuid, "pma_update_kernel:{pma_update_kernel_2}");
+    auto pma_insert_vertex_1 = xrt::kernel(device, uuid, "pma_insert_vertex:{pma_insert_vertex_1}");
+    auto pma_insert_vertex_2 = xrt::kernel(device, uuid, "pma_insert_vertex:{pma_insert_vertex_2}");
+    auto pma_insert_edge_1 = xrt::kernel(device, uuid, "pma_insert_edge:{pma_insert_edge_1}");
+    auto pma_insert_edge_2 = xrt::kernel(device, uuid, "pma_insert_edge:{pma_insert_edge_2}");
     auto check_kernel = xrt::kernel(device, uuid, "check_kernel");
     
     auto stop_kernel = xrt::kernel(device, uuid, "stop_kernel");
@@ -75,13 +77,15 @@ int main(int argc, char** argv)
     auto run_pma_read_kernel = xrt::run(pma_read_kernel);
     auto run_update_message_generator_kernel = xrt::run(update_message_generator_kernel);
     auto run_update_message_router_kernel = xrt::run(update_message_router_kernel);
-    auto run_pma_update_kernel_1 = xrt::run(pma_update_kernel_1);
-    auto run_pma_update_kernel_2 = xrt::run(pma_update_kernel_2);
+    auto run_pma_insert_vertex_1 = xrt::run(pma_insert_vertex_1);
+    auto run_pma_insert_vertex_2 = xrt::run(pma_insert_vertex_2);
+    auto run_pma_insert_edge_1 = xrt::run(pma_insert_edge_1);
+    auto run_pma_insert_edge_2 = xrt::run(pma_insert_edge_2);
     auto run_check_kernel = xrt::run(check_kernel);
     auto run_stop_kernel = xrt::run(stop_kernel);
     std::cout << "Kernels are created..." << std::endl;
 
-    auto bo_hbm_base_addr = xrt::bo(device, sizeof(BYTE) * CHANNEL_CAPACITY * CHANNEL_NUM, pma_update_kernel_1.group_id(3));
+    auto bo_hbm_base_addr = xrt::bo(device, sizeof(BYTE) * CHANNEL_CAPACITY * CHANNEL_NUM, pma_insert_vertex_1.group_id(2));
     // auto bo_valid_array = xrt::bo(device, sizeof(BYTE) * (CHANNEL_CAPACITY * CHANNEL_NUM / 8), allocate_kernel.group_id(0));
 
 
@@ -130,12 +134,28 @@ int main(int argc, char** argv)
     run_update_message_generator_kernel.set_arg(1, edges.size());
     run_update_message_generator_kernel.set_arg(2,bo_src);
     run_update_message_generator_kernel.set_arg(3,bo_dst);
-    run_pma_update_kernel_1.set_arg(1, bo_pos_vec_info);
-    run_pma_update_kernel_1.set_arg(2, bo_neg_vec_info);
-    run_pma_update_kernel_1.set_arg(3, bo_hbm_base_addr);
-    run_pma_update_kernel_2.set_arg(1, bo_pos_vec_info);
-    run_pma_update_kernel_2.set_arg(2, bo_neg_vec_info);
-    run_pma_update_kernel_2.set_arg(3, bo_hbm_base_addr);
+    run_pma_insert_vertex_1.set_arg(0, bo_pos_vec_info);
+    run_pma_insert_vertex_1.set_arg(1, bo_neg_vec_info);
+    run_pma_insert_vertex_1.set_arg(2, bo_hbm_base_addr);
+    run_pma_insert_vertex_2.set_arg(0, bo_pos_vec_info);
+    run_pma_insert_vertex_2.set_arg(1, bo_neg_vec_info);
+    run_pma_insert_vertex_2.set_arg(2, bo_hbm_base_addr);
+    
+    run_pma_insert_edge_1.set_arg(0, bo_pos_vec_info);
+    run_pma_insert_edge_1.set_arg(1, bo_neg_vec_info);
+    run_pma_insert_edge_1.set_arg(2, bo_hbm_base_addr);
+    run_pma_insert_edge_1.set_arg(3, bo_hbm_base_addr);
+    run_pma_insert_edge_1.set_arg(4, bo_hbm_base_addr);
+    run_pma_insert_edge_1.set_arg(5, bo_hbm_base_addr);
+    run_pma_insert_edge_1.set_arg(6, bo_hbm_base_addr);
+
+    run_pma_insert_edge_2.set_arg(0, bo_pos_vec_info);
+    run_pma_insert_edge_2.set_arg(1, bo_neg_vec_info);
+    run_pma_insert_edge_2.set_arg(2, bo_hbm_base_addr);
+    run_pma_insert_edge_2.set_arg(3, bo_hbm_base_addr);
+    run_pma_insert_edge_2.set_arg(4, bo_hbm_base_addr);
+    run_pma_insert_edge_2.set_arg(5, bo_hbm_base_addr);
+    run_pma_insert_edge_2.set_arg(6, bo_hbm_base_addr);
     // bo_valid_array.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     bo_pos_vec_info.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     bo_neg_vec_info.sync(XCL_BO_SYNC_BO_TO_DEVICE);
@@ -148,14 +168,18 @@ int main(int argc, char** argv)
     // run_free_kernel.start();
     run_alloc_free_kernel.start();
     run_app_mem_middle_ware_kernel.start();
-    run_pma_update_kernel_1.start();
-    run_pma_update_kernel_2.start();
+    run_pma_insert_vertex_1.start();
+    run_pma_insert_vertex_2.start();
+    run_pma_insert_edge_1.start();
+    run_pma_insert_edge_2.start();
     run_update_message_router_kernel.start();
     run_update_message_generator_kernel.start();
     run_update_message_generator_kernel.wait();
     run_update_message_router_kernel.wait();
-    run_pma_update_kernel_1.wait();
-    run_pma_update_kernel_2.wait();
+    run_pma_insert_edge_1.wait();
+    run_pma_insert_edge_2.wait();
+    run_pma_insert_vertex_1.wait();
+    run_pma_insert_vertex_2.wait();
     auto end_time = std::chrono::high_resolution_clock::now();
     std::cout << "GRAPH UPDATED." << std::endl;
 

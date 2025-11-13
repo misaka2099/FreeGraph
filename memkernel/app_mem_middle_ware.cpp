@@ -3,6 +3,7 @@
 #include "data_type.h"
 #include "debug.h"
 
+#define MAX_WORKERS 4
 extern "C"
 {
     void app_mem_middle_ware(
@@ -13,6 +14,15 @@ extern "C"
         hls::stream<COMMAND_STREAM> &cmd_from_app_2,
         hls::stream<VEC_INFO_STREAM> &vec_info_from_app_2,
         hls::stream<VEC_INFO_STREAM> &vec_info_to_app_2,
+
+        
+        hls::stream<COMMAND_STREAM> &cmd_from_app_3,
+        hls::stream<VEC_INFO_STREAM> &vec_info_from_app_3,
+        hls::stream<VEC_INFO_STREAM> &vec_info_to_app_3,
+
+        hls::stream<COMMAND_STREAM> &cmd_from_app_4,
+        hls::stream<VEC_INFO_STREAM> &vec_info_from_app_4,
+        hls::stream<VEC_INFO_STREAM> &vec_info_to_app_4,
 
         hls::stream<VEC_INFO_STREAM> &vec_info_to_mem,
         hls::stream<COMMAND_STREAM> &cmd_to_mem,
@@ -28,14 +38,30 @@ extern "C"
         #pragma HLS INTERFACE axis port=cmd_from_app_2
         #pragma HLS INTERFACE axis port=vec_info_from_app_2
         #pragma HLS INTERFACE axis port=vec_info_to_app_2
+
+        
+        #pragma HLS INTERFACE axis port=cmd_from_app_3
+        #pragma HLS INTERFACE axis port=vec_info_from_app_3
+        #pragma HLS INTERFACE axis port=vec_info_to_app_3
+        #pragma HLS INTERFACE axis port=cmd_from_app_4
+        #pragma HLS INTERFACE axis port=vec_info_from_app_4
+        #pragma HLS INTERFACE axis port=vec_info_to_app_4
+
         #pragma HLS INTERFACE axis port=vec_info_to_mem
         #pragma HLS INTERFACE axis port=cmd_to_mem
         #pragma HLS INTERFACE axis port=vec_info_from_mem
         #pragma HLS INTERFACE axis port=stop_signal
-        bool alloc_app_1 = false;
-        bool alloc_app_2 = false;
-        bool free_app_1 = false;
-        bool free_app_2 = false;
+        // bool alloc_app_1 = false;
+        // bool alloc_app_2 = false;
+        // bool free_app_1 = false;
+        // bool free_app_2 = false;
+        bool alloc_app[4];
+        bool free_app[4];
+        for (int i = 0 ; i < 4 ; i++)
+        {
+            alloc_app[i] = false;
+            free_app[i] = false;
+        }
         bool stopping = false;
         int next_worker_ptr = 0;
         while (true)
@@ -49,33 +75,57 @@ extern "C"
             }
 
             // 处理返回路径：无论是否 stopping 都要及时清空在途响应
-            if (alloc_app_1 || alloc_app_2 || free_app_1 || free_app_2)
+            bool in_flight = alloc_app[0] || alloc_app[1] || alloc_app[2] || alloc_app[3] ||
+                free_app[0] || free_app[1] || free_app[2] || free_app[3] ;
+            if (in_flight)
             {
                 VEC_INFO_STREAM info_back;
                 bool is_back = vec_info_from_mem.read_nb(info_back);
                 if (is_back)
                 {
-                    if (alloc_app_1)
+                    if (alloc_app[0])
                     {
                         HERE
                         vec_info_to_app_1.write(info_back);
-                        alloc_app_1 = false;
+                        alloc_app[0] = false;
                     }
-                    else if (alloc_app_2)
+                    else if (alloc_app[1])
                     {
                         HERE
                         vec_info_to_app_2.write(info_back);
-                        alloc_app_2 = false;
+                        alloc_app[1] = false;
                     }
-                    else if (free_app_1)
+                    else if (alloc_app[2])
                     {
                         HERE
-                        free_app_1 = false; // free 不回传给 app
+                        vec_info_to_app_3.write(info_back);
+                        alloc_app[2] = false; // free 不回传给 app
                     }
-                    else if (free_app_2)
+                    else if (alloc_app[3])
                     {
                         HERE
-                        free_app_2 = false;
+                        vec_info_to_app_4.write(info_back);
+                        alloc_app[3] = false;
+                    }
+                    else if (free_app[0])
+                    {
+                        HERE 
+                        free_app[0] = false;
+                    }
+                    else if (free_app[1])
+                    {
+                        HERE
+                        free_app[1] = false;
+                    }
+                    else if (free_app[2])
+                    {
+                        HERE 
+                        free_app[2] = false;
+                    }
+                    else if (free_app[3])
+                    {
+                        HERE 
+                        free_app[3] = false;
                     }
                 }
             }
@@ -84,7 +134,7 @@ extern "C"
             if (stopping)
             {
                 HERE
-                if (!(alloc_app_1 || alloc_app_2 || free_app_1 || free_app_2))
+                if (!in_flight)
                 {
                     HERE
                     VEC_INFO_STREAM term; term.data = 0; term.last = 1;
@@ -104,13 +154,25 @@ extern "C"
                 case 0:
                 {
                     process_in_this_cycle = cmd_from_app_1.empty() == false && vec_info_from_app_1.empty() == false && 
-                            alloc_app_1 == false && alloc_app_2 == false && free_app_1 == false && free_app_2 == false;
+                            !in_flight;
                     break;
                 }
                 case 1:
                 {
                     process_in_this_cycle = cmd_from_app_2.empty() == false && vec_info_from_app_2.empty() == false && 
-                            alloc_app_1 == false && alloc_app_2 == false && free_app_1 == false && free_app_2 == false;
+                            !in_flight;
+                    break;
+                }
+                case 2:
+                {
+                    process_in_this_cycle = cmd_from_app_3.empty() == false && vec_info_from_app_3.empty() == false && 
+                            !in_flight;
+                    break;
+                }
+                case 3:
+                {
+                    process_in_this_cycle = cmd_from_app_4.empty() == false && vec_info_from_app_4.empty() == false &&
+                            !in_flight;
                     break;
                 }
             }
@@ -128,7 +190,7 @@ extern "C"
                             COMMAND_STREAM outc; outc.data = MEM_ALLOC; outc.last = 0;
                             vec_info_to_mem.write(info);
                             cmd_to_mem.write(outc);
-                            alloc_app_1 = true;
+                            alloc_app[0] = true;
                         }
                         else if (cmd.data == MEM_FREE)
                         {
@@ -136,7 +198,7 @@ extern "C"
                             COMMAND_STREAM outc; outc.data = MEM_FREE; outc.last = 0;
                             vec_info_to_mem.write(info);
                             cmd_to_mem.write(outc);
-                            free_app_1 = true;
+                            free_app[0] = true;
                         }
                         break;
                     }
@@ -150,7 +212,7 @@ extern "C"
                             COMMAND_STREAM outc; outc.data = MEM_ALLOC; outc.last = 0;
                             vec_info_to_mem.write(info);
                             cmd_to_mem.write(outc);
-                            alloc_app_2 = true;
+                            alloc_app[1] = true;
                         }
                         else if (cmd.data == MEM_FREE)
                         {
@@ -158,7 +220,51 @@ extern "C"
                             COMMAND_STREAM outc; outc.data = MEM_FREE; outc.last = 0;
                             vec_info_to_mem.write(info);
                             cmd_to_mem.write(outc);
-                            free_app_2 = true;
+                            free_app[1] = true;
+                        }
+                        break;
+                    }
+                    case 2:
+                    {
+                        VEC_INFO_STREAM info = vec_info_from_app_3.read();
+                        COMMAND_STREAM cmd = cmd_from_app_3.read();
+                        if (cmd.data == MEM_ALLOC)
+                        {
+                            HERE
+                            COMMAND_STREAM outc; outc.data = MEM_ALLOC; outc.last = 0;
+                            vec_info_to_mem.write(info);
+                            cmd_to_mem.write(outc);
+                            alloc_app[2] = true;
+                        }
+                        else if (cmd.data == MEM_FREE)
+                        {
+                            HERE
+                            COMMAND_STREAM outc; outc.data = MEM_FREE; outc.last = 0;
+                            vec_info_to_mem.write(info);
+                            cmd_to_mem.write(outc);
+                            free_app[2] = true;
+                        }
+                        break;
+                    }
+                    case 3:
+                    {
+                        VEC_INFO_STREAM info = vec_info_from_app_4.read();
+                        COMMAND_STREAM cmd = cmd_from_app_4.read();
+                        if (cmd.data == MEM_ALLOC)
+                        {
+                            HERE
+                            COMMAND_STREAM outc; outc.data = MEM_ALLOC; outc.last = 0;
+                            vec_info_to_mem.write(info);
+                            cmd_to_mem.write(outc);
+                            alloc_app[3] = true;
+                        }
+                        else if (cmd.data == MEM_FREE)
+                        {
+                            HERE
+                            COMMAND_STREAM outc; outc.data = MEM_FREE; outc.last = 0;
+                            vec_info_to_mem.write(info);
+                            cmd_to_mem.write(outc);
+                            free_app[3] = true;
                         }
                         break;
                     }
