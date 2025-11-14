@@ -88,7 +88,7 @@ extern "C"
                     if (tmp.last == 1) {
                         break;
                     }
-                    HERE
+                    // HERE
                     pending_info = tmp;
                     has_info = true;
                 } else {
@@ -106,9 +106,9 @@ extern "C"
                 int req_bytes = pending_info.data.range(63,32);
                 int len_segs = (req_bytes + INIT_VEC_LEN_IN_BYTE - 1) / INIT_VEC_LEN_IN_BYTE;
                 int start_seg;
-                HERE
+                // HERE
                 allocate(start_seg, len_segs , storage);
-                HERE
+                // HERE
                 // 返回按字节的起始地址与长度（失败时返回 0xFFFFFFFF 作为哨兵）
                 if (start_seg == -1)
                 {
@@ -132,9 +132,9 @@ extern "C"
                 // 边界保护，避免越界
                 // const int TOTAL_SEGS = CHANNEL_CAPACITY * CHANNEL_NUM / INIT_VEC_LEN_IN_BYTE;
                 // if (start_bytes != 0xFFFFFFFF && start_seg >= 0 && len_segs > 0 && (start_seg + len_segs - 1) < TOTAL_SEGS) {
-                HERE
+                // HERE
                 deallocate(start_seg, len_segs, storage);
-                HERE
+                // HERE
                 // } else {
                 //     printf("WARNING: skip free: start_bytes=%d len_bytes=%d (start_seg=%d len_segs=%d TOTAL_SEGS=%d)\n",
                 //            start_bytes, len_bytes, start_seg, len_segs, TOTAL_SEGS);
@@ -143,7 +143,7 @@ extern "C"
             }
             VEC_INFO_STREAM out; out.data = back_info; out.last = 0;
             vec_info_back.write(out);
-            HERE
+            // HERE
             // 清空本次缓存，处理下一对
             has_info = false;
         }

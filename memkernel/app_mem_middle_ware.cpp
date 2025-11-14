@@ -85,46 +85,46 @@ extern "C"
                 {
                     if (alloc_app[0])
                     {
-                        HERE
+                        // HERE
                         vec_info_to_app_1.write(info_back);
                         alloc_app[0] = false;
                     }
                     else if (alloc_app[1])
                     {
-                        HERE
+                        // HERE
                         vec_info_to_app_2.write(info_back);
                         alloc_app[1] = false;
                     }
                     else if (alloc_app[2])
                     {
-                        HERE
+                        // HERE
                         vec_info_to_app_3.write(info_back);
                         alloc_app[2] = false; // free 不回传给 app
                     }
                     else if (alloc_app[3])
                     {
-                        HERE
+                        // HERE
                         vec_info_to_app_4.write(info_back);
                         alloc_app[3] = false;
                     }
                     else if (free_app[0])
                     {
-                        HERE 
+                        // HERE 
                         free_app[0] = false;
                     }
                     else if (free_app[1])
                     {
-                        HERE
+                        // HERE
                         free_app[1] = false;
                     }
                     else if (free_app[2])
                     {
-                        HERE 
+                        // HERE 
                         free_app[2] = false;
                     }
                     else if (free_app[3])
                     {
-                        HERE 
+                        // HERE 
                         free_app[3] = false;
                     }
                 }
@@ -133,10 +133,10 @@ extern "C"
             // 若处于 stopping，等待在途清空后发终止标记
             if (stopping)
             {
-                HERE
+                // HERE
                 if (!in_flight)
                 {
-                    HERE
+                    // HERE
                     VEC_INFO_STREAM term; term.data = 0; term.last = 1;
                     vec_info_to_mem.write(term);
                     COMMAND_STREAM to_stop; to_stop.data = 0; to_stop.last = 1;
@@ -186,7 +186,7 @@ extern "C"
                         COMMAND_STREAM cmd = cmd_from_app_1.read();
                         if (cmd.data == MEM_ALLOC)
                         {
-                            HERE
+                            // HERE
                             COMMAND_STREAM outc; outc.data = MEM_ALLOC; outc.last = 0;
                             vec_info_to_mem.write(info);
                             cmd_to_mem.write(outc);
@@ -194,7 +194,7 @@ extern "C"
                         }
                         else if (cmd.data == MEM_FREE)
                         {
-                            HERE
+                            // HERE
                             COMMAND_STREAM outc; outc.data = MEM_FREE; outc.last = 0;
                             vec_info_to_mem.write(info);
                             cmd_to_mem.write(outc);
@@ -208,7 +208,7 @@ extern "C"
                         COMMAND_STREAM cmd = cmd_from_app_2.read();
                         if (cmd.data == MEM_ALLOC)
                         {
-                            HERE
+                            // HERE
                             COMMAND_STREAM outc; outc.data = MEM_ALLOC; outc.last = 0;
                             vec_info_to_mem.write(info);
                             cmd_to_mem.write(outc);
@@ -216,7 +216,7 @@ extern "C"
                         }
                         else if (cmd.data == MEM_FREE)
                         {
-                            HERE
+                            // HERE
                             COMMAND_STREAM outc; outc.data = MEM_FREE; outc.last = 0;
                             vec_info_to_mem.write(info);
                             cmd_to_mem.write(outc);
@@ -230,7 +230,7 @@ extern "C"
                         COMMAND_STREAM cmd = cmd_from_app_3.read();
                         if (cmd.data == MEM_ALLOC)
                         {
-                            HERE
+                            // HERE
                             COMMAND_STREAM outc; outc.data = MEM_ALLOC; outc.last = 0;
                             vec_info_to_mem.write(info);
                             cmd_to_mem.write(outc);
@@ -238,7 +238,7 @@ extern "C"
                         }
                         else if (cmd.data == MEM_FREE)
                         {
-                            HERE
+                            // HERE
                             COMMAND_STREAM outc; outc.data = MEM_FREE; outc.last = 0;
                             vec_info_to_mem.write(info);
                             cmd_to_mem.write(outc);
@@ -252,7 +252,7 @@ extern "C"
                         COMMAND_STREAM cmd = cmd_from_app_4.read();
                         if (cmd.data == MEM_ALLOC)
                         {
-                            HERE
+                            // HERE
                             COMMAND_STREAM outc; outc.data = MEM_ALLOC; outc.last = 0;
                             vec_info_to_mem.write(info);
                             cmd_to_mem.write(outc);
@@ -260,7 +260,7 @@ extern "C"
                         }
                         else if (cmd.data == MEM_FREE)
                         {
-                            HERE
+                            // HERE
                             COMMAND_STREAM outc; outc.data = MEM_FREE; outc.last = 0;
                             vec_info_to_mem.write(info);
                             cmd_to_mem.write(outc);

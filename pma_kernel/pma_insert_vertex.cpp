@@ -96,7 +96,8 @@ void write_hbm(
     BYTE* hbm_ptr,
     hls::stream<ap_uint<128>>& cmd_in,
     hls::stream<VEC_INFO_STREAM> &vec_info_back_stream,
-    hls::stream<PMA_HEADER>& header_in
+    hls::stream<PMA_HEADER>& header_in,
+    hls::stream<COMMAND_STREAM>& ack_back_to_router
 )
 {
     
@@ -108,13 +109,14 @@ void write_hbm(
         auto cmd = cmd_in.read();
         if (cmd == PMA_STOP)
         {
+            ack_back_to_router.write({.data = 1});
             break;
         }        
         VEC_INFO vec_info = vec_info_back_stream.read().data;
         PMA_HEADER header = header_in.read();
         int pma_idx = cmd.range(31,0) / VERTEX_PER_PMA;
         int direction = cmd.range(98,98);
-        printf("PROCESSING PMA IDX %d START %d, LEN %d \n",pma_idx, int(vec_info.range(31,0)), int(vec_info.range(63,32)));
+        // printf("PROCESSING PMA IDX %d START %d, LEN %d \n",pma_idx, int(vec_info.range(31,0)), int(vec_info.range(63,32)));
        
         if (direction == OUT_DIRECTION)
         {
@@ -151,7 +153,8 @@ extern "C"
         //mem operation
         hls::stream<VEC_INFO_STREAM> &vec_info_to_mem_stream,
         hls::stream<COMMAND_STREAM> &cmd_to_mem_stream,
-        hls::stream<VEC_INFO_STREAM> &vec_info_back_stream
+        hls::stream<VEC_INFO_STREAM> &vec_info_back_stream,
+        hls::stream<COMMAND_STREAM> &ack_back_to_router
     )
     {
         #pragma HLS INTERFACE m_axi port=pos_pma_addrs offset=slave bundle=gmem0 depth=512
@@ -161,6 +164,7 @@ extern "C"
         #pragma HLS INTERFACE axis port=vec_info_to_mem_stream
         #pragma HLS INTERFACE axis port=cmd_to_mem_stream
         #pragma HLS INTERFACE axis port=vec_info_back_stream
+        #pragma HLS INTERFACE axis port=ack_back_to_router
 
 
         hls::stream<ap_uint<128>> cmd_to_alloc("cmd_to_alloc");
@@ -183,7 +187,7 @@ extern "C"
         
         // 3. 唯一的接收者和最终写入
         write_hbm(pos_pma_addrs, neg_pma_addrs, hbm_ptr, 
-                  cmd_to_writer, vec_info_back_stream, header_to_writer);
+                  cmd_to_writer, vec_info_back_stream, header_to_writer, ack_back_to_router);
 
     }
 }
