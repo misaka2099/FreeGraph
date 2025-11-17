@@ -102,6 +102,12 @@ void write_hbm(
 {
     
     printf("write_hbm\n");
+    ap_uint<512> wide_data;//32 * 16 = 512
+    for (int i = 0; i < 16; i++) 
+    {
+        #pragma HLS UNROLL
+        wide_data.range((i+1)*32-1, i*32) = UNUSED_ICON;
+    }
     WRITE_HBM:
     while(true)
     {
@@ -128,18 +134,25 @@ void write_hbm(
         }
         int start_addr = vec_info.range(31,0);
         int len = vec_info.range(63,32);
-        // memcpy(hbm_ptr + start_addr, &header, sizeof(PMA_HEADER));
-        PMA_HEADER* write_header = (PMA_HEADER*)hbm_ptr;
-        write_header[0] = header;
+        memcpy(hbm_ptr + start_addr, &header, sizeof(PMA_HEADER));
+        // PMA_HEADER* write_header = (PMA_HEADER*)(hbm_ptr + start_addr);
+        // write_header[0] = header;
+
+        ap_uint<512>* burst_ptr = (ap_uint<512>*)(hbm_ptr + start_addr + sizeof(PMA_HEADER));
         WRITE_EMPTY_RAW_PMA:
-        for (int i = 0 ; i < 16 * SEGMENT_SIZE  ; i++)
+        for (int i = 0 ; i < 16 * SEGMENT_SIZE / 16 ; i++)
         {
             #pragma HLS PIPELINE II=1
-            // 直接在 hbm_ptr 上计算地址，然后进行类型转换和解引用
-            // 这能确保每次写入都使用了正确的、完整的偏移地址
-            int* target_ptr = (int*)(hbm_ptr + start_addr + sizeof(PMA_HEADER) + i * 4);
-            *target_ptr = (int)UNUSED_ICON;
-        }
+            burst_ptr[i] = wide_data;
+        }   
+        // for (int i = 0 ; i < 16 * SEGMENT_SIZE  ; i++)
+        // {
+        //     #pragma HLS PIPELINE II=1
+        //     // 直接在 hbm_ptr 上计算地址，然后进行类型转换和解引用
+        //     // 这能确保每次写入都使用了正确的、完整的偏移地址
+        //     int* target_ptr = (int*)(hbm_ptr + start_addr + sizeof(PMA_HEADER) + i * 4);
+        //     *target_ptr = (int)UNUSED_ICON;
+        // }
     }
 }
 extern "C"

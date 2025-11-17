@@ -282,8 +282,8 @@ void binary_search_cu(
                 to_insert.idx = out_idx;
                 to_insert.val = dst;
                 header.edge_count[local_src]++;
+                insert_info.write(to_insert);
             }
-            insert_info.write(to_insert);
         }
         insert_count.write(find_count);
         header_after_modify.write(header);
@@ -393,7 +393,8 @@ void rebalance_cu(
                 memcpy(segment_buffer, hbm_ptr + read_addr, num_to_move * sizeof(int));
 
                 for (int i = num_to_move; i < SEGMENT_SIZE; i++) {
-                    #pragma HLS UNROLL
+                    // #pragma HLS UNROLL
+                    #pragma HLS PIPELINE II=1
                     segment_buffer[i] = UNUSED_ICON;
                 }
 
@@ -619,7 +620,7 @@ extern "C"
        
         hls::stream<pma_idx_info> pma_idx_info_request[MAX_PMA_IDX_INFO_REQUEST];
         hls::stream<VEC_INFO> pma_addr_request[MAX_PMA_ADDR_REQUEST];
-        hls::stream<PMA_HEADER> pma_header_request;
+        hls::stream<PMA_HEADER> pma_header_request("pma_header_request");
 
         hls::stream<int> cmd_count_stream("cmd_count_stream");
         hls::stream<ap_uint<128>> cmd_batch_stream("cmd_batch_stream");
@@ -634,6 +635,20 @@ extern "C"
 
         hls::stream<PMA_HEADER> new_pma_header("new_pma_header");
         hls::stream<VEC_INFO> pma_addr_to_rebalance("pma_addr_to_rebalance");
+        // #pragma HLS STREAM variable=pma_idx_info_request depth=16
+        // #pragma HLS STREAM variable=pma_addr_request depth=16
+        // #pragma HLS STREAM variable=pma_header_request depth=16
+        // #pragma HLS STREAM variable=cmd_count_stream depth=16
+        #pragma HLS STREAM variable=cmd_batch_stream depth=16
+        #pragma HLS STREAM variable=edge_info_stream depth=16
+        // #pragma HLS STREAM variable=edge_count_stream depth=16
+        // #pragma HLS STREAM variable=header_from_bs depth=16
+        // #pragma HLS STREAM variable=header_from_insert depth=16
+        #pragma HLS STREAM variable=insert_info_stream depth=16
+        // #pragma HLS STREAM variable=insert_count_stream depth=16
+        // #pragma HLS STREAM variable=new_pma_header depth=16
+        // #pragma HLS STREAM variable=pma_addr_to_rebalance depth=16
+
 
         #pragma HLS DATAFLOW
         
