@@ -348,8 +348,8 @@ extern "C"
                                     msg_buffer, count
                                 );
                             }
-                            cmd_to_insert_vertex_1.write(msg);
-                            cmd_to_insert_vertex_2.write(msg);
+                            cmd_to_insert_edge_1.write(msg);
+                            cmd_to_insert_edge_2.write(msg);
                             break;
                         }
                         int src = msg.data.range(31,0);  

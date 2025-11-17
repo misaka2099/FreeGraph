@@ -6,7 +6,7 @@
 #include "debug.h"
 #include "pma.h"
 #include <ap_utils.h>
-
+#include "hls_burst_maxi.h"
 #define MAX_READ_REQUEST 5
 #define MAX_WRITE_REQUEST 3
 // #define MAX_ALLOC 1 
@@ -172,7 +172,15 @@ void head_read(
         }
         
         PMA_HEADER header;
-        memcpy(&header, hbm_ptr + int(vec.range(31,0)), sizeof(PMA_HEADER));
+        // memcpy(&header, hbm_ptr + int(vec.range(31,0)), sizeof(PMA_HEADER));
+        {
+            ap_uint<512>* hbm_wide = (ap_uint<512>*)(hbm_ptr + int(vec.range(31,0)));
+            ap_uint<512>* header_wide = (ap_uint<512>*)&header;
+            for (int i = 0; i < 4; i++) { // 256 / 64 = 4
+                #pragma HLS UNROLL
+                header_wide[i] = hbm_wide[i];
+            }
+        }
         header_out.write(header);
     }
 }
@@ -225,8 +233,17 @@ void binary_search_cu(
                 int max_idx = 0;
                 int storage[SEGMENT_SIZE];
                 
-                memcpy(storage, hbm_ptr + pma_data_base_addr + mid * SEGMENT_SIZE * sizeof(int), sizeof(storage));
-
+                // memcpy(storage, hbm_ptr + pma_data_base_addr + mid * SEGMENT_SIZE * sizeof(int), sizeof(storage));
+                {
+                    
+                    ap_uint<512>* hbm_wide = (ap_uint<512>*)(hbm_ptr + pma_data_base_addr + mid * SEGMENT_SIZE * sizeof(int));
+                    ap_uint<512>* storage_wide = (ap_uint<512>*)storage;
+                    const int seg_chunks = sizeof(storage) / 64; // SEGMENT_SIZE*4 / 64
+                    for (int i = 0; i < seg_chunks; i++) {
+                        #pragma HLS UNROLL
+                        storage_wide[i] = hbm_wide[i];
+                    }
+                }
                 bool match_perfect = false;
                 INTRA_SEG_ITERATION:
                 for (int j = 0 ; j < SEGMENT_SIZE ; j++)
@@ -305,7 +322,7 @@ void rebalance_cu(
         #pragma HLS UNROLL
         unused_data[i] = UNUSED_ICON;
     }
-
+    HERE
     printf("REBALANCE\n");
     while (true)
     {
@@ -330,10 +347,19 @@ void rebalance_cu(
         }
         int pack_ptr_ints = seg_count * SEGMENT_SIZE - 1;
         int buffer_count = SEGMENT_SIZE - 1;
+        HERE
         PACK_MAIN_LOOP:
         for (int i = seg_count - 1; i >= 0; --i) {
             #pragma HLS LOOP_TRIPCOUNT min=1 max=4096
-            memcpy(collect_buffer, hbm_ptr + pma_data_base_addr + i * SEGMENT_SIZE * sizeof(int), sizeof(collect_buffer));
+            // memcpy(collect_buffer, hbm_ptr + pma_data_base_addr + i * SEGMENT_SIZE * sizeof(int), sizeof(collect_buffer));
+            ap_uint<512>* wide_hbm_ptr = (ap_uint<512>*)(hbm_ptr + pma_data_base_addr + i * SEGMENT_SIZE * sizeof(int));
+            ap_uint<512>* wide_collect_buffer = (ap_uint<512>*) collect_buffer;
+            WRITE_COLLECT_BUFFER:
+            for (int j = 0 ; j < sizeof(collect_buffer) / 64 ; j++)
+            {
+                #pragma HLS UNROLL
+                wide_collect_buffer[j] = wide_hbm_ptr[j];
+            }
             PACK_INNER_LOOP:
             for (int j = SEGMENT_SIZE - 1; j >= 0; --j) {
                 #pragma HLS PIPELINE II=1
@@ -342,7 +368,13 @@ void rebalance_cu(
                     buffer_count--;
                     pack_ptr_ints--;
                     if (buffer_count == -1) {
-                        memcpy(hbm_ptr + pma_data_base_addr + (pack_ptr_ints + 1) * sizeof(int), pack_buffer, sizeof(pack_buffer));
+                        // memcpy(hbm_ptr + pma_data_base_addr + (pack_ptr_ints + 1) * sizeof(int), pack_buffer, sizeof(pack_buffer));
+                        ap_uint<512>* wide_write_back_hbm = (ap_uint<512>*)(hbm_ptr + pma_data_base_addr + (pack_ptr_ints + 1) * sizeof(int));
+                        ap_uint<512>* wide_pack_buffer = (ap_uint<512>*) pack_buffer;
+                        for (int k = 0 ; k < sizeof(pack_buffer) / 64 ; k++)
+                        {
+                            wide_write_back_hbm[k] = wide_pack_buffer[k];
+                        }
                         buffer_count = SEGMENT_SIZE - 1;
                     }
                 }
@@ -352,13 +384,31 @@ void rebalance_cu(
             //     #pragma HLS PIPELINE II=1
             //     collect_buffer[j] = UNUSED_ICON;
             // }
-            memcpy(hbm_ptr + pma_data_base_addr + i * SEGMENT_SIZE * sizeof(int), unused_data,  sizeof(collect_buffer));
+            // HERE
+            ap_uint<512>* wide_hbm_write_back_read = (ap_uint<512>*)(hbm_ptr + pma_data_base_addr + i * SEGMENT_SIZE * sizeof(int));
+            ap_uint<512>* wide_unused_data = (ap_uint<512>*) unused_data;
+            for (int j = 0 ; j < sizeof(unused_data) / 64 ; j++)
+            {
+                #pragma HLS UNROLL
+                wide_hbm_write_back_read[j] = wide_unused_data[j];
+            }
+            // HERE
+            // memcpy(hbm_ptr + pma_data_base_addr + i * SEGMENT_SIZE * sizeof(int), unused_data,  sizeof(collect_buffer));
             
         }
+        HERE
         if (buffer_count < SEGMENT_SIZE - 1) {
             int element_num = SEGMENT_SIZE - buffer_count - 1;
-            memcpy(hbm_ptr + pma_data_base_addr + (pack_ptr_ints + 1) * sizeof(int), pack_buffer + buffer_count + 1, element_num*sizeof(int));
+            //这里不能使用burst 覆盖否则后面数据被覆盖掉了
+            // memcpy(hbm_ptr + pma_data_base_addr + (pack_ptr_ints + 1) * sizeof(int), pack_buffer + buffer_count + 1, element_num * sizeof(int));
+            int* dst_ptr = (int*)(hbm_ptr + pma_data_base_addr + (pack_ptr_ints + 1) * sizeof(int));
+            int* src_ptr = pack_buffer + buffer_count + 1;
+            for (int i = 0; i < element_num; i++) {
+                #pragma HLS PIPELINE II=1
+                dst_ptr[i] = src_ptr[i];
+            }
         }
+        HERE
         int current_read_ptr_ints = pack_ptr_ints + 1;
 
 
@@ -384,22 +434,57 @@ void rebalance_cu(
 
                 if (num_to_move == 0)
                 {
-                    memcpy(hbm_ptr + target_seg_start_addr, unused_data, sizeof(unused_data));
+                    // memcpy(hbm_ptr + target_seg_start_addr, unused_data, sizeof(unused_data));
+                    {
+                        ap_uint<512>* hbm_wide = (ap_uint<512>*)(hbm_ptr + target_seg_start_addr);
+                        ap_uint<512>* unused_wide = (ap_uint<512>*)unused_data;
+                        const int seg_chunks = sizeof(unused_data) / 64; // SEGMENT_SIZE*4 / 64
+                        for (int i = 0; i < seg_chunks; i++) {
+                            #pragma HLS UNROLL
+                            hbm_wide[i] = unused_wide[i];
+                        }
+                    }
                     continue;
                 }
 
                 int read_addr = pma_data_base_addr + current_read_ptr_ints * sizeof(int);
                 int segment_buffer[SEGMENT_SIZE];
-                memcpy(segment_buffer, hbm_ptr + read_addr, num_to_move * sizeof(int));
-
+                // memcpy(segment_buffer, hbm_ptr + read_addr, num_to_move * sizeof(int));
+                {
+                    ap_uint<512>* hbm_wide = (ap_uint<512>*)(hbm_ptr + read_addr);
+                    ap_uint<512>* seg_wide = (ap_uint<512>*)segment_buffer;
+                    const int seg_chunks = SEGMENT_SIZE * sizeof(int) / 64; // SEGMENT_SIZE*4 / 64
+                    for (int i = 0; i < seg_chunks; i++) {
+                        #pragma HLS UNROLL
+                        seg_wide[i] = hbm_wide[i];
+                    }
+                }
                 for (int i = num_to_move; i < SEGMENT_SIZE; i++) {
                     // #pragma HLS UNROLL
                     #pragma HLS PIPELINE II=1
                     segment_buffer[i] = UNUSED_ICON;
                 }
 
-                memcpy(hbm_ptr + target_seg_start_addr, segment_buffer, sizeof(segment_buffer));
-                memcpy(hbm_ptr + read_addr, unused_data, num_to_move * sizeof(int));
+                // memcpy(hbm_ptr + target_seg_start_addr, segment_buffer, sizeof(segment_buffer));
+                {
+                    ap_uint<512>* hbm_wide = (ap_uint<512>*)(hbm_ptr + target_seg_start_addr);
+                    ap_uint<512>* seg_wide = (ap_uint<512>*)segment_buffer;
+                    const int seg_chunks = sizeof(segment_buffer) / 64; // SEGMENT_SIZE*4 / 64
+                    for (int i = 0; i < seg_chunks; i++) {
+                        #pragma HLS UNROLL
+                        hbm_wide[i] = seg_wide[i];
+                    }
+                }
+                //防止覆盖
+                // memcpy(hbm_ptr + read_addr, unused_data, num_to_move * sizeof(int));
+                {
+                    int* dst_ptr = (int*)(hbm_ptr + read_addr);
+                    int* src_ptr = unused_data;
+                    for (int i = 0; i < num_to_move; i++) {
+                        #pragma HLS PIPELINE II=1
+                        dst_ptr[i] = src_ptr[i];
+                    }  
+                }
                 current_read_ptr_ints += num_to_move;
             }
         }
@@ -466,14 +551,28 @@ void insert_element_cu(
                 one_seg_updates = 0;
                 if (current_seg_idx != -1) 
                 {
-                    memcpy(hbm_ptr + (int)pma_base_addr.range(31,0) + sizeof(PMA_HEADER) + current_seg_idx * SEGMENT_SIZE * sizeof(int), &tmp_seg, sizeof(tmp_seg));
+                    // memcpy(hbm_ptr + (int)pma_base_addr.range(31,0) + sizeof(PMA_HEADER) + current_seg_idx * SEGMENT_SIZE * sizeof(int), &tmp_seg, sizeof(tmp_seg));
+                    ap_uint<512>* hbm_wide = (ap_uint<512>*)(hbm_ptr + (int)pma_base_addr.range(31,0) + sizeof(PMA_HEADER) + current_seg_idx * SEGMENT_SIZE * sizeof(int));
+                    ap_uint<512>* seg_wide = (ap_uint<512>*)&tmp_seg;
+                    const int seg_chunks = sizeof(tmp_seg) / 64; // SEGMENT_SIZE*4 / 64
+                    for (int i = 0; i < seg_chunks; i++) {
+                        #pragma HLS UNROLL
+                        hbm_wide[i] = seg_wide[i];
+                    }
                 }
                 current_seg_idx = target_seg_idx;
-                memcpy(&tmp_seg, hbm_ptr + (int)pma_base_addr.range(31,0) + sizeof(PMA_HEADER) + current_seg_idx * SEGMENT_SIZE * sizeof(int), sizeof(tmp_seg));
+                {
+                    ap_uint<512>* hbm_wide = (ap_uint<512>*)(hbm_ptr + (int)pma_base_addr.range(31,0) + sizeof(PMA_HEADER) + current_seg_idx * SEGMENT_SIZE * sizeof(int));
+                    ap_uint<512>* seg_wide = (ap_uint<512>*)&tmp_seg;
+                    const int seg_chunks = sizeof(tmp_seg) / 64; // SEGMENT_SIZE*4 / 64
+                    for (int i = 0; i < seg_chunks; i++) {
+                        #pragma HLS UNROLL
+                        seg_wide[i] = hbm_wide[i];
+                    }
+                }
+                // memcpy(&tmp_seg, hbm_ptr + (int)pma_base_addr.range(31,0) + sizeof(PMA_HEADER) + current_seg_idx * SEGMENT_SIZE * sizeof(int), sizeof(tmp_seg));
             }
             
-            // int for_debug[SEGMENT_SIZE];
-            // memcpy(for_debug, &tmp_seg, sizeof(tmp_seg));
             int insert_offset_in_seg = (insert_abs_idx % SEGMENT_SIZE) + one_seg_updates;
             ap_uint<BITS_PER_SEG> shifted_data = tmp_seg;
             ap_uint<BITS_PER_SEG> mask = (ap_uint<BITS_PER_SEG>(1) << (insert_offset_in_seg * 32)) - 1;
@@ -484,7 +583,16 @@ void insert_element_cu(
             tmp_seg.range((insert_offset_in_seg) * 32 + 31, (insert_offset_in_seg) * 32) = pos.val;
             one_seg_updates++;
         }
-        memcpy(hbm_ptr + (int)pma_base_addr.range(31,0) + sizeof(PMA_HEADER) + current_seg_idx * sizeof(int) * SEGMENT_SIZE, &tmp_seg, sizeof(tmp_seg));
+        // memcpy(hbm_ptr + (int)pma_base_addr.range(31,0) + sizeof(PMA_HEADER) + current_seg_idx * sizeof(int) * SEGMENT_SIZE, &tmp_seg, sizeof(tmp_seg));
+        {
+            ap_uint<512>* hbm_wide = (ap_uint<512>*)(hbm_ptr + (int)pma_base_addr.range(31,0) + sizeof(PMA_HEADER) + current_seg_idx * sizeof(int) * SEGMENT_SIZE);
+            ap_uint<512>* seg_wide = (ap_uint<512>*)&tmp_seg;
+            const int seg_chunks = sizeof(tmp_seg) / 64; // SEGMENT_SIZE*4 / 64
+            for (int i = 0; i < seg_chunks; i++) {
+                #pragma HLS UNROLL
+                hbm_wide[i] = seg_wide[i];
+            }
+        }
         pma_header_out.write(header);
     }
 }
@@ -512,6 +620,7 @@ void move_and_change_header(
         auto pma_info = pma_idx_info_in.read();
         if (pma_info.last == 1)
         {
+            HERE
             break;
         }
         auto header = header_stream.read();
@@ -547,12 +656,13 @@ void move_and_change_header(
         VEC_INFO new_addr;
         if (enlarged)
         {
+            HERE
             cmd_to_mem.write({.data=MEM_ALLOC});
             VEC_INFO to_enlarge;
             to_enlarge.range(31,0) = 0; //alloc 只看长度
             to_enlarge.range(63,32) = int(old_addr.range(63,32)) + total_enlarge_segs * SEGMENT_SIZE * sizeof(int);
             vec_info_to_mem.write({.data = to_enlarge});
-            ap_wait();
+            // ap_wait();
             new_addr = new_alloc_addr.read().data;
             if (direction == IN_DIRECTION)
             {
@@ -562,19 +672,43 @@ void move_and_change_header(
             {
                 pos_addr[pma_index] = new_addr;
             }
-            memmove(hbm_ptr + (int)new_addr.range(31,0),  hbm_ptr + (int)old_addr.range(31,0), (int)old_addr.range(63,32));
+            // memmove(hbm_ptr + (int)new_addr.range(31,0),  hbm_ptr + (int)old_addr.range(31,0), (int)old_addr.range(63,32));
+            int src_addr = (int)old_addr.range(31,0);
+            int dst_addr = (int)new_addr.range(31,0);
+            int move_bytes = (int)old_addr.range(63,32);
+            int move_chunks = move_bytes / 64; // 每块64字节
+            
+            ap_uint<512>* src_ptr = (ap_uint<512>*)(hbm_ptr + src_addr);
+            ap_uint<512>* dst_ptr = (ap_uint<512>*)(hbm_ptr + dst_addr);
+
+            for (int i = 0; i < move_chunks; i++) {
+                #pragma HLS PIPELINE II=1
+                dst_ptr[i] = src_ptr[i];
+            }
+            
             cmd_to_mem.write({.data = MEM_FREE});
             vec_info_to_mem.write({.data=old_addr});
             int new_data_start = (int)new_addr.range(31,0) + (int)old_addr.range(63,32);
-            int unused_segment[SEGMENT_SIZE];
-            for (int i = 0; i < SEGMENT_SIZE; i++) {
+            // int unused_segment[SEGMENT_SIZE];
+            ap_uint<512> wide_unused;
+            for (int i = 0; i < 16; i++) {
                 #pragma HLS UNROLL
-                unused_segment[i] = UNUSED_ICON;
+                wide_unused.range((i+1)*32-1, i*32) = UNUSED_ICON;
             }
+
+            // for (int i = 0; i < SEGMENT_SIZE; i++) {
+            //     #pragma HLS UNROLL
+            //     unused_segment[i] = UNUSED_ICON;
+            // }
+            HERE
             for (int s = 0; s < total_enlarge_segs; s++) {
                 #pragma HLS PIPELINE
                 int segment_start_addr = new_data_start + s * SEGMENT_SIZE * sizeof(int);
-                memcpy(hbm_ptr + segment_start_addr, unused_segment, sizeof(unused_segment));
+                ap_uint<512>* hbm_wide = (ap_uint<512>*)(hbm_ptr + segment_start_addr);
+                for (int k = 0; k < SEGMENT_SIZE / 16; k++) {
+                    #pragma HLS UNROLL
+                    hbm_wide[k] = wide_unused;
+                }
             }
 
         }
@@ -582,9 +716,17 @@ void move_and_change_header(
         {
             new_addr = old_addr;
         }
-        memcpy(hbm_ptr + (int)new_addr.range(31,0), &header, sizeof(PMA_HEADER));
+        // memcpy(hbm_ptr + (int)new_addr.range(31,0), &header, sizeof(PMA_HEADER));
+        HERE
+        ap_uint<512>* hbm_wide = (ap_uint<512>*)(hbm_ptr + (int)new_addr.range(31,0));
+        ap_uint<512>* header_wide = (ap_uint<512>*)&header;
+        for (int i = 0; i < 4; i++) { // 256 / 64 = 4
+            #pragma HLS UNROLL
+            hbm_wide[i] = header_wide[i];
+        }
         pma_addr_out.write(new_addr);
         new_header_stream.write(header);
+        HERE
     }
 }
 
