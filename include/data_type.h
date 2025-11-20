@@ -48,7 +48,7 @@ typedef ap_axiu<128, 0, 0, 0> PMA_UPDATE_MESSAGE;
 #define IN_DIRECTION 1
 typedef ap_axiu<64,0,0,0> READ_COMMAND_STREAM; 
 typedef  ap_axiu<8,0,0,0> CLEAR_ICON;
-struct PMA_HEADER
+struct alignas(256)PMA_HEADER
 {
     int vertex_range[VERTEX_PER_PMA];//every vertex in PMA's end segment [)
     int edge_count[VERTEX_PER_PMA];//every vertex in PMA's edge count

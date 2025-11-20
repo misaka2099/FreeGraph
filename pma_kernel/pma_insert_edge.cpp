@@ -3,8 +3,7 @@
 #include <cstring>
 #include <cxxabi.h>
 #include <hls_stream.h>
-#include "debug.h"
-#include "pma.h"
+#include "debug.h" 
 #include <ap_utils.h>
 #include "hls_burst_maxi.h"
 #define MAX_READ_REQUEST 5
@@ -24,7 +23,65 @@ struct InsertPos {
     int idx;      // 插入索引
     int val;      // 查找结果值
 };
+struct inserted_seg
+{
+    int old_vertex_relative_seg_number[16];
+    int vertex_number[16];
+};
 
+void read_seg(
+    ap_uint<512>* hbm_ptr,
+    int segment_buffer[SEGMENT_SIZE],
+    int pma_data_base_addr,
+    int seg_number
+)
+{
+    #pragma HLS INLINE
+    // ap_uint<512>* segment_buffer_ptr = (ap_uint<512>*)(segment_buffer);
+    ap_uint<512> buffer;
+    // const int seg_addr_in_ap_512_pattern = (seg_number * SEGMENT_SIZE * sizeof(int) + pma_data_base_addr) / 64;
+    
+    const int seg_addr_in_ap_512_pattern = (seg_number * SEGMENT_SIZE * sizeof(int) + pma_data_base_addr) >> 6;    
+    for (int i = 0 ; i < SEGMENT_SIZE * sizeof(int) / 64 ; i++)
+    {
+        #pragma HLS PIPELINE II=1 
+        // segment_buffer_ptr[i] 
+        // = hbm_ptr[i + (seg_number * SEGMENT_SIZE * sizeof(int) + pma_data_base_addr) / 64];
+        buffer = hbm_ptr[i + seg_addr_in_ap_512_pattern];
+        for (int j = 0 ; j < 16 ; j++)
+        {
+            #pragma HLS UNROLL
+            segment_buffer[i*16+j] = buffer.range(32*(j+1) - 1, 32*j);
+        }
+    }
+}
+void write_seg(
+    ap_uint<512>* hbm_ptr,
+    int segment_buffer[SEGMENT_SIZE],
+    int pma_data_base_addr,
+    int seg_number
+)
+{
+    #pragma HLS INLINE
+    // ap_uint<512>* segment_buffer_ptr = (ap_uint<512>*)(segment_buffer);
+    ap_uint<512> buffer;
+    const int seg_addr_in_ap_512_pattern = (seg_number * SEGMENT_SIZE * sizeof(int) + pma_data_base_addr) >> 6;
+        
+    for (int i = 0 ; i < SEGMENT_SIZE * sizeof(int) / 64 ; i++)
+    {
+        #pragma HLS PIPELINE II=1 
+        for (int j = 0 ; j < 16 ; j++)
+        {
+            #pragma HLS UNROLL
+            buffer.range(32*(j+1) - 1, 32*j) = segment_buffer[i*16+j];
+        }
+        hbm_ptr[i + seg_addr_in_ap_512_pattern] = buffer;
+        
+        // hbm_ptr[i + (seg_number * SEGMENT_SIZE * sizeof(int) + pma_data_base_addr) / 64] 
+        // = segment_buffer_ptr[i] ;
+
+    }
+}
 void process_cmd(
     hls::stream<PMA_UPDATE_MESSAGE> &cmd_stream,
     hls::stream<int> &cmd_count_stream,
@@ -138,7 +195,7 @@ void sort_cu(
 }
 
 void head_read(
-    BYTE* hbm_ptr,
+    ap_uint<512>* hbm_ptr,
     VEC_INFO* pos_pma_addrs,
     VEC_INFO* neg_pma_addrs,
     hls::stream<pma_idx_info> &pma_idx_info_request,
@@ -172,20 +229,20 @@ void head_read(
         }
         
         PMA_HEADER header;
-        memcpy(&header, hbm_ptr + int(vec.range(31,0)), sizeof(PMA_HEADER));
+        // memcpy(&header, hbm_ptr + (int(vec.range(31,0) / 512)), sizeof(PMA_HEADER));
         // {
         //     ap_uint<512>* hbm_wide = (ap_uint<512>*)(hbm_ptr + int(vec.range(31,0)));
-        //     ap_uint<512>* header_wide = (ap_uint<512>*)&header;
-        //     for (int i = 0; i < 4; i++) { // 256 / 64 = 4
-        //         #pragma HLS UNROLL
-        //         header_wide[i] = hbm_wide[i];
-        //     }
+        ap_uint<512>* header_wide = (ap_uint<512>*)&header;
+        for (int i = 0; i < 4; i++) { // 256 / 64 = 4
+            #pragma HLS UNROLL
+            header_wide[i] = hbm_ptr[i + int(vec.range(31,0)) / 64];
+        }
         // }
         header_out.write(header);
     }
 }
 void binary_search_cu(
-    BYTE* hbm_ptr,
+    ap_uint<512>* hbm_ptr,
     hls::stream<PMA_HEADER> &header_info_in_stream,
     hls::stream<PMA_HEADER> &header_after_modify,
     hls::stream<VEC_INFO> &pma_addr,
@@ -193,7 +250,8 @@ void binary_search_cu(
     hls::stream<int> &edge_count,
     hls::stream<InsertPos> &insert_info,
     hls::stream<int> &insert_count,
-    hls::stream<pma_idx_info> &for_exit_signal
+    hls::stream<pma_idx_info> &for_exit_signal,
+    hls::stream<inserted_seg>& inserted_pos
 )
 {
     printf("BINARY_SEARCH\n");
@@ -203,6 +261,13 @@ void binary_search_cu(
         if (exit_signal.last == 1)
         {
             break;
+        }
+        inserted_seg inserted_seg_info;
+        for (int i = 0 ; i < 16 ; i++)
+        {
+            #pragma HLS UNROLL
+            inserted_seg_info.old_vertex_relative_seg_number[i] = -1;
+            inserted_seg_info.vertex_number[i] = -1;
         }
         auto header = header_info_in_stream.read();
         auto addr = pma_addr.read();
@@ -233,17 +298,18 @@ void binary_search_cu(
                 int max_idx = 0;
                 int storage[SEGMENT_SIZE];
                 
-                memcpy(storage, hbm_ptr + pma_data_base_addr + mid * SEGMENT_SIZE * sizeof(int), sizeof(storage));
-                // {
+                // memcpy(storage, hbm_ptr + pma_data_base_addr + mid * SEGMENT_SIZE * sizeof(int), sizeof(storage));
+                {
                     
-                //     ap_uint<512>* hbm_wide = (ap_uint<512>*)(hbm_ptr + pma_data_base_addr + mid * SEGMENT_SIZE * sizeof(int));
-                //     ap_uint<512>* storage_wide = (ap_uint<512>*)storage;
-                //     const int seg_chunks = sizeof(storage) / 64; // SEGMENT_SIZE*4 / 64
-                //     for (int i = 0; i < seg_chunks; i++) {
-                //         #pragma HLS UNROLL
-                //         storage_wide[i] = hbm_wide[i];
-                //     }
-                // }
+                    // ap_uint<512>* hbm_wide = (ap_uint<512>*)(hbm_ptr + pma_data_base_addr + mid * SEGMENT_SIZE * sizeof(int));
+                    // ap_uint<512>* storage_wide = (ap_uint<512>*)storage;
+                    // const int seg_chunks = sizeof(storage) / 64; // SEGMENT_SIZE*4 / 64
+                    // for (int i = 0; i < seg_chunks; i++) {
+                    //     #pragma HLS UNROLL
+                    //     storage_wide[i] = hbm_ptr[i + (pma_data_base_addr + mid * SEGMENT_SIZE * sizeof(int)) / 64];
+                    // }
+                    read_seg(hbm_ptr, storage, pma_data_base_addr, mid);
+                }
                 bool match_perfect = false;
                 INTRA_SEG_ITERATION:
                 for (int j = 0 ; j < SEGMENT_SIZE ; j++)
@@ -295,6 +361,8 @@ void binary_search_cu(
             InsertPos to_insert;
             if (out_val != dst)
             {
+                inserted_seg_info.old_vertex_relative_seg_number[find_count] = out_idx / SEGMENT_SIZE;
+                inserted_seg_info.vertex_number[find_count] = local_src;
                 find_count++;
                 to_insert.idx = out_idx;
                 to_insert.val = dst;
@@ -304,25 +372,128 @@ void binary_search_cu(
         }
         insert_count.write(find_count);
         header_after_modify.write(header);
+        inserted_pos.write(inserted_seg_info);
     }
 }
 
 
+int valid_count(int seg_start, int seg_end, ap_uint<512>* hbm_ptr, int pma_data_base_addr)
+{
+    #pragma HLS INLINE
+    int count = 0;
+    int segment_buffer[SEGMENT_SIZE];
+    for (int  i = seg_start ; i < seg_end ; i++)
+    {
+        // for (int j = 0 ; j < SEGMENT_SIZE * sizeof(int) / 64 ; j++)
+        // {
+        //     #pragma HLS UNROLL 
+        //     ap_uint<512>* segment_buffer_ptr = (ap_uint<512>*)segment_buffer;
+        //     segment_buffer_ptr[j] = hbm_ptr[(pma_data_base_addr + i * SEGMENT_SIZE * sizeof(int)) / 64];
+        // }
+        read_seg(hbm_ptr, segment_buffer, pma_data_base_addr, i);
+        for (int j = 0 ; j < 64 ; j++)
+        {
+            #pragma HLS PIPELINE II=1
+            if (segment_buffer[j] != UNUSED_ICON) count++;
+        }
+    }
+    return count;
+}
+
+
+void redistribute(int seg_start, int seg_end, ap_uint<512>* hbm_ptr, int pma_data_base_addr)
+{
+    HERE
+    int valid_buffer[SEGMENT_SIZE];
+    for (int i = 0 ; i < SEGMENT_SIZE ; i++)
+    {
+        valid_buffer[i] = UNUSED_ICON;
+    }
+    int collect_buffer[SEGMENT_SIZE];
+    int pack_ptr = 0;
+    int pack_buffer_ptr = 0;
+    int complete_seg = 0;
+    int seg_count = seg_end - seg_start;
+    for (int i = seg_start ; i < seg_end ; i++)
+    {
+        // ap_uint<512>* collect_buffer_ptr = (ap_uint<512>*)(collect_buffer);
+        // for (int j = 0 ; j < SEGMENT_SIZE * sizeof(int) / 64 ; j++)
+        // {
+        //     #pragma HLS UNROLL
+        //     collect_buffer_ptr[j] = 
+        //     hbm_ptr[(pma_data_base_addr + i * SEGMENT_SIZE * sizeof(int)) / 64 + j];
+        // }
+        read_seg(hbm_ptr, collect_buffer,  pma_data_base_addr, i);
+        for (int j = 0 ; j < SEGMENT_SIZE ; j++)
+        {
+            if (collect_buffer[j] != UNUSED_ICON)
+            {
+                valid_buffer[pack_buffer_ptr] = collect_buffer[j];
+                pack_buffer_ptr++;
+                pack_ptr++;
+                if (pack_buffer_ptr == SEGMENT_SIZE)
+                {
+                    // ap_uint<512>* valid_buffer_ptr = (ap_uint<512>*)(valid_buffer);
+                    // for (int k = 0 ; k < SEGMENT_SIZE * sizeof(int) / 64 ; k++)
+                    // {
+                    //     hbm_ptr[(pma_data_base_addr + (complete_seg) * SEGMENT_SIZE * sizeof(int)) / 64 + k]
+                    //         = valid_buffer_ptr[k];
+                    // }
+                    write_seg(hbm_ptr, valid_buffer, pma_data_base_addr, complete_seg);
+                    pack_buffer_ptr = 0;
+                    complete_seg++;
+                }
+            }
+        }
+    }
+    
+    pack_buffer_ptr --;
+    int write_back_buffer[SEGMENT_SIZE];
+    int base_num = pack_ptr / seg_count;
+    int extra_num = pack_ptr % seg_count;
+    for (int s = seg_end - 1 ; s >= seg_start ; s--)
+    {
+        for (int i = 0 ; i < SEGMENT_SIZE ; i++)
+        {
+            write_back_buffer[i] = UNUSED_ICON;
+        }
+        int valid_num = base_num + (s < extra_num? 1:0);
+        for (int i = valid_num - 1 ; i >= 0 ; i--)
+        {
+            if (pack_buffer_ptr == -1)
+            {
+                complete_seg--;
+                // ap_uint<512>* valid_buffer_ptr = (ap_uint<512>*)(valid_buffer);
+                // for (int k = 0 ; k < SEGMENT_SIZE * sizeof(int) / 64 ; k++)
+                // {
+                //     valid_buffer_ptr[k] 
+                //         = hbm_ptr[(pma_data_base_addr + (complete_seg) * SEGMENT_SIZE * sizeof(int)) / 64 + k];
+                // }
+                read_seg(hbm_ptr, valid_buffer, pma_data_base_addr, complete_seg);
+                pack_buffer_ptr = SEGMENT_SIZE - 1;
+            }
+            write_back_buffer[i] = valid_buffer[pack_buffer_ptr];
+            pack_buffer_ptr--;
+        }
+        
+        for (int i = 0 ; i < SEGMENT_SIZE * sizeof(int) / 64 ; i++)
+        {
+            ap_uint<512>* write_back_buffer_ptr = (ap_uint<512>*) write_back_buffer;
+            hbm_ptr[(s * SEGMENT_SIZE * sizeof(int) + pma_data_base_addr) / 64 + i] = write_back_buffer_ptr[i];
+        }
+    }
+}
+
 void rebalance_cu(
-    BYTE* hbm_ptr,
+    ap_uint<512>* hbm_ptr,
     hls::stream<PMA_HEADER>& pma_header_in,
     hls::stream<VEC_INFO>& pma_addr_in,
     hls::stream<pma_idx_info>& pma_idx,
+    hls::stream<inserted_seg>& inserted_seg_info,
     hls::stream<COMMAND_STREAM>& ack_back_to_router
 )
 {
-            
-    int unused_data[SEGMENT_SIZE];
-    for (int i = 0; i < SEGMENT_SIZE; i++) {
-        #pragma HLS UNROLL
-        unused_data[i] = UNUSED_ICON;
-    }
-    HERE
+        
     printf("REBALANCE\n");
     while (true)
     {
@@ -333,163 +504,64 @@ void rebalance_cu(
         }
         PMA_HEADER pma_header = pma_header_in.read();
         VEC_INFO pma_addr = pma_addr_in.read();
+        auto to_check = inserted_seg_info.read();
         int seg_count = pma_header.vertex_range[15];
 
         const int pma_data_base_addr = pma_addr.range(31,0) + sizeof(PMA_HEADER);
         const int pma_data_size_bytes = pma_addr.range(63,32) - sizeof(PMA_HEADER);
+
         
-        int pack_buffer[SEGMENT_SIZE];
-        int collect_buffer[SEGMENT_SIZE];
-        for (int k = 0 ; k < SEGMENT_SIZE ; k++)
+        for (int i = 0 ; i < 16 ; i++)
         {
-            #pragma HLS UNROLL 
-            pack_buffer[k] = UNUSED_ICON;
-        }
-        int pack_ptr_ints = seg_count * SEGMENT_SIZE - 1;
-        int buffer_count = SEGMENT_SIZE - 1;
-        HERE
-        PACK_MAIN_LOOP:
-        for (int i = seg_count - 1; i >= 0; --i) {
-            #pragma HLS LOOP_TRIPCOUNT min=1 max=4096
-            memcpy(collect_buffer, hbm_ptr + pma_data_base_addr + i * SEGMENT_SIZE * sizeof(int), sizeof(collect_buffer));
-            // ap_uint<512>* wide_hbm_ptr = (ap_uint<512>*)(hbm_ptr + pma_data_base_addr + i * SEGMENT_SIZE * sizeof(int));
-            // ap_uint<512>* wide_collect_buffer = (ap_uint<512>*) collect_buffer;
-            // WRITE_COLLECT_BUFFER:
-            // for (int j = 0 ; j < sizeof(collect_buffer) / 64 ; j++)
-            // {
-            //     #pragma HLS UNROLL
-            //     wide_collect_buffer[j] = wide_hbm_ptr[j];
-            // }
-            PACK_INNER_LOOP:
-            for (int j = SEGMENT_SIZE - 1; j >= 0; --j) {
-                #pragma HLS PIPELINE II=1
-                if (collect_buffer[j] != UNUSED_ICON) {
-                    pack_buffer[buffer_count] = collect_buffer[j];
-                    buffer_count--;
-                    pack_ptr_ints--;
-                    if (buffer_count == -1) {
-                        memcpy(hbm_ptr + pma_data_base_addr + (pack_ptr_ints + 1) * sizeof(int), pack_buffer, sizeof(pack_buffer));
-                        // ap_uint<512>* wide_write_back_hbm = (ap_uint<512>*)(hbm_ptr + pma_data_base_addr + (pack_ptr_ints + 1) * sizeof(int));
-                        // ap_uint<512>* wide_pack_buffer = (ap_uint<512>*) pack_buffer;
-                        // for (int k = 0 ; k < sizeof(pack_buffer) / 64 ; k++)
-                        // {
-                        //     wide_write_back_hbm[k] = wide_pack_buffer[k];
-                        // }
-                        buffer_count = SEGMENT_SIZE - 1;
-                    }
+            if (to_check.vertex_number[i] == -1) continue;
+
+            int v = to_check.vertex_number[i];
+            int relative_seg_num = to_check.old_vertex_relative_seg_number[i];
+
+            int seg_start = (v == 0) ? 0 : pma_header.vertex_range[v-1];
+            int seg_end = pma_header.vertex_range[v];
+            int seg_num = seg_end - seg_start; // 当前vertex的segment数
+            int total_valid_count = 0;
+            int seg_idx = seg_start + relative_seg_num;
+            total_valid_count = valid_count(seg_idx, seg_idx + 1, hbm_ptr, pma_data_base_addr);
+            int last_left = seg_idx;
+            int last_right = seg_idx + 1;
+
+
+            int max_edge = SEGMENT_SIZE * DENSITY_BOUND;
+            if (total_valid_count < max_edge) continue;
+            for (int cur_seg_num = 2 ; cur_seg_num <= seg_num ; cur_seg_num *= 2)
+            {
+                int left = seg_start + int(seg_idx / cur_seg_num) * cur_seg_num;
+                int right = seg_start + (int(seg_idx / cur_seg_num) + 1) * cur_seg_num;
+                // int valid = valid_count(left, right);
+                if (left < last_left) {
+                    total_valid_count += valid_count(left, last_left, hbm_ptr, pma_data_base_addr);
                 }
-            }
-            // HERE
-            // ap_uint<512>* wide_hbm_write_back_read = (ap_uint<512>*)(hbm_ptr + pma_data_base_addr + i * SEGMENT_SIZE * sizeof(int));
-            // ap_uint<512>* wide_unused_data = (ap_uint<512>*) unused_data;
-            // for (int j = 0 ; j < sizeof(unused_data) / 64 ; j++)
-            // {
-            //     #pragma HLS UNROLL
-            //     wide_hbm_write_back_read[j] = wide_unused_data[j];
-            // }
-            // HERE
-            memcpy(hbm_ptr + pma_data_base_addr + i * SEGMENT_SIZE * sizeof(int), unused_data,  sizeof(unused_data));
-            
-        }
-        HERE
-        if (buffer_count < SEGMENT_SIZE - 1) {
-            int element_num = SEGMENT_SIZE - buffer_count - 1;
-            //这里不能使用burst 覆盖否则后面数据被覆盖掉了
-            memcpy(hbm_ptr + pma_data_base_addr + (pack_ptr_ints + 1) * sizeof(int), pack_buffer + buffer_count + 1, element_num * sizeof(int));
-            // int* dst_ptr = (int*)(hbm_ptr + pma_data_base_addr + (pack_ptr_ints + 1) * sizeof(int));
-            // int* src_ptr = pack_buffer + buffer_count + 1;
-            // for (int i = 0; i < element_num; i++) {
-            //     #pragma HLS PIPELINE II=1
-            //     dst_ptr[i] = src_ptr[i];
-            // }
-        }
-        HERE
-        int current_read_ptr_ints = pack_ptr_ints + 1;
+                else if (right > last_right) {
+                    total_valid_count += valid_count(last_right, right, hbm_ptr, pma_data_base_addr);
+                }
 
-
-
-        
-        for (int v = 0 ; v < VERTEX_PER_PMA ; v++)
-        {
-            #pragma HLS LOOP_TRIPCOUNT min=64 max=64
-            int seg_start_idx = (v == 0) ? 0 : pma_header.vertex_range[v - 1];
-            int seg_end_idx = pma_header.vertex_range[v];
-            int seg_count = seg_end_idx - seg_start_idx;
-            if (seg_count == 0) continue;
-            int edge_num = pma_header.edge_count[v];
-            if (edge_num == 0) continue;
-            int base = edge_num / seg_count;
-            int extra = edge_num % seg_count;
-
-            REBALANCE_SEG_LOOP:
-            for (int s = 0; s < seg_count; ++s) {
-                #pragma HLS LOOP_TRIPCOUNT min=0 max=64
-                int num_to_move = base + (s < extra ? 1 : 0);
-                int target_seg_start_addr = pma_data_base_addr + (seg_start_idx + s) * SEGMENT_SIZE * sizeof(int);
-
-                if (num_to_move == 0)
+                max_edge = (right - left) * SEGMENT_SIZE * DENSITY_BOUND; 
+                if (total_valid_count <= max_edge)
                 {
-                    memcpy(hbm_ptr + target_seg_start_addr, unused_data, sizeof(unused_data));
-                    // {
-                    //     ap_uint<512>* hbm_wide = (ap_uint<512>*)(hbm_ptr + target_seg_start_addr);
-                    //     ap_uint<512>* unused_wide = (ap_uint<512>*)unused_data;
-                    //     const int seg_chunks = sizeof(unused_data) / 64; // SEGMENT_SIZE*4 / 64
-                    //     for (int i = 0; i < seg_chunks; i++) {
-                    //         #pragma HLS UNROLL
-                    //         hbm_wide[i] = unused_wide[i];
-                    //     }
-                    // }
+                    redistribute(left, right, hbm_ptr, pma_data_base_addr);
                     continue;
                 }
-
-                int read_addr = pma_data_base_addr + current_read_ptr_ints * sizeof(int);
-                int segment_buffer[SEGMENT_SIZE];
-                memcpy(segment_buffer, hbm_ptr + read_addr, num_to_move * sizeof(int));
-                // {
-                //     ap_uint<512>* hbm_wide = (ap_uint<512>*)(hbm_ptr + read_addr);
-                //     ap_uint<512>* seg_wide = (ap_uint<512>*)segment_buffer;
-                //     const int seg_chunks = SEGMENT_SIZE * sizeof(int) / 64; // SEGMENT_SIZE*4 / 64
-                //     for (int i = 0; i < seg_chunks; i++) {
-                //         #pragma HLS UNROLL
-                //         seg_wide[i] = hbm_wide[i];
-                //     }
-                // }
-                for (int i = num_to_move; i < SEGMENT_SIZE; i++) {
-                    // #pragma HLS UNROLL
-                    #pragma HLS PIPELINE II=1
-                    segment_buffer[i] = UNUSED_ICON;
-                }
-
-                memcpy(hbm_ptr + target_seg_start_addr, segment_buffer, sizeof(segment_buffer));
-                // {
-                //     ap_uint<512>* hbm_wide = (ap_uint<512>*)(hbm_ptr + target_seg_start_addr);
-                //     ap_uint<512>* seg_wide = (ap_uint<512>*)segment_buffer;
-                //     const int seg_chunks = sizeof(segment_buffer) / 64; // SEGMENT_SIZE*4 / 64
-                //     for (int i = 0; i < seg_chunks; i++) {
-                //         #pragma HLS UNROLL
-                //         hbm_wide[i] = seg_wide[i];
-                //     }
-                // }
-                //防止覆盖
-                memcpy(hbm_ptr + read_addr, unused_data, num_to_move * sizeof(int));
-                // {
-                //     int* dst_ptr = (int*)(hbm_ptr + read_addr);
-                //     int* src_ptr = unused_data;
-                //     for (int i = 0; i < num_to_move; i++) {
-                //         #pragma HLS PIPELINE II=1
-                //         dst_ptr[i] = src_ptr[i];
-                //     }  
-                // }
-                current_read_ptr_ints += num_to_move;
+                last_left = left;
+                last_right = right;
             }
         }
+        
+        
+
         ack_back_to_router.write({.data=signal.pma_idx});
     }
 }   
 
 
 void insert_element_cu(
-    BYTE* hbm_ptr,
+    ap_uint<512>* hbm_ptr,
     hls::stream<InsertPos> &insert_info,
     hls::stream<int> &insert_count,
     hls::stream<VEC_INFO> &pma_addr,
@@ -508,6 +580,7 @@ void insert_element_cu(
         }
         int count = insert_count.read();
         VEC_INFO pma_base_addr = pma_addr.read();
+        int pma_data_start = pma_base_addr.range(31,0) + sizeof(PMA_HEADER);
         PMA_HEADER header = pma_header.read();
         InsertPos pos_batch[MAX_CMD_NUM];
         for (int k = 0 ; k < count ; k++)
@@ -546,26 +619,28 @@ void insert_element_cu(
                 one_seg_updates = 0;
                 if (current_seg_idx != -1) 
                 {
-                    memcpy(hbm_ptr + (int)pma_base_addr.range(31,0) + sizeof(PMA_HEADER) + current_seg_idx * SEGMENT_SIZE * sizeof(int), &tmp_seg, sizeof(tmp_seg));
+                    // memcpy(hbm_ptr + (int)pma_base_addr.range(31,0) + sizeof(PMA_HEADER) + current_seg_idx * SEGMENT_SIZE * sizeof(int), &tmp_seg, sizeof(tmp_seg));
                     // ap_uint<512>* hbm_wide = (ap_uint<512>*)(hbm_ptr + (int)pma_base_addr.range(31,0) + sizeof(PMA_HEADER) + current_seg_idx * SEGMENT_SIZE * sizeof(int));
                     // ap_uint<512>* seg_wide = (ap_uint<512>*)&tmp_seg;
                     // const int seg_chunks = sizeof(tmp_seg) / 64; // SEGMENT_SIZE*4 / 64
                     // for (int i = 0; i < seg_chunks; i++) {
                     //     #pragma HLS UNROLL
-                    //     hbm_wide[i] = seg_wide[i];
+                    //     hbm_ptr[i + (pma_data_start + current_seg_idx * SEGMENT_SIZE * sizeof(int)) / 64] = seg_wide[i];
                     // }
+                    write_seg(hbm_ptr, (int*)(&tmp_seg), pma_data_start, current_seg_idx);
                 }
                 current_seg_idx = target_seg_idx;
                 // {
                 //     ap_uint<512>* hbm_wide = (ap_uint<512>*)(hbm_ptr + (int)pma_base_addr.range(31,0) + sizeof(PMA_HEADER) + current_seg_idx * SEGMENT_SIZE * sizeof(int));
-                //     ap_uint<512>* seg_wide = (ap_uint<512>*)&tmp_seg;
-                //     const int seg_chunks = sizeof(tmp_seg) / 64; // SEGMENT_SIZE*4 / 64
-                //     for (int i = 0; i < seg_chunks; i++) {
-                //         #pragma HLS UNROLL
-                //         seg_wide[i] = hbm_wide[i];
-                //     }
+                    // ap_uint<512>* seg_wide = (ap_uint<512>*)&tmp_seg;
+                    // const int seg_chunks = sizeof(tmp_seg) / 64; // SEGMENT_SIZE*4 / 64
+                    // for (int i = 0; i < seg_chunks; i++) {
+                    //     #pragma HLS UNROLL
+                    //     seg_wide[i] = hbm_ptr[i + (pma_data_start + current_seg_idx * SEGMENT_SIZE * sizeof(int)) / 64];
+                    // }
+                    read_seg(hbm_ptr, (int*)(&tmp_seg), pma_data_start, current_seg_idx);
                 // }
-                memcpy(&tmp_seg, hbm_ptr + (int)pma_base_addr.range(31,0) + sizeof(PMA_HEADER) + current_seg_idx * SEGMENT_SIZE * sizeof(int), sizeof(tmp_seg));
+                // memcpy(&tmp_seg, hbm_ptr + (int)pma_base_addr.range(31,0) + sizeof(PMA_HEADER) + current_seg_idx * SEGMENT_SIZE * sizeof(int), sizeof(tmp_seg));
             }
             
             int insert_offset_in_seg = (insert_abs_idx % SEGMENT_SIZE) + one_seg_updates;
@@ -578,22 +653,26 @@ void insert_element_cu(
             tmp_seg.range((insert_offset_in_seg) * 32 + 31, (insert_offset_in_seg) * 32) = pos.val;
             one_seg_updates++;
         }
-        memcpy(hbm_ptr + (int)pma_base_addr.range(31,0) + sizeof(PMA_HEADER) + current_seg_idx * sizeof(int) * SEGMENT_SIZE, &tmp_seg, sizeof(tmp_seg));
+        // memcpy(hbm_ptr + (int)pma_base_addr.range(31,0) + sizeof(PMA_HEADER) + current_seg_idx * sizeof(int) * SEGMENT_SIZE, &tmp_seg, sizeof(tmp_seg));
         // {
         //     ap_uint<512>* hbm_wide = (ap_uint<512>*)(hbm_ptr + (int)pma_base_addr.range(31,0) + sizeof(PMA_HEADER) + current_seg_idx * sizeof(int) * SEGMENT_SIZE);
-        //     ap_uint<512>* seg_wide = (ap_uint<512>*)&tmp_seg;
-        //     const int seg_chunks = sizeof(tmp_seg) / 64; // SEGMENT_SIZE*4 / 64
-        //     for (int i = 0; i < seg_chunks; i++) {
-        //         #pragma HLS UNROLL
-        //         hbm_wide[i] = seg_wide[i];
-        //     }
+            // ap_uint<512>* seg_wide = (ap_uint<512>*)&tmp_seg;
+            // const int seg_chunks = sizeof(tmp_seg) / 64; // SEGMENT_SIZE*4 / 64
+            // for (int i = 0; i < seg_chunks; i++) {
+            //     #pragma HLS UNROLL
+            //     hbm_ptr[i + (pma_data_start + current_seg_idx * SEGMENT_SIZE * sizeof(int) / 64)] = seg_wide[i];
+            // }
+            write_seg(hbm_ptr, (int*)(&tmp_seg), pma_data_start, current_seg_idx);
         // }
         pma_header_out.write(header);
     }
 }
 
+
+
+
 void move_and_change_header(
-    BYTE* hbm_ptr,
+    ap_uint<512>* hbm_ptr,
     VEC_INFO* pos_addr,
     VEC_INFO* neg_addr,
     hls::stream<PMA_HEADER>& header_stream,
@@ -610,6 +689,12 @@ void move_and_change_header(
 )
 {
     printf("MOVE_AND_CHANGE_HEADER\n");
+    int unused_data[SEGMENT_SIZE];
+    for (int i = 0 ; i < 64 ; i++)
+    {
+        #pragma HLS UNROLL
+        unused_data[i] = UNUSED_ICON;
+    }
     while (true)
     {
         auto pma_info = pma_idx_info_in.read();
@@ -619,6 +704,7 @@ void move_and_change_header(
             break;
         }
         auto header = header_stream.read();
+        auto old_header = header;
         int direction = pma_info.direction;
         int pma_index = pma_info.pma_idx;
         int enlarge_segs[16];
@@ -667,7 +753,57 @@ void move_and_change_header(
             {
                 pos_addr[pma_index] = new_addr;
             }
-            memmove(hbm_ptr + (int)new_addr.range(31,0),  hbm_ptr + (int)old_addr.range(31,0), (int)old_addr.range(63,32));
+            // memmove(hbm_ptr + (int)new_addr.range(31,0),  hbm_ptr + (int)old_addr.range(31,0), (int)old_addr.range(63,32));
+
+            for (int i = 0 ; i < VERTEX_PER_PMA ; i++)
+            {
+                #pragma HLS PIPELINE II=1
+                int seg_start = i == 0 ? 0 : old_header.vertex_range[i - 1];
+                int seg_end = old_header.vertex_range[i];
+                int new_seg_start = (i == 0) ? 0 : header.vertex_range[i - 1];
+                int new_seg_end = header.vertex_range[i];
+                int old_data_start = (int)old_addr.range(31,0) + sizeof(PMA_HEADER);
+                int new_data_start = (int)new_addr.range(31,0) + sizeof(PMA_HEADER);
+                
+                for (int s1 = seg_start, s2=new_seg_start; s1 < seg_end; s1++,s2++)
+                {
+                    // int old_idx = old_data_start / 64 + (s1 * SEGMENT_SIZE * sizeof(int)) / 64;
+                    // int new_idx = new_data_start / 64 + (s2 * SEGMENT_SIZE * sizeof(int)) / 64;
+                    
+                    int old_idx = (old_data_start << 6) + ((s1 * SEGMENT_SIZE * sizeof(int)) << 6);
+                    int new_idx = (new_data_start << 6) + ((s2 * SEGMENT_SIZE * sizeof(int)) << 6);
+                    // 复制一个段（SEGMENT_SIZE*4字节=256字节=4个ap_uint<512>）
+                    // ap_uint<512> temp_buffer[4];
+                    // #pragma HLS ARRAY_PARTITION variable=temp_buffer complete
+                    
+                    // // Burst读取：一次性读取整个段
+                    // READ_BURST: 
+                    // for (int k = 0; k < SEGMENT_SIZE * sizeof(int) / 64; k++) {
+                    //     #pragma HLS UNROLL
+                    //     temp_buffer[k] = hbm_ptr[old_idx + k];
+                    // }
+                    
+                    // // Burst写入：一次性写入整个段
+                    // WRITE_BURST: 
+                    // for (int k = 0; k < SEGMENT_SIZE * sizeof(int) / 64; k++) {
+                    //     #pragma HLS UNROLL
+                    //     hbm_ptr[new_idx + k] = temp_buffer[k];
+                    // }
+                    int seg_buffer[SEGMENT_SIZE];
+                    read_seg(hbm_ptr, seg_buffer, old_data_start, s1);
+                    write_seg(hbm_ptr, seg_buffer, new_data_start, s2);
+                }
+                for (int s = new_seg_start + (seg_end - seg_start) ; s < new_seg_end; s++)
+                {
+                    // int idx =  new_data_start / 64 + (s * SEGMENT_SIZE * sizeof(int)) / 64;
+                    // for (int k = 0; k < SEGMENT_SIZE * sizeof(int) / 64; k++) {
+                    //     #pragma HLS UNROLL
+                    //     hbm_ptr[idx + k] = unused_data;
+                    // }
+                    write_seg(hbm_ptr, unused_data, new_data_start, s);
+                }
+
+            }
             // {
             //     int src_addr = (int)old_addr.range(31,0);
             //     int dst_addr = (int)new_addr.range(31,0);
@@ -687,40 +823,26 @@ void move_and_change_header(
             vec_info_to_mem.write({.data=old_addr});
             int new_data_start = (int)new_addr.range(31,0) + (int)old_addr.range(63,32);
             // int unused_segment[SEGMENT_SIZE];
-            ap_uint<512> wide_unused;
-            for (int i = 0; i < 16; i++) {
-                #pragma HLS UNROLL
-                wide_unused.range((i+1)*32-1, i*32) = UNUSED_ICON;
-            }
+
 
             // for (int i = 0; i < SEGMENT_SIZE; i++) {
             //     #pragma HLS UNROLL
             //     unused_segment[i] = UNUSED_ICON;
             // }
-            HERE
-            for (int s = 0; s < total_enlarge_segs; s++) {
-                #pragma HLS PIPELINE
-                int segment_start_addr = new_data_start + s * SEGMENT_SIZE * sizeof(int);
-                ap_uint<512>* hbm_wide = (ap_uint<512>*)(hbm_ptr + segment_start_addr);
-                for (int k = 0; k < SEGMENT_SIZE / 16; k++) {
-                    #pragma HLS UNROLL
-                    hbm_wide[k] = wide_unused;
-                }
-            }
 
         }
         else  
         {
             new_addr = old_addr;
         }
-        memcpy(hbm_ptr + (int)new_addr.range(31,0), &header, sizeof(PMA_HEADER));
+        // memcpy(hbm_ptr + (int)new_addr.range(31,0), &header, sizeof(PMA_HEADER));
         // HERE
         {
-            ap_uint<512>* hbm_wide = (ap_uint<512>*)(hbm_ptr + (int)new_addr.range(31,0));
+            // ap_uint<512>* hbm_wide = (ap_uint<512>*)(hbm_ptr + (int)new_addr.range(31,0));
             ap_uint<512>* header_wide = (ap_uint<512>*)&header;
             for (int i = 0; i < 4; i++) { // 256 / 64 = 4
-                #pragma HLS UNROLL
-                hbm_wide[i] = header_wide[i];
+                #pragma HLS PIPELINE
+                hbm_ptr[i +  (int)new_addr.range(31,0) / 64] = header_wide[i];
             }
         }
         pma_addr_out.write(new_addr);
@@ -732,13 +854,15 @@ void move_and_change_header(
 extern "C"
 {
     void pma_insert_edge(
-        VEC_INFO* pos_pma_addrs,
-        VEC_INFO* neg_pma_addrs,
-        BYTE* hbm_ptr_0,
-        BYTE* hbm_ptr_1,
-        BYTE* hbm_ptr_2,
-        BYTE* hbm_ptr_3,
-        BYTE* hbm_ptr_4,
+        VEC_INFO* pos_pma_addrs_read,
+        VEC_INFO* pos_pma_addrs_write,
+        VEC_INFO* neg_pma_addrs_read,
+        VEC_INFO* neg_pma_addrs_write,
+        ap_uint<512>* hbm_ptr_0,
+        ap_uint<512>* hbm_ptr_1,
+        ap_uint<512>* hbm_ptr_2,
+        ap_uint<512>* hbm_ptr_3,
+        ap_uint<512>* hbm_ptr_4,
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_stream,
         hls::stream<VEC_INFO_STREAM> &vec_info_to_mem_stream,
         hls::stream<COMMAND_STREAM> &cmd_to_mem_stream,
@@ -746,13 +870,15 @@ extern "C"
         hls::stream<COMMAND_STREAM> &ack_back_to_router
     )
     {
-        #pragma HLS INTERFACE m_axi port=pos_pma_addrs offset=slave bundle=gmem0
-        #pragma HLS INTERFACE m_axi port=neg_pma_addrs offset=slave bundle=gmem1
-        #pragma HLS INTERFACE m_axi port=hbm_ptr_0 offset=slave bundle=gmem2
-        #pragma HLS INTERFACE m_axi port=hbm_ptr_1 offset=slave bundle=gmem3
-        #pragma HLS INTERFACE m_axi port=hbm_ptr_2 offset=slave bundle=gmem4
-        #pragma HLS INTERFACE m_axi port=hbm_ptr_3 offset=slave bundle=gmem5
-        #pragma HLS INTERFACE m_axi port=hbm_ptr_4 offset=slave bundle=gmem6
+        #pragma HLS INTERFACE m_axi port=pos_pma_addrs_read offset=slave bundle=gmem0 
+        #pragma HLS INTERFACE m_axi port=pos_pma_addrs_write offset=slave bundle=gmem0
+        #pragma HLS INTERFACE m_axi port=neg_pma_addrs_read offset=slave bundle=gmem1 max_widen_bitwidth=512
+        #pragma HLS INTERFACE m_axi port=neg_pma_addrs_write offset=slave bundle=gmem1 max_widen_bitwidth=512
+        #pragma HLS INTERFACE m_axi port=hbm_ptr_0 offset=slave bundle=gmem2 max_widen_bitwidth=512 
+        #pragma HLS INTERFACE m_axi port=hbm_ptr_1 offset=slave bundle=gmem3 max_widen_bitwidth=512
+        #pragma HLS INTERFACE m_axi port=hbm_ptr_2 offset=slave bundle=gmem4 max_widen_bitwidth=512 
+        #pragma HLS INTERFACE m_axi port=hbm_ptr_3 offset=slave bundle=gmem5 max_widen_bitwidth=512 
+        #pragma HLS INTERFACE m_axi port=hbm_ptr_4 offset=slave bundle=gmem6 max_widen_bitwidth=512 
         #pragma HLS INTERFACE axis port=cmd_stream
         #pragma HLS INTERFACE axis port=vec_info_to_mem_stream
         #pragma HLS INTERFACE axis port=cmd_to_mem_stream
@@ -776,6 +902,8 @@ extern "C"
 
         hls::stream<PMA_HEADER> new_pma_header("new_pma_header");
         hls::stream<VEC_INFO> pma_addr_to_rebalance("pma_addr_to_rebalance");
+
+        hls::stream<inserted_seg> inserted_seg_info("inserted_seg_info");
         // #pragma HLS STREAM variable=pma_idx_info_request depth=16
         // #pragma HLS STREAM variable=pma_addr_request depth=16
         // #pragma HLS STREAM variable=pma_header_request depth=16
@@ -811,8 +939,8 @@ extern "C"
         
         head_read(
             hbm_ptr_0,
-            pos_pma_addrs, 
-            neg_pma_addrs, 
+            pos_pma_addrs_read, 
+            neg_pma_addrs_read, 
             pma_idx_info_request[0],
             pma_header_request,
             pma_addr_request
@@ -827,7 +955,8 @@ extern "C"
             edge_count_stream,
             insert_info_stream,
             insert_count_stream,
-            pma_idx_info_request[3]
+            pma_idx_info_request[3],
+            inserted_seg_info
         );
 
         
@@ -844,8 +973,8 @@ extern "C"
         
         move_and_change_header(
             hbm_ptr_3,
-            pos_pma_addrs,
-            neg_pma_addrs,
+            pos_pma_addrs_write,
+            neg_pma_addrs_write,
             header_from_insert,
             new_pma_header, 
 
@@ -863,6 +992,7 @@ extern "C"
             new_pma_header,
             pma_addr_to_rebalance,
             pma_idx_info_request[2],
+            inserted_seg_info,
             ack_back_to_router
         );
     }

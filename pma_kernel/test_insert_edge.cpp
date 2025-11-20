@@ -137,12 +137,14 @@ int main()
     std::thread kernel_thread([&]() {
         pma_insert_edge(
             pos_addr,
+            pos_addr,
             neg_addr,
-            storage,
-            storage,
-            storage,
-            storage,
-            storage,
+            neg_addr,
+            (ap_uint<512>*)storage,
+            (ap_uint<512>*)storage,
+            (ap_uint<512>*)storage,
+            (ap_uint<512>*)storage,
+            (ap_uint<512>*)storage,
             cmd,
             vec_info_to_mem_stream,
             cmd_to_mem_stream,
@@ -213,7 +215,7 @@ int main()
             std::cout << "SRC " << i << " : ";
         for (int j = start_seg * SEGMENT_SIZE ; j < end_seg * SEGMENT_SIZE ; j++)
         {
-            if (check_storage[j] != UNUSED_ICON)
+            // if (check_storage[j] != UNUSED_ICON)
             std::cout << check_storage[j] << " ";
         }   
         std::cout << std::endl;
