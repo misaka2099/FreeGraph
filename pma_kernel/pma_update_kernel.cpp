@@ -4,7 +4,6 @@
 #include <ap_int.h>
 #include "data_type.h"
 #include "debug.h"
-#include "pma.h"
 #define MAX_CMD_NUM 16
 #define MAX_TMP_PMA_NUM 1024
 

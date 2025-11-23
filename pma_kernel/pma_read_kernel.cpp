@@ -204,12 +204,12 @@ extern "C"
                     data_to_attr_query.write({.data=attr});
                     break;
                 }
-                case NONE:
-                {
-                    // vec_info_from_mem.read();
-                    // data_to_mem_stream.write({.data=0});
-                    break;
-                }
+                // case NONE:
+                // {
+                //     // vec_info_from_mem.read();
+                //     // data_to_mem_stream.write({.data=0});
+                //     break;
+                // }
             }
         }
     }

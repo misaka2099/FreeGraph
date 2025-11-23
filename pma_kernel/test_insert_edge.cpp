@@ -97,18 +97,18 @@ int main()
     {
         pma_0_storage[i] = UNUSED_ICON;
     }
-    for (int i = 0 ; i < 48 ; i++)
-    {
-        pma_0_storage[i] = i;
-    }
+    // for (int i = 0 ; i < 48 ; i++)
+    // {
+    //     pma_0_storage[i] = i;
+    // }
     int bin;
     allocate(bin, sizeof(PMA_HEADER) + 16 *SEGMENT_SIZE *sizeof(int), bm);
     for (int k = 0 ; k < 16 ; k++)
     {
         PMA_UPDATE_MESSAGE msg;
         msg.data.range(31,0) = 0;
-        msg.data.range(63,32) = k+48;
-        msg.data.range(98,98) = IN_DIRECTION;
+        msg.data.range(63,32) = k;
+        msg.data.range(98,98) = OUT_DIRECTION;
         msg.last = k == 15 ? 1 : 0;
         cmd.write(msg);
     }

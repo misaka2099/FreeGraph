@@ -30,7 +30,7 @@ struct inserted_seg
 };
 
 void read_seg(
-    ap_uint<512>* hbm_ptr,
+    BYTE* hbm_ptr,
     int segment_buffer[SEGMENT_SIZE],
     int pma_data_base_addr,
     int seg_number
@@ -41,22 +41,27 @@ void read_seg(
     ap_uint<512> buffer;
     // const int seg_addr_in_ap_512_pattern = (seg_number * SEGMENT_SIZE * sizeof(int) + pma_data_base_addr) / 64;
     
-    const int seg_addr_in_ap_512_pattern = (seg_number * SEGMENT_SIZE * sizeof(int) + pma_data_base_addr) >> 6;    
-    for (int i = 0 ; i < SEGMENT_SIZE * sizeof(int) / 64 ; i++)
-    {
-        #pragma HLS PIPELINE II=1 
-        // segment_buffer_ptr[i] 
-        // = hbm_ptr[i + (seg_number * SEGMENT_SIZE * sizeof(int) + pma_data_base_addr) / 64];
-        buffer = hbm_ptr[i + seg_addr_in_ap_512_pattern];
-        for (int j = 0 ; j < 16 ; j++)
-        {
-            #pragma HLS UNROLL
-            segment_buffer[i*16+j] = buffer.range(32*(j+1) - 1, 32*j);
-        }
-    }
+    // const int seg_addr_in_ap_512_pattern = (seg_number * SEGMENT_SIZE * sizeof(int) + pma_data_base_addr) >> 6;    
+    // for (int i = 0 ; i < SEGMENT_SIZE * sizeof(int) / 64 ; i++)
+    // {
+    //     #pragma HLS PIPELINE II=1 
+    //     // segment_buffer_ptr[i] 
+    //     // = hbm_ptr[i + (seg_number * SEGMENT_SIZE * sizeof(int) + pma_data_base_addr) / 64];
+    //     buffer = hbm_ptr[i + seg_addr_in_ap_512_pattern];
+    //     for (int j = 0 ; j < 16 ; j++)
+    //     {
+    //         #pragma HLS UNROLL
+    //         segment_buffer[i*16+j] = buffer.range(32*(j+1) - 1, 32*j);
+    //     }
+    // }
+    int seg_byte_addr = pma_data_base_addr + seg_number * SEGMENT_SIZE * sizeof(int);
+    // 计算段的起始索引（单位：ap_uint<512>块）
+    // int seg_idx = seg_byte_addr / 64;
+    // 直接memcpy
+    memcpy(segment_buffer, hbm_ptr + seg_byte_addr, SEGMENT_SIZE * sizeof(int));
 }
 void write_seg(
-    ap_uint<512>* hbm_ptr,
+    BYTE* hbm_ptr,
     int segment_buffer[SEGMENT_SIZE],
     int pma_data_base_addr,
     int seg_number
@@ -64,23 +69,28 @@ void write_seg(
 {
     #pragma HLS INLINE
     // ap_uint<512>* segment_buffer_ptr = (ap_uint<512>*)(segment_buffer);
-    ap_uint<512> buffer;
-    const int seg_addr_in_ap_512_pattern = (seg_number * SEGMENT_SIZE * sizeof(int) + pma_data_base_addr) >> 6;
+    // ap_uint<512> buffer;
+    // const int seg_addr_in_ap_512_pattern = (seg_number * SEGMENT_SIZE * sizeof(int) + pma_data_base_addr) >> 6;
         
-    for (int i = 0 ; i < SEGMENT_SIZE * sizeof(int) / 64 ; i++)
-    {
-        #pragma HLS PIPELINE II=1 
-        for (int j = 0 ; j < 16 ; j++)
-        {
-            #pragma HLS UNROLL
-            buffer.range(32*(j+1) - 1, 32*j) = segment_buffer[i*16+j];
-        }
-        hbm_ptr[i + seg_addr_in_ap_512_pattern] = buffer;
+    // for (int i = 0 ; i < SEGMENT_SIZE * sizeof(int) / 64 ; i++)
+    // {
+    //     #pragma HLS PIPELINE II=1 
+    //     for (int j = 0 ; j < 16 ; j++)
+    //     {
+    //         #pragma HLS UNROLL
+    //         buffer.range(32*(j+1) - 1, 32*j) = segment_buffer[i*16+j];
+    //     }
+    //     hbm_ptr[i + seg_addr_in_ap_512_pattern] = buffer;
         
-        // hbm_ptr[i + (seg_number * SEGMENT_SIZE * sizeof(int) + pma_data_base_addr) / 64] 
-        // = segment_buffer_ptr[i] ;
+    //     // hbm_ptr[i + (seg_number * SEGMENT_SIZE * sizeof(int) + pma_data_base_addr) / 64] 
+    //     // = segment_buffer_ptr[i] ;
 
-    }
+    // }
+    int seg_byte_addr = pma_data_base_addr + seg_number * SEGMENT_SIZE * sizeof(int);
+    // 计算段的起始索引（单位：ap_uint<512>块）
+    // int seg_idx = seg_byte_addr / 64;
+    // 直接memcpy
+    memcpy(hbm_ptr + seg_byte_addr, segment_buffer, SEGMENT_SIZE * sizeof(int));
 }
 void process_cmd(
     hls::stream<PMA_UPDATE_MESSAGE> &cmd_stream,
@@ -195,7 +205,7 @@ void sort_cu(
 }
 
 void head_read(
-    ap_uint<512>* hbm_ptr,
+    BYTE* hbm_ptr,
     VEC_INFO* pos_pma_addrs,
     VEC_INFO* neg_pma_addrs,
     hls::stream<pma_idx_info> &pma_idx_info_request,
@@ -229,20 +239,21 @@ void head_read(
         }
         
         PMA_HEADER header;
-        // memcpy(&header, hbm_ptr + (int(vec.range(31,0) / 512)), sizeof(PMA_HEADER));
+        int bias = int(vec.range(31,0));
+        memcpy(&header, hbm_ptr + bias, sizeof(PMA_HEADER));
         // {
         //     ap_uint<512>* hbm_wide = (ap_uint<512>*)(hbm_ptr + int(vec.range(31,0)));
-        ap_uint<512>* header_wide = (ap_uint<512>*)&header;
-        for (int i = 0; i < 4; i++) { // 256 / 64 = 4
-            #pragma HLS UNROLL
-            header_wide[i] = hbm_ptr[i + int(vec.range(31,0)) / 64];
-        }
+        // ap_uint<512>* header_wide = (ap_uint<512>*)&header;
+        // for (int i = 0; i < 4; i++) { // 256 / 64 = 4
+        //     #pragma HLS UNROLL
+        //     header_wide[i] = hbm_ptr[i + int(vec.range(31,0)) / 64];
+        // }
         // }
         header_out.write(header);
     }
 }
 void binary_search_cu(
-    ap_uint<512>* hbm_ptr,
+    BYTE* hbm_ptr,
     hls::stream<PMA_HEADER> &header_info_in_stream,
     hls::stream<PMA_HEADER> &header_after_modify,
     hls::stream<VEC_INFO> &pma_addr,
@@ -377,7 +388,7 @@ void binary_search_cu(
 }
 
 
-int valid_count(int seg_start, int seg_end, ap_uint<512>* hbm_ptr, int pma_data_base_addr)
+int valid_count(int seg_start, int seg_end, BYTE* hbm_ptr, int pma_data_base_addr)
 {
     #pragma HLS INLINE
     int count = 0;
@@ -401,7 +412,7 @@ int valid_count(int seg_start, int seg_end, ap_uint<512>* hbm_ptr, int pma_data_
 }
 
 
-void redistribute(int seg_start, int seg_end, ap_uint<512>* hbm_ptr, int pma_data_base_addr)
+void redistribute(int seg_start, int seg_end, BYTE* hbm_ptr, int pma_data_base_addr)
 {
     HERE
     int valid_buffer[SEGMENT_SIZE];
@@ -476,16 +487,17 @@ void redistribute(int seg_start, int seg_end, ap_uint<512>* hbm_ptr, int pma_dat
             pack_buffer_ptr--;
         }
         
-        for (int i = 0 ; i < SEGMENT_SIZE * sizeof(int) / 64 ; i++)
-        {
-            ap_uint<512>* write_back_buffer_ptr = (ap_uint<512>*) write_back_buffer;
-            hbm_ptr[(s * SEGMENT_SIZE * sizeof(int) + pma_data_base_addr) / 64 + i] = write_back_buffer_ptr[i];
-        }
+        // for (int i = 0 ; i < SEGMENT_SIZE * sizeof(int) / 64 ; i++)
+        // {
+        //     ap_uint<512>* write_back_buffer_ptr = (ap_uint<512>*) write_back_buffer;
+        //     hbm_ptr[(s * SEGMENT_SIZE * sizeof(int) + pma_data_base_addr) / 64 + i] = write_back_buffer_ptr[i];
+        // }
+        write_seg(hbm_ptr, write_back_buffer, pma_data_base_addr, s);
     }
 }
 
 void rebalance_cu(
-    ap_uint<512>* hbm_ptr,
+    BYTE* hbm_ptr,
     hls::stream<PMA_HEADER>& pma_header_in,
     hls::stream<VEC_INFO>& pma_addr_in,
     hls::stream<pma_idx_info>& pma_idx,
@@ -561,7 +573,7 @@ void rebalance_cu(
 
 
 void insert_element_cu(
-    ap_uint<512>* hbm_ptr,
+    BYTE* hbm_ptr,
     hls::stream<InsertPos> &insert_info,
     hls::stream<int> &insert_count,
     hls::stream<VEC_INFO> &pma_addr,
@@ -672,7 +684,7 @@ void insert_element_cu(
 
 
 void move_and_change_header(
-    ap_uint<512>* hbm_ptr,
+    BYTE* hbm_ptr,
     VEC_INFO* pos_addr,
     VEC_INFO* neg_addr,
     hls::stream<PMA_HEADER>& header_stream,
@@ -835,16 +847,17 @@ void move_and_change_header(
         {
             new_addr = old_addr;
         }
-        // memcpy(hbm_ptr + (int)new_addr.range(31,0), &header, sizeof(PMA_HEADER));
+        int bias = (int)new_addr.range(31,0);
+        memcpy(hbm_ptr + bias, &header, sizeof(PMA_HEADER));
         // HERE
-        {
+        // {
             // ap_uint<512>* hbm_wide = (ap_uint<512>*)(hbm_ptr + (int)new_addr.range(31,0));
-            ap_uint<512>* header_wide = (ap_uint<512>*)&header;
-            for (int i = 0; i < 4; i++) { // 256 / 64 = 4
-                #pragma HLS PIPELINE
-                hbm_ptr[i +  (int)new_addr.range(31,0) / 64] = header_wide[i];
-            }
-        }
+        //     ap_uint<512>* header_wide = (ap_uint<512>*)&header;
+        //     for (int i = 0; i < 4; i++) { // 256 / 64 = 4
+        //         #pragma HLS PIPELINE
+        //         hbm_ptr[i +  (int)new_addr.range(31,0) / 64] = header_wide[i];
+        //     }
+        // }
         pma_addr_out.write(new_addr);
         new_header_stream.write(header);
         HERE
@@ -858,11 +871,11 @@ extern "C"
         VEC_INFO* pos_pma_addrs_write,
         VEC_INFO* neg_pma_addrs_read,
         VEC_INFO* neg_pma_addrs_write,
-        ap_uint<512>* hbm_ptr_0,
-        ap_uint<512>* hbm_ptr_1,
-        ap_uint<512>* hbm_ptr_2,
-        ap_uint<512>* hbm_ptr_3,
-        ap_uint<512>* hbm_ptr_4,
+        BYTE* hbm_ptr_0,
+        BYTE* hbm_ptr_1,
+        BYTE* hbm_ptr_2,
+        BYTE* hbm_ptr_3,
+        BYTE* hbm_ptr_4,
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_stream,
         hls::stream<VEC_INFO_STREAM> &vec_info_to_mem_stream,
         hls::stream<COMMAND_STREAM> &cmd_to_mem_stream,
@@ -870,15 +883,15 @@ extern "C"
         hls::stream<COMMAND_STREAM> &ack_back_to_router
     )
     {
-        #pragma HLS INTERFACE m_axi port=pos_pma_addrs_read offset=slave bundle=gmem0 
-        #pragma HLS INTERFACE m_axi port=pos_pma_addrs_write offset=slave bundle=gmem0
-        #pragma HLS INTERFACE m_axi port=neg_pma_addrs_read offset=slave bundle=gmem1 max_widen_bitwidth=512
-        #pragma HLS INTERFACE m_axi port=neg_pma_addrs_write offset=slave bundle=gmem1 max_widen_bitwidth=512
-        #pragma HLS INTERFACE m_axi port=hbm_ptr_0 offset=slave bundle=gmem2 max_widen_bitwidth=512 
-        #pragma HLS INTERFACE m_axi port=hbm_ptr_1 offset=slave bundle=gmem3 max_widen_bitwidth=512
-        #pragma HLS INTERFACE m_axi port=hbm_ptr_2 offset=slave bundle=gmem4 max_widen_bitwidth=512 
-        #pragma HLS INTERFACE m_axi port=hbm_ptr_3 offset=slave bundle=gmem5 max_widen_bitwidth=512 
-        #pragma HLS INTERFACE m_axi port=hbm_ptr_4 offset=slave bundle=gmem6 max_widen_bitwidth=512 
+        #pragma HLS INTERFACE m_axi port=pos_pma_addrs_read offset=slave bundle=gmem0 depth=50
+        #pragma HLS INTERFACE m_axi port=pos_pma_addrs_write offset=slave bundle=gmem0 depth=50
+        #pragma HLS INTERFACE m_axi port=neg_pma_addrs_read offset=slave bundle=gmem1 depth=50 max_widen_bitwidth=512
+        #pragma HLS INTERFACE m_axi port=neg_pma_addrs_write offset=slave bundle=gmem1 depth=50 max_widen_bitwidth=512
+        #pragma HLS INTERFACE m_axi port=hbm_ptr_0 offset=slave bundle=gmem2 depth=50 max_widen_bitwidth=512 
+        #pragma HLS INTERFACE m_axi port=hbm_ptr_1 offset=slave bundle=gmem3 depth=50 max_widen_bitwidth=512
+        #pragma HLS INTERFACE m_axi port=hbm_ptr_2 offset=slave bundle=gmem4 depth=50 max_widen_bitwidth=512 
+        #pragma HLS INTERFACE m_axi port=hbm_ptr_3 offset=slave bundle=gmem5 depth=50 max_widen_bitwidth=512 
+        #pragma HLS INTERFACE m_axi port=hbm_ptr_4 offset=slave bundle=gmem6 depth=50 max_widen_bitwidth=512 
         #pragma HLS INTERFACE axis port=cmd_stream
         #pragma HLS INTERFACE axis port=vec_info_to_mem_stream
         #pragma HLS INTERFACE axis port=cmd_to_mem_stream

@@ -93,7 +93,7 @@ int main(int argc, char** argv)
     // BYTE* valid_array = bo_valid_array.map<BYTE*>();
 
     // 初始化 HBM 和有效性数组
-    std::fill_n(hbm_base_address, CHANNEL_CAPACITY * CHANNEL_NUM, 0);
+    std::fill_n(hbm_base_address, CHANNEL_CAPACITY * CHANNEL_NUM, -2);
     // std::fill_n(valid_array, CHANNEL_CAPACITY / 8, 0);
 
     auto bo_pos_vec_info = xrt::bo(device, sizeof(VEC_INFO) * MAX_PMA_NUM, pma_read_kernel.group_id(0));
@@ -152,7 +152,7 @@ int main(int argc, char** argv)
     run_pma_insert_edge_1.set_arg(8, bo_hbm_base_addr);
 
     run_pma_insert_edge_2.set_arg(0, bo_pos_vec_info);
-    run_pma_insert_edge_2.set_arg(1, bo_pos_vec_info);
+    run_pma_insert_edge_2.set_arg(1, bo_pos_vec_info );
     run_pma_insert_edge_2.set_arg(2, bo_neg_vec_info);
     run_pma_insert_edge_2.set_arg(3, bo_neg_vec_info);
     run_pma_insert_edge_2.set_arg(4, bo_hbm_base_addr);
@@ -190,27 +190,31 @@ int main(int argc, char** argv)
     std::vector<std::unordered_set<int>> Updated_Graph(max_vertex + 1);
     for (int i = 0 ; i < max_vertex + 1; i++)
     {
-        check_src[0] = i;
-        std::fill(check_dst, check_dst + 4096, -1);
-        bo_check_src.sync(XCL_BO_SYNC_BO_TO_DEVICE);
-        bo_check_dst.sync(XCL_BO_SYNC_BO_TO_DEVICE);
-        run_check_kernel.set_arg(0, bo_check_src);
-        run_check_kernel.set_arg(1, bo_check_dst);
-        run_check_kernel.set_arg(3,1);
-        run_pma_read_kernel.start();
-        run_check_kernel.start();
-        run_check_kernel.wait();
-        run_pma_read_kernel.wait();
-        bo_check_dst.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
-        for (int j = 0 ; j < 4096 ; j++)
-        {
-            if (check_dst[j] == -1) break;
-            Updated_Graph[i].insert(check_dst[j]);
-        }
+        check_src[i] = i;
+        
         // std::cout << std::endl;
     }
     std::cout << "Check kernel finished." << std::endl;
-
+    std::fill(check_dst, check_dst + 4096, -1);
+    bo_check_src.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+    bo_check_dst.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+    run_check_kernel.set_arg(0, bo_check_src);
+    run_check_kernel.set_arg(1, bo_check_dst);
+    run_check_kernel.set_arg(3,1);
+    run_pma_read_kernel.start();
+    run_check_kernel.start();
+    run_check_kernel.wait();
+    run_pma_read_kernel.wait();
+    bo_check_dst.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+    int idx = 0;
+    for (int i = 0; i < max_vertex + 1; i++) 
+    {
+        while (idx < 4096 && check_dst[idx] != -1) {
+            Updated_Graph[i].insert(check_dst[idx]);
+            idx++;
+        }
+        idx++; // 跳过分隔符 -1
+    }
     // Compare Updated_Graph with the original Graph
     std::fstream output_file("updated_graph.txt", std::ios::out);
     if (!output_file.is_open()) {

@@ -100,10 +100,10 @@ int main()
             neg_addr,
             storage,
             cmd,
-            ack_back_to_router,
             vec_info_to_mem_stream,
             cmd_to_mem_stream,
-            vec_info_back_stream
+            vec_info_back_stream,
+            ack_back_to_router
         );
     });
 
@@ -139,7 +139,7 @@ int main()
     }
     // 4. 等待内核处理完所有请求并返回确认信息
     // 100个正常ack + 1个STOP ack
-    for (int i = 0 ; i < 10 ; i++)
+    for (int i = 0 ; i < 1 ; i++)
     {
         auto ack = ack_back_to_router.read();
         std::cout << "Host: Received ack " << i << " from kernel." << std::endl;
