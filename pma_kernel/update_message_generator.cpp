@@ -38,6 +38,7 @@ extern "C"
             msg.data.range(63,32) = 0;
             msg.data.range(97,96) = PMA_INSERT_VERTEX;
             msg.data.range(98,98) = IN_DIRECTION; //default in direction
+            msg.data[127] = 1;
             cmd_to_router.write(msg);
         }
         // HERE
@@ -49,6 +50,7 @@ extern "C"
             msg.data.range(63,32) = 0;
             msg.data.range(97,96) = PMA_INSERT_VERTEX;
             msg.data.range(98,98) = OUT_DIRECTION; //default in direction
+            msg.data[127] = 1;
             cmd_to_router.write(msg);
         }
         //get batch update info vertex update + edge_update
@@ -66,6 +68,7 @@ extern "C"
             msg.data.range(63,32) = src[i];
             msg.data.range(97,96) = PMA_INSERT_EDGE;
             msg.data.range(98,98) = IN_DIRECTION; //default in direction
+            msg.data[127] = 1;
             cmd_to_router.write(msg);
         }
         HERE
@@ -77,6 +80,7 @@ extern "C"
             msg.data.range(63,32) = dst[i];
             msg.data.range(97,96) = PMA_INSERT_EDGE;
             msg.data.range(98,98) = OUT_DIRECTION; //default in direction
+            msg.data[127] = 1;
             cmd_to_router.write(msg);
         }
         HERE

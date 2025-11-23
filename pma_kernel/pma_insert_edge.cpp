@@ -125,6 +125,7 @@ void process_cmd(
                 return;
             }
             cmd_batch[i] = cmd.data;
+            cmd_batch[i][127] = 1;
             cmd_count++;
             if (cmd.last == 1) {
                 break;
@@ -372,7 +373,7 @@ void binary_search_cu(
             InsertPos to_insert;
             if (out_val != dst)
             {
-                inserted_seg_info.old_vertex_relative_seg_number[find_count] = out_idx / SEGMENT_SIZE;
+                inserted_seg_info.old_vertex_relative_seg_number[find_count] = (out_idx + 1) / SEGMENT_SIZE;
                 inserted_seg_info.vertex_number[find_count] = local_src;
                 find_count++;
                 to_insert.idx = out_idx;
