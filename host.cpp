@@ -117,11 +117,11 @@ int main(int argc, char** argv)
         index++;
     }
 
-    auto bo_check_src = xrt::bo(device, sizeof(int) * 1024, check_kernel.group_id(0));
+    auto bo_check_src = xrt::bo(device, sizeof(int) * (max_vertex + 1), check_kernel.group_id(0));
     auto bo_check_dst = xrt::bo(device, sizeof(int) * 4096, check_kernel.group_id(1));
     auto check_src = bo_check_src.map<int*>();
     auto check_dst = bo_check_dst.map<int*>();
-    auto bo_vertex_attr = xrt::bo(device, sizeof(double) * 1024, check_kernel.group_id(2));
+    auto bo_vertex_attr = xrt::bo(device, sizeof(double) *  (max_vertex + 1), check_kernel.group_id(2));
 
     std::cout << "Buffers allocated and initialized." << std::endl;
 
@@ -194,7 +194,6 @@ int main(int argc, char** argv)
         
         // std::cout << std::endl;
     }
-    std::cout << "Check kernel finished." << std::endl;
     std::fill(check_dst, check_dst + 4096, -1);
     bo_check_src.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     bo_check_dst.sync(XCL_BO_SYNC_BO_TO_DEVICE);
@@ -206,6 +205,7 @@ int main(int argc, char** argv)
     run_check_kernel.wait();
     run_pma_read_kernel.wait();
     bo_check_dst.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+    std::cout << "Check kernel finished." << std::endl;
     int idx = 0;
     for (int i = 0; i < max_vertex + 1; i++) 
     {
