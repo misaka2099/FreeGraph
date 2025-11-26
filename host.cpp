@@ -41,7 +41,7 @@ int main(int argc, char** argv)
     {
         Graph[edge.first].insert(edge.second);
     }
-
+    int buffer_len = edges.size() + (max_vertex + 1);
     // Debug: Print edges read from the file
     std::cout << "Edges read from the file:" << std::endl;
     // for (const auto& edge : edges) {
@@ -94,6 +94,7 @@ int main(int argc, char** argv)
 
     // 初始化 HBM 和有效性数组
     std::fill_n(hbm_base_address, CHANNEL_CAPACITY * CHANNEL_NUM, -2);
+
     // std::fill_n(valid_array, CHANNEL_CAPACITY / 8, 0);
 
     auto bo_pos_vec_info = xrt::bo(device, sizeof(VEC_INFO) * MAX_PMA_NUM, pma_read_kernel.group_id(0));
@@ -117,11 +118,11 @@ int main(int argc, char** argv)
         index++;
     }
 
-    auto bo_check_src = xrt::bo(device, sizeof(int) * (max_vertex + 1), check_kernel.group_id(0));
-    auto bo_check_dst = xrt::bo(device, sizeof(int) * 4096, check_kernel.group_id(1));
+    auto bo_check_src = xrt::bo(device, sizeof(int) * (max_vertex + 10), check_kernel.group_id(0));
+    auto bo_check_dst = xrt::bo(device, sizeof(int) * buffer_len, check_kernel.group_id(1));
     auto check_src = bo_check_src.map<int*>();
     auto check_dst = bo_check_dst.map<int*>();
-    auto bo_vertex_attr = xrt::bo(device, sizeof(double) *  (max_vertex + 1), check_kernel.group_id(2));
+    auto bo_vertex_attr = xrt::bo(device, sizeof(double) *  (max_vertex + 10), check_kernel.group_id(2));
 
     std::cout << "Buffers allocated and initialized." << std::endl;
 
@@ -165,6 +166,7 @@ int main(int argc, char** argv)
     bo_neg_vec_info.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     bo_src.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     bo_dst.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+    bo_hbm_base_addr.sync(XCL_BO_SYNC_BO_TO_DEVICE);
 
     std::cout << "Buffers synchronized to device." << std::endl;
     auto start_time = std::chrono::high_resolution_clock::now();
@@ -194,7 +196,7 @@ int main(int argc, char** argv)
         
         // std::cout << std::endl;
     }
-    std::fill(check_dst, check_dst + 4096, -1);
+    std::fill(check_dst, check_dst + buffer_len, -1);
     bo_check_src.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     bo_check_dst.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     run_check_kernel.set_arg(0, bo_check_src);
@@ -209,7 +211,7 @@ int main(int argc, char** argv)
     int idx = 0;
     for (int i = 0; i < max_vertex + 1; i++) 
     {
-        while (idx < 4096 && check_dst[idx] != -1) {
+        while (idx < buffer_len && check_dst[idx] != -1) {
             Updated_Graph[i].insert(check_dst[idx]);
             idx++;
         }

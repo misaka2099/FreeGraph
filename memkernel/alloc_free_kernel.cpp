@@ -70,7 +70,7 @@ extern "C"
         #pragma HLS INTERFACE axis port=vec_info_in
         #pragma HLS INTERFACE axis port=vec_info_back
         
-        BYTE storage[(CHANNEL_CAPACITY / INIT_VEC_LEN_IN_BYTE)];
+        BYTE storage[(CHANNEL_CAPACITY *CHANNEL_NUM / INIT_VEC_LEN_IN_BYTE)];
         #pragma HLS bind_storage variable=storage type=ram_t2p impl=uram
         memset(storage, 0, sizeof(storage));
         // 初始化

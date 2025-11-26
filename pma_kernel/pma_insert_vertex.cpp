@@ -93,7 +93,7 @@ void process_header(
 void write_hbm(
     VEC_INFO* pos_pma_addrs,
     VEC_INFO* neg_pma_addrs,
-    BYTE* hbm_ptr,
+    ap_uint<512>* hbm_ptr,
     hls::stream<ap_uint<128>>& cmd_in,
     hls::stream<VEC_INFO_STREAM> &vec_info_back_stream,
     hls::stream<PMA_HEADER>& header_in,
@@ -134,13 +134,41 @@ void write_hbm(
         }
         int start_addr = vec_info.range(31,0);
         int len = vec_info.range(63,32);
-        memcpy(hbm_ptr + start_addr, &header, sizeof(PMA_HEADER));
+        const int pma_header_addr_in_512_patten = start_addr >> 6;
+        // memcpy(hbm_ptr + start_addr, &header, sizeof(PMA_HEADER));
+        {
+            ap_uint<512> buffer[4];
+            // 打包 vertex_range 到 buffer[0]
+            for (int j = 0; j < 16; j++) {
+                #pragma HLS UNROLL
+                buffer[0].range(32 * (j + 1) - 1, 32 * j) = header.vertex_range[j];
+            }
+            // 打包 edge_count 到 buffer[1]
+            for (int j = 0; j < 16; j++) {
+                #pragma HLS UNROLL
+                buffer[1].range(32 * (j + 1) - 1, 32 * j) = header.edge_count[j];
+            }
+            // 打包 attr 到 buffer[2] 和 buffer[3]
+            for (int j = 0; j < 8; j++) {
+                #pragma HLS UNROLL
+                ap_uint<64> d = *reinterpret_cast<ap_uint<64>*>(&header.attr[j]);
+                buffer[2].range(64 * (j + 1) - 1, 64 * j) = d;
+                d = *reinterpret_cast<ap_uint<64>*>(&header.attr[j + 8]);
+                buffer[3].range(64 * (j + 1) - 1, 64 * j) = d;
+            }
+            for (int i = 0; i < 4; i++) {
+                #pragma HLS PIPELINE II=1
+                hbm_ptr[pma_header_addr_in_512_patten + i] = buffer[i];
+            }
+        }
         // PMA_HEADER* write_header = (PMA_HEADER*)(hbm_ptr + start_addr);
         // write_header[0] = header;
 
-        ap_uint<512>* burst_ptr = (ap_uint<512>*)(hbm_ptr + start_addr + sizeof(PMA_HEADER));
+        //sizeof(PMA_HEADER) = 256 == 4 * 512 bit
+        ap_uint<512>* burst_ptr = hbm_ptr + pma_header_addr_in_512_patten + 4;
+        // 16 * 64 / 16
         WRITE_EMPTY_RAW_PMA:
-        for (int i = 0 ; i < 16 * SEGMENT_SIZE / 16 ; i++)
+        for (int i = 0 ; i < 64 ; i++)
         {
             #pragma HLS PIPELINE II=1
             burst_ptr[i] = wide_data;
@@ -161,7 +189,7 @@ extern "C"
     void pma_insert_vertex(
         VEC_INFO* pos_pma_addrs,
         VEC_INFO* neg_pma_addrs,
-        BYTE* hbm_ptr,
+        ap_uint<512>* hbm_ptr,
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_stream,
         //mem operation
         hls::stream<VEC_INFO_STREAM> &vec_info_to_mem_stream,
