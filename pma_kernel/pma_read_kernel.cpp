@@ -192,6 +192,7 @@ extern "C"
                         data_to_attr_query.write({.data=-1});
                     }
                     PMA_HEADER pma_header;
+                    int start_addr = vec_info.range(31,0);
                     // read header
                     // read_header(
                     //     vec_info.range(31,0),
@@ -200,6 +201,7 @@ extern "C"
                     //     data_from_mem_stream,
                     //     pma_header
                     // );
+                    memcpy(&pma_header, hbm_ptr + start_addr, sizeof(PMA_HEADER));
                     double attr = pma_header.attr[vertex % VERTEX_PER_PMA];
                     data_to_attr_query.write({.data=attr});
                     break;

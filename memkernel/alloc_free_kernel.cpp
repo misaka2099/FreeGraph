@@ -72,7 +72,11 @@ extern "C"
         
         BYTE storage[(CHANNEL_CAPACITY *CHANNEL_NUM / INIT_VEC_LEN_IN_BYTE)];
         #pragma HLS bind_storage variable=storage type=ram_t2p impl=uram
-        memset(storage, 0, sizeof(storage));
+        // memset(storage, 0, sizeof(storage));
+        for (int i = 0; i < (CHANNEL_CAPACITY * CHANNEL_NUM / INIT_VEC_LEN_IN_BYTE); i++) {
+            #pragma HLS PIPELINE II=1
+            storage[i] = 0;
+        }
         // 初始化
         // init(CHANNEL_CAPACITY * CHANNEL_NUM / INIT_VEC_LEN_IN_BYTE, storage);
         

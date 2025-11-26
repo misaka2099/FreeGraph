@@ -147,20 +147,20 @@ int main(int argc, char** argv)
     run_pma_insert_edge_1.set_arg(2, bo_neg_vec_info);
     run_pma_insert_edge_1.set_arg(3, bo_neg_vec_info);
     run_pma_insert_edge_1.set_arg(4, bo_hbm_base_addr);
-    run_pma_insert_edge_1.set_arg(5, bo_hbm_base_addr);
-    run_pma_insert_edge_1.set_arg(6, bo_hbm_base_addr);
-    run_pma_insert_edge_1.set_arg(7, bo_hbm_base_addr);
-    run_pma_insert_edge_1.set_arg(8, bo_hbm_base_addr);
+    // run_pma_insert_edge_1.set_arg(5, bo_hbm_base_addr);
+    // run_pma_insert_edge_1.set_arg(6, bo_hbm_base_addr);
+    // run_pma_insert_edge_1.set_arg(7, bo_hbm_base_addr);
+    // run_pma_insert_edge_1.set_arg(8, bo_hbm_base_addr);
 
     run_pma_insert_edge_2.set_arg(0, bo_pos_vec_info);
     run_pma_insert_edge_2.set_arg(1, bo_pos_vec_info );
     run_pma_insert_edge_2.set_arg(2, bo_neg_vec_info);
     run_pma_insert_edge_2.set_arg(3, bo_neg_vec_info);
     run_pma_insert_edge_2.set_arg(4, bo_hbm_base_addr);
-    run_pma_insert_edge_2.set_arg(5, bo_hbm_base_addr);
-    run_pma_insert_edge_2.set_arg(6, bo_hbm_base_addr);
-    run_pma_insert_edge_2.set_arg(7, bo_hbm_base_addr);
-    run_pma_insert_edge_2.set_arg(8, bo_hbm_base_addr);
+    // run_pma_insert_edge_2.set_arg(5, bo_hbm_base_addr);
+    // run_pma_insert_edge_2.set_arg(6, bo_hbm_base_addr);
+    // run_pma_insert_edge_2.set_arg(7, bo_hbm_base_addr);
+    // run_pma_insert_edge_2.set_arg(8, bo_hbm_base_addr);
     // bo_valid_array.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     bo_pos_vec_info.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     bo_neg_vec_info.sync(XCL_BO_SYNC_BO_TO_DEVICE);
