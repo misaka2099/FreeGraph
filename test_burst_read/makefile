@@ -9,7 +9,7 @@ KERNEL_XCLBIN := test_burst_read.xclbin
 all: $(KERNEL_XCLBIN)
 
 $(KERNEL_XO): $(KERNEL_SRC)
-	$(VPP) -g -c -t $(TARGET) --platform $(PLATFORM) -k test_cast_burst_read -o $@ $<
+	$(VPP) -g -c -t $(TARGET) --platform $(PLATFORM) -k test_hbm_access_unit -o $@ $<
 
 $(KERNEL_XCLBIN): $(KERNEL_XO)
 	$(VPP) -g -l -t $(TARGET) --platform $(PLATFORM) -o $@ $^
