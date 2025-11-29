@@ -1,5 +1,8 @@
 #include "data_type.h"
+#include "deprecated/xrt.h"
 #include <chrono>
+#include <cstddef>
+#include <cstring>
 #include <iostream>
 #include <string>
 #include <utility>
@@ -9,6 +12,36 @@
 #include <xrt/xrt_bo.h>
 #include <unordered_set>
 #include <fstream>
+void print_pma(
+    int pma_idx,
+    VEC_INFO* pos_info,
+    BYTE* storage
+)
+{
+    VEC_INFO vec_info = pos_info[pma_idx];
+    int start = vec_info.range(31,0);
+    int len =  vec_info.range(63,32);
+    PMA_HEADER header;
+    memcpy(&header, storage + start, sizeof(PMA_HEADER));
+    int *pma_data = (int*)(storage + sizeof(PMA_HEADER) + start);
+    for (int i = 0 ; i < 16 ; i++)
+    {
+        int src = pma_idx * 16  + i;
+        int edge_count = header.edge_count[i];
+        int seg_start = i == 0 ? 0 : header.vertex_range[i-1];
+        int seg_end = header.vertex_range[i];
+        std::cout << "vertex: " << src << " has " << edge_count << " neighbors" << std::endl;
+        for (int j = seg_start ; j < seg_end ; j ++)
+        {
+            for (int k = 0 ; k < SEGMENT_SIZE ; k++)
+            {
+                std::cout <<pma_data[j*SEGMENT_SIZE + k] << " ";
+            }
+        }
+        std::cout << std::endl;
+    }
+}
+
 int main(int argc, char** argv)
 {
     if (argc < 3) {
@@ -255,5 +288,21 @@ int main(int argc, char** argv)
     // run_free_kernel.wait();
     run_alloc_free_kernel.wait();
     run_app_mem_middle_ware_kernel.wait();
+    bo_hbm_base_addr.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+    bo_pos_vec_info.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+    bo_neg_vec_info.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+    BYTE* storage = bo_hbm_base_addr.map<BYTE*>();
+    auto pos_info = bo_pos_vec_info.map<VEC_INFO*>();
+    auto neg_info = bo_neg_vec_info.map<VEC_INFO*>();
+    std::cout << "----------------POS_DIRECTION-----------------" << std::endl;
+    for (int i = 0 ; i < (max_vertex + VERTEX_PER_PMA - 1)/ VERTEX_PER_PMA ; i++)
+    {
+        print_pma(i, pos_info, storage);
+    }
+    std::cout << "----------------NEG_DIRECTION-----------------" <<std::endl;
+        for (int i = 0 ; i < (max_vertex + VERTEX_PER_PMA - 1)/ VERTEX_PER_PMA ; i++)
+    {
+        print_pma(i, neg_info, storage);
+    }
     return 0;
 }
