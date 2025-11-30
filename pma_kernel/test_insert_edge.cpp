@@ -90,24 +90,24 @@ int main()
         pma_header.edge_count[i] = 0;
         pma_header.vertex_range[i] = i+1;
     }
-    // pma_header.edge_count[0] = 48;
+    pma_header.edge_count[15] = 48;
     memcpy(storage, &pma_header, sizeof(PMA_HEADER));
     int *pma_0_storage = (int*)(storage + sizeof(PMA_HEADER));
     for (int i = 0 ; i < 16 * SEGMENT_SIZE ; i++)
     {
         pma_0_storage[i] = UNUSED_ICON;
     }
-    // for (int i = 0 ; i < 48 ; i++)
-    // {
-    //     pma_0_storage[i] = i;
-    // }
+    for (int i = 0 ; i < 48 ; i++)
+    {
+        pma_0_storage[15*SEGMENT_SIZE+i] = i;
+    }
     int bin;
     allocate(bin, sizeof(PMA_HEADER) + 16 *SEGMENT_SIZE *sizeof(int), bm);
     for (int k = 0 ; k < 16 ; k++)
     {
         PMA_UPDATE_MESSAGE msg;
-        msg.data.range(31,0) = k;
-        msg.data.range(63,32) = 1;
+        msg.data.range(31,0) = 15;
+        msg.data.range(63,32) = k+48;
         msg.data.range(98,98) = OUT_DIRECTION;
         msg.last = k == 15 ? 1 : 0;
         cmd.write(msg);
@@ -153,34 +153,34 @@ int main()
         );
     });
     int request = 0;
-    // while (request < 1)
-    // {
-    //     std::cout << "Host: Waiting for memory request " << request << "..." << std::endl;
-    //     COMMAND_STREAM cmd;
-    //     // while (cmd_to_mem_stream.empty() && vec_info_to_mem_stream.empty()) {}
-    //     if (!cmd_to_mem_stream.read_nb(cmd)) {
-    //         std::this_thread::sleep_for(std::chrono::microseconds(10));
-    //         std::cout << "NOT REQUIERD" <<std::endl;
-    //         continue;
-    //     }
-    //     if (cmd.data == 0)
-    //     {
-    //         std::cout << "NOT VALID REQUEST "<<std::endl;
-    //         continue;
-    //     }
-    //     std::cout << "HOST RECEIVE COMMAND " << cmd.data << std::endl;
-    //     auto to_mem_vec = vec_info_to_mem_stream.read();
-    //     int len = to_mem_vec.data.range(63,32);
-    //     std::cout << "LEN REQUEST " << len <<std::endl; 
-    //     int start = -1;
-    //     allocate(start, len, bm);
-    //     VEC_INFO back;
-    //     back.range(31,0) = start;
-    //     back.range(63,32) = len;
-    //     std::cout << "Host: Allocated " << len << " bytes at address " << start << ". Responding to kernel." << std::endl;
-    //     vec_info_back_stream.write({.data=back});
-    //     request++;
-    // }
+    while (request < 1)
+    {
+        std::cout << "Host: Waiting for memory request " << request << "..." << std::endl;
+        COMMAND_STREAM cmd;
+        // while (cmd_to_mem_stream.empty() && vec_info_to_mem_stream.empty()) {}
+        if (!cmd_to_mem_stream.read_nb(cmd)) {
+            std::this_thread::sleep_for(std::chrono::microseconds(10));
+            std::cout << "NOT REQUIERD" <<std::endl;
+            continue;
+        }
+        if (cmd.data == 0)
+        {
+            std::cout << "NOT VALID REQUEST "<<std::endl;
+            continue;
+        }
+        std::cout << "HOST RECEIVE COMMAND " << cmd.data << std::endl;
+        auto to_mem_vec = vec_info_to_mem_stream.read();
+        int len = to_mem_vec.data.range(63,32);
+        std::cout << "LEN REQUEST " << len <<std::endl; 
+        int start = -1;
+        allocate(start, len, bm);
+        VEC_INFO back;
+        back.range(31,0) = start;
+        back.range(63,32) = len;
+        std::cout << "Host: Allocated " << len << " bytes at address " << start << ". Responding to kernel." << std::endl;
+        vec_info_back_stream.write({.data=back});
+        request++;
+    }
     std::cout << "AFTER ALLOC" <<std::endl;
     // std::thread allocator_thread(simulate_memory_allocator, std::ref(cmd_to_mem_stream), std::ref(vec_info_to_mem_stream), std::ref(vec_info_back_stream), bm);
     
