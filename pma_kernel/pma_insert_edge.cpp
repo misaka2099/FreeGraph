@@ -406,7 +406,7 @@ void binary_search_cu(
             int local_src = src % VERTEX_PER_PMA;
 
             int low_seg = local_src == 0 ? 0 : header.vertex_range[local_src - 1];
-            int high_seg = header.vertex_range[local_src];
+            int high_seg = header.vertex_range[local_src] - 1;
             
             int out_idx = low_seg * SEGMENT_SIZE - 1;
             int out_val = -1;
