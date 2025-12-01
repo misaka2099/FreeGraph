@@ -81,33 +81,34 @@ int main()
     VEC_INFO vec;
     vec.range(31,0) = 0;
     vec.range(63,32) = sizeof(int) * SEGMENT_SIZE * VERTEX_PER_PMA + sizeof(PMA_HEADER);
-    neg_addr[0] = vec;
+    pos_addr[0] = vec;
     // 1. 准备输入数据
     PMA_HEADER pma_header;
     for (int i = 0 ; i < 16 ; i++)
     {
         pma_header.attr[i] = 0;
-        pma_header.edge_count[i] = 0;
+        pma_header.edge_count[i] = 48;
         pma_header.vertex_range[i] = i+1;
     }
-    pma_header.edge_count[15] = 48;
+    // pma_header.edge_count[15] = 48;
     memcpy(storage, &pma_header, sizeof(PMA_HEADER));
     int *pma_0_storage = (int*)(storage + sizeof(PMA_HEADER));
     for (int i = 0 ; i < 16 * SEGMENT_SIZE ; i++)
     {
         pma_0_storage[i] = UNUSED_ICON;
     }
-    for (int i = 0 ; i < 48 ; i++)
-    {
-        pma_0_storage[15*SEGMENT_SIZE+i] = i;
-    }
+    for (int v = 0 ; v < 16 ; v++)
+        for (int i = 0 ; i < 48 ; i++)
+        {
+            pma_0_storage[v*SEGMENT_SIZE+i] = i;
+        }
     int bin;
     allocate(bin, sizeof(PMA_HEADER) + 16 *SEGMENT_SIZE *sizeof(int), bm);
     for (int k = 0 ; k < 16 ; k++)
     {
         PMA_UPDATE_MESSAGE msg;
-        msg.data.range(31,0) = 15;
-        msg.data.range(63,32) = k+48;
+        msg.data.range(31,0) = k;
+        msg.data.range(63,32) = 48;
         msg.data.range(98,98) = OUT_DIRECTION;
         msg.last = k == 15 ? 1 : 0;
         cmd.write(msg);
@@ -206,7 +207,7 @@ int main()
         std::cout << "EDGE COUNT " << i << " = " << check_header.edge_count[i] << std::endl;;
     }
     std::cout << std::endl;
-    int check_storage[17*SEGMENT_SIZE];
+    int check_storage[50*SEGMENT_SIZE];
     memcpy(check_storage, storage + int(pma_idx_info.range(31,0)) + sizeof(PMA_HEADER), check_header.vertex_range[15] * SEGMENT_SIZE * sizeof(int));
     for (int i = 0 ; i < 16 ; i++)
     {

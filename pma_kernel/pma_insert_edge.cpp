@@ -564,7 +564,7 @@ void redistribute(int seg_start, int seg_end, ap_uint<512>* hbm_ptr, int pma_dat
                     //     hbm_ptr[(pma_data_base_addr + (complete_seg) * SEGMENT_SIZE * sizeof(int)) / 64 + k]
                     //         = valid_buffer_ptr[k];
                     // }
-                    write_seg(hbm_ptr, valid_buffer, pma_data_base_addr, complete_seg);
+                    write_seg(hbm_ptr, valid_buffer, pma_data_base_addr, complete_seg + seg_start);
                     pack_buffer_ptr = 0;
                     complete_seg++;
                 }
@@ -594,10 +594,11 @@ void redistribute(int seg_start, int seg_end, ap_uint<512>* hbm_ptr, int pma_dat
                 //     valid_buffer_ptr[k] 
                 //         = hbm_ptr[(pma_data_base_addr + (complete_seg) * SEGMENT_SIZE * sizeof(int)) / 64 + k];
                 // }
-                read_seg(hbm_ptr, valid_buffer, pma_data_base_addr, complete_seg);
+                read_seg(hbm_ptr, valid_buffer, pma_data_base_addr, complete_seg + seg_start);
                 pack_buffer_ptr = SEGMENT_SIZE - 1;
             }
             write_back_buffer[i] = valid_buffer[pack_buffer_ptr];
+            valid_buffer[pack_buffer_ptr] = UNUSED_ICON;
             pack_buffer_ptr--;
         }
         
@@ -606,6 +607,7 @@ void redistribute(int seg_start, int seg_end, ap_uint<512>* hbm_ptr, int pma_dat
         //     ap_uint<512>* write_back_buffer_ptr = (ap_uint<512>*) write_back_buffer;
         //     hbm_ptr[(s * SEGMENT_SIZE * sizeof(int) + pma_data_base_addr) / 64 + i] = write_back_buffer_ptr[i];
         // }
+        write_seg(hbm_ptr, valid_buffer, pma_data_base_addr, complete_seg + seg_start);
         write_seg(hbm_ptr, write_back_buffer, pma_data_base_addr, s);
     }
 }
@@ -715,18 +717,18 @@ void insert_element_cu(
             InsertPos pos = insert_info.read();
             pos_batch[k] = pos;
         }
-        int need_extra_seg = 0;
-        for (int v = 0 ; v < VERTEX_PER_PMA ; v++)
-        {
-            #pragma HLS PIPELINE II=1
-            int seg_start = v == 0 ? 0 : header.vertex_range[v-1];
-            int seg_end = header.vertex_range[v];
-            int max_edge = (seg_end - seg_start) * SEGMENT_SIZE * DENSITY_BOUND;
-            if (max_edge < header.edge_count[v])
-            {
-                need_extra_seg += seg_end - seg_start;
-            }
-        }
+        // int need_extra_seg = 0;
+        // for (int v = 0 ; v < VERTEX_PER_PMA ; v++)
+        // {
+        //     #pragma HLS PIPELINE II=1
+        //     int seg_start = v == 0 ? 0 : header.vertex_range[v-1];
+        //     int seg_end = header.vertex_range[v];
+        //     int max_edge = (seg_end - seg_start) * SEGMENT_SIZE * DENSITY_BOUND;
+        //     if (max_edge < header.edge_count[v])
+        //     {
+        //         need_extra_seg += seg_end - seg_start;
+        //     }
+        // }
         
         int current_seg_idx = -1;
         const int BITS_PER_SEG = SEGMENT_SIZE * 32;
@@ -860,6 +862,7 @@ void move_and_change_header(
             header.vertex_range[i] += total_enlarge_segs;
         }
         VEC_INFO old_addr = pma_addr_in.read();
+        printf("old addr start %d , len %d\n", int(old_addr.range(31,0)), int(old_addr.range(63,32)));
         VEC_INFO new_addr;
         if (enlarged)
         {
@@ -896,8 +899,8 @@ void move_and_change_header(
                     // int old_idx = old_data_start / 64 + (s1 * SEGMENT_SIZE * sizeof(int)) / 64;
                     // int new_idx = new_data_start / 64 + (s2 * SEGMENT_SIZE * sizeof(int)) / 64;
                     
-                    int old_idx = (old_data_start << 6) + ((s1 * SEGMENT_SIZE * sizeof(int)) << 6);
-                    int new_idx = (new_data_start << 6) + ((s2 * SEGMENT_SIZE * sizeof(int)) << 6);
+                    // int old_idx = (old_data_start << 6) + ((s1 * SEGMENT_SIZE * sizeof(int)) << 6);
+                    // int new_idx = (new_data_start << 6) + ((s2 * SEGMENT_SIZE * sizeof(int)) << 6);
                     // 复制一个段（SEGMENT_SIZE*4字节=256字节=4个ap_uint<512>）
                     // ap_uint<512> temp_buffer[4];
                     // #pragma HLS ARRAY_PARTITION variable=temp_buffer complete
