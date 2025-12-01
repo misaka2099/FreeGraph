@@ -570,7 +570,8 @@ void binary_search_cu(
             InsertPos to_insert;
             if (out_val != dst)
             {
-                inserted_seg_info.old_vertex_relative_seg_number[find_count] = (out_idx + 1) / SEGMENT_SIZE;
+                int seg_start = local_src == 0? 0: header.vertex_range[local_src-1];
+                inserted_seg_info.old_vertex_relative_seg_number[find_count] = (out_idx + 1) / SEGMENT_SIZE - seg_start;
                 inserted_seg_info.vertex_number[find_count] = local_src;
                 find_count++;
                 to_insert.idx = out_idx;
@@ -762,10 +763,10 @@ void rebalance_cu(
             int seg_end = pma_header.vertex_range[v];
             int seg_num = seg_end - seg_start; // 当前vertex的segment数
             int total_valid_count = 0;
-            int seg_idx = seg_start + relative_seg_num;
-            total_valid_count = valid_count(seg_idx, seg_idx + 1, memory_access_stream, data_from_mem, pma_data_base_addr);
-            int last_left = seg_idx;
-            int last_right = seg_idx + 1;
+            int seg_idx = relative_seg_num;
+            total_valid_count = valid_count(seg_idx + seg_start, seg_idx + seg_start+ 1, memory_access_stream, data_from_mem, pma_data_base_addr);
+            int last_left = seg_idx + seg_start;
+            int last_right = seg_idx + seg_start + 1 ;
 
 
             int max_edge = SEGMENT_SIZE * DENSITY_BOUND;

@@ -21,6 +21,7 @@ void print_pma(
     VEC_INFO vec_info = pos_info[pma_idx];
     int start = vec_info.range(31,0);
     int len =  vec_info.range(63,32);
+    std::cout << "PMA " << pma_idx << " ADDR START FROM " << start << " LEN " << len << std::endl; 
     PMA_HEADER header;
     memcpy(&header, storage + start, sizeof(PMA_HEADER));
     int *pma_data = (int*)(storage + sizeof(PMA_HEADER) + start);

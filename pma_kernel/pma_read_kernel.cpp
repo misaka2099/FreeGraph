@@ -32,11 +32,11 @@ void read_edge(
         for (int j = 0 ; j < 16 ; j++)
         {
             #pragma HLS UNROLL
-            int byte_off = i + j * 4;
-            if (byte_off >= edge_len)
-            {
-                break;
-            }
+            // int byte_off = i + j * 4;
+            // if (byte_off >= edge_len)
+            // {
+            //     break;
+            // }
             ap_uint<32> w = line.range(32*(j+1)-1, 32*j);
             int neighbor = (int)w;
             if (neighbor == UNUSED_ICON)
