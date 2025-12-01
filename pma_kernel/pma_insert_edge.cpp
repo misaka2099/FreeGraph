@@ -665,7 +665,7 @@ void redistribute(int seg_start, int seg_end,
                     //     hbm_ptr[(pma_data_base_addr + (complete_seg) * SEGMENT_SIZE * sizeof(int)) / 64 + k]
                     //         = valid_buffer_ptr[k];
                     // }
-                    write_seg(memory_access_stream, data_to_mem, data_from_mem, valid_buffer, pma_data_base_addr, complete_seg);
+                    write_seg(memory_access_stream, data_to_mem, data_from_mem, valid_buffer, pma_data_base_addr, complete_seg + seg_start);
                     pack_buffer_ptr = 0;
                     complete_seg++;
                 }
@@ -699,10 +699,11 @@ void redistribute(int seg_start, int seg_end,
                 //     valid_buffer_ptr[k] 
                 //         = hbm_ptr[(pma_data_base_addr + (complete_seg) * SEGMENT_SIZE * sizeof(int)) / 64 + k];
                 // }
-                read_seg(memory_access_stream, data_from_mem, valid_buffer, pma_data_base_addr, complete_seg);
+                read_seg(memory_access_stream, data_from_mem, valid_buffer, pma_data_base_addr, complete_seg + seg_start);
                 pack_buffer_ptr = SEGMENT_SIZE - 1;
             }
             write_back_buffer[i] = valid_buffer[pack_buffer_ptr];
+            valid_buffer[pack_buffer_ptr] = UNUSED_ICON;
             pack_buffer_ptr--;
         }
         
@@ -711,6 +712,7 @@ void redistribute(int seg_start, int seg_end,
         //     ap_uint<512>* write_back_buffer_ptr = (ap_uint<512>*) write_back_buffer;
         //     hbm_ptr[(s * SEGMENT_SIZE * sizeof(int) + pma_data_base_addr) / 64 + i] = write_back_buffer_ptr[i];
         // }
+        write_seg(memory_access_stream, data_to_mem, data_from_mem, valid_buffer, pma_data_base_addr, complete_seg + seg_start);
         write_seg(memory_access_stream, data_to_mem, data_from_mem, write_back_buffer, pma_data_base_addr, s);
     }
 }
@@ -840,18 +842,18 @@ void insert_element_cu(
             InsertPos pos = insert_info.read();
             pos_batch[k] = pos;
         }
-        int need_extra_seg = 0;
-        for (int v = 0 ; v < VERTEX_PER_PMA ; v++)
-        {
-            #pragma HLS PIPELINE II=1
-            int seg_start = v == 0 ? 0 : header.vertex_range[v-1];
-            int seg_end = header.vertex_range[v];
-            int max_edge = (seg_end - seg_start) * SEGMENT_SIZE * DENSITY_BOUND;
-            if (max_edge < header.edge_count[v])
-            {
-                need_extra_seg += seg_end - seg_start;
-            }
-        }
+        // int need_extra_seg = 0;
+        // for (int v = 0 ; v < VERTEX_PER_PMA ; v++)
+        // {
+        //     #pragma HLS PIPELINE II=1
+        //     int seg_start = v == 0 ? 0 : header.vertex_range[v-1];
+        //     int seg_end = header.vertex_range[v];
+        //     int max_edge = (seg_end - seg_start) * SEGMENT_SIZE * DENSITY_BOUND;
+        //     if (max_edge < header.edge_count[v])
+        //     {
+        //         need_extra_seg += seg_end - seg_start;
+        //     }
+        // }
         
         int current_seg_idx = -1;
         const int BITS_PER_SEG = SEGMENT_SIZE * 32;
