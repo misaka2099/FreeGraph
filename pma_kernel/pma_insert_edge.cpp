@@ -496,6 +496,7 @@ void binary_search_cu(
             BINARY_SEARCH:
             while (low_seg <= high_seg)
             {
+                
                 int mid = low_seg + (high_seg - low_seg) / 2;
                 int seg_start_addr = mid * SEGMENT_SIZE;
 

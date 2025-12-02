@@ -236,6 +236,7 @@ int main(int argc, char** argv)
     run_check_kernel.set_arg(0, bo_check_src);
     run_check_kernel.set_arg(1, bo_check_dst);
     run_check_kernel.set_arg(3, max_vertex + 1);
+    run_check_kernel.set_arg(4, 0);
     run_pma_read_kernel.start();
     run_check_kernel.start();
     run_check_kernel.wait();

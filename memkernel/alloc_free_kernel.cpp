@@ -6,6 +6,7 @@
 #include <cstring>
 void set(int start, int len, BYTE* bitmap)
 {
+    #pragma HLS INLINE
     for (int i = start; i < start + len; i++)
     {
         bitmap[i / 8] |= ((BYTE)1 << (i % 8));
@@ -15,6 +16,7 @@ void set(int start, int len, BYTE* bitmap)
 
 bool is_free(int start, int len, int &first_set , BYTE* bitmap)
 {
+    #pragma HLS INLINE
     for (int i = start; i < start + len; i++)
     {
         if (bitmap[i / 8] & (1 << (i % 8)))
@@ -27,6 +29,7 @@ bool is_free(int start, int len, int &first_set , BYTE* bitmap)
 } 
 void allocate(int &start, int len, BYTE* bitmap)
 {
+    #pragma HLS INLINE
     start = -1;
     if (len == 0) return;
     int first_set = -1;
@@ -48,6 +51,7 @@ void allocate(int &start, int len, BYTE* bitmap)
 
 void reset(int start, int len, BYTE* bitmap)
 {
+    #pragma HLS INLINE
     for (int i = start; i < start + len; i++)
     {
         bitmap[i / 8] &= ~((BYTE)1 << (i % 8));
@@ -55,6 +59,7 @@ void reset(int start, int len, BYTE* bitmap)
 }
 void deallocate(int start, int len, BYTE* bitmap)
 {
+    #pragma HLS INLINE
     if (len == 0) return;
     reset(start, len, bitmap);
 }
@@ -90,6 +95,7 @@ extern "C"
                 VEC_INFO_STREAM tmp;
                 if (vec_info_in.read_nb(tmp)) {
                     if (tmp.last == 1) {
+                        cmd.read();
                         break;
                     }
                     // HERE
