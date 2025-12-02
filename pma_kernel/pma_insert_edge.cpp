@@ -582,7 +582,7 @@ void redistribute(int seg_start, int seg_end, ap_uint<512>* hbm_ptr, int pma_dat
         {
             write_back_buffer[i] = UNUSED_ICON;
         }
-        int valid_num = base_num + (s < extra_num? 1:0);
+        int valid_num = base_num + ((s - seg_start) < extra_num? 1:0);
         for (int i = valid_num - 1 ; i >= 0 ; i--)
         {
             if (pack_buffer_ptr == -1)
