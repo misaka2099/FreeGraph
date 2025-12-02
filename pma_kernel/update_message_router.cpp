@@ -106,12 +106,12 @@ void flush_and_add_inflight(
 )
 {
     // 等待没有冲突且 inflight 未满
-    while (check_inflight(in_flight_arr, pma_idx) || in_flight_count > 16)
+    while (check_inflight(in_flight_arr, pma_idx) || in_flight_count >= 16)
     {
         check_ack_back(
             in_flight_arr,
             in_flight_count,
-            ack_from_insert_edge_1,
+            ack_from_insert_edge_1, 
             ack_from_insert_edge_2
         );
     }
