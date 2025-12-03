@@ -290,21 +290,21 @@ int main(int argc, char** argv)
     // run_free_kernel.wait();
     run_alloc_free_kernel.wait();
     run_app_mem_middle_ware_kernel.wait();
-    bo_hbm_base_addr.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
-    bo_pos_vec_info.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
-    bo_neg_vec_info.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
-    BYTE* storage = bo_hbm_base_addr.map<BYTE*>();
-    auto pos_info = bo_pos_vec_info.map<VEC_INFO*>();
-    auto neg_info = bo_neg_vec_info.map<VEC_INFO*>();
-    std::cout << "----------------POS_DIRECTION-----------------" << std::endl;
-    for (int i = 0 ; i < (max_vertex + VERTEX_PER_PMA - 1)/ VERTEX_PER_PMA ; i++)
-    {
-        print_pma(i, pos_info, storage);
-    }
-    std::cout << "----------------NEG_DIRECTION-----------------" <<std::endl;
-        for (int i = 0 ; i < (max_vertex + VERTEX_PER_PMA - 1)/ VERTEX_PER_PMA ; i++)
-    {
-        print_pma(i, neg_info, storage);
-    }
+    // bo_hbm_base_addr.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+    // bo_pos_vec_info.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+    // bo_neg_vec_info.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+    // BYTE* storage = bo_hbm_base_addr.map<BYTE*>();
+    // auto pos_info = bo_pos_vec_info.map<VEC_INFO*>();
+    // auto neg_info = bo_neg_vec_info.map<VEC_INFO*>();
+    // std::cout << "----------------POS_DIRECTION-----------------" << std::endl;
+    // for (int i = 0 ; i < (max_vertex + VERTEX_PER_PMA - 1)/ VERTEX_PER_PMA ; i++)
+    // {
+    //     print_pma(i, pos_info, storage);
+    // }
+    // std::cout << "----------------NEG_DIRECTION-----------------" <<std::endl;
+    //     for (int i = 0 ; i < (max_vertex + VERTEX_PER_PMA - 1)/ VERTEX_PER_PMA ; i++)
+    // {
+    //     print_pma(i, neg_info, storage);
+    // }
     return 0;
 }

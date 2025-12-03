@@ -281,7 +281,7 @@ extern "C"
                             {
                                 HERE
                                 flush_and_add_inflight(
-                                    hash, pma_idx,
+                                    hash, msg_buffer[hash][0].range(31,0) / VERTEX_PER_PMA,
                                     in_flight, in_flight_count,
                                     ack_from_insert_edge_1, ack_from_insert_edge_2,
                                     cmd_to_insert_edge_1, cmd_to_insert_edge_2,
@@ -295,7 +295,7 @@ extern "C"
                         {
                             HERE
                             flush_and_add_inflight(
-                                hash, pma_idx,
+                                hash, msg_buffer[hash][0].range(31,0) / VERTEX_PER_PMA,
                                 in_flight, in_flight_count,
                                 ack_from_insert_edge_1, ack_from_insert_edge_2,
                                 cmd_to_insert_edge_1, cmd_to_insert_edge_2,
