@@ -15,6 +15,7 @@
 #define MAX_PMA_IDX_INFO_REQUEST 6
 #define MAX_PMA_ADDR_REQUEST 3
 #define WRITE_ACK 114514
+#define MAX_PMA_WORKER 2
 // #define MAX_PMA_HEADER_REQUEST 3
 struct pma_idx_info
 {
@@ -42,6 +43,24 @@ struct memory_access_command
     int addr_in_byte_patten;
     int len_in_byte_patten;
     memory_access_type type;
+};
+
+struct INTRA_PMA_UPDATE_MESSAGE
+{
+    ap_uint<128> data;
+    ap_uint<1> last;
+};
+
+struct INTRA_COMMAND_STREAM
+{
+    ap_uint<32> data;
+    ap_uint<1> last;
+};
+struct VEC_INFO_ACCESS 
+{
+    memory_access_type command_type;
+    ap_uint<1> direction;
+    int pma_idx;
 };
 void read_seg(
     // ap_uint<512>* hbm_ptr,
@@ -248,8 +267,165 @@ void write_header(
     #pragma HLS protocol fixed
     ap_uint<512> ack = data_from_mem.read();
 }
+void dispatch(
+    hls::stream<PMA_UPDATE_MESSAGE> &cmd_from_generator,
+    hls::stream<INTRA_PMA_UPDATE_MESSAGE> cmd_to_process_cmd[MAX_PMA_WORKER]
+)
+{
+    printf("DISPATCH\n");
+    int next_worker = 0;
+    while (true)
+    {
+        PMA_UPDATE_MESSAGE msg;
+        if (cmd_from_generator.read_nb(msg))
+        {
+            if (msg.data == PMA_STOP && msg.last == 1)
+            {
+                for (int i = 0 ; i < MAX_PMA_WORKER ; i++)
+                {
+                    #pragma HLS UNROLL
+                    INTRA_PMA_UPDATE_MESSAGE stop_msg;
+                    stop_msg.data = PMA_STOP;
+                    stop_msg.last = 1;
+                    cmd_to_process_cmd[i].write(stop_msg);
+                }
+                return;
+            }
+            INTRA_PMA_UPDATE_MESSAGE intra_msg;
+            intra_msg.data = msg.data;
+            intra_msg.last = msg.last;
+            cmd_to_process_cmd[next_worker].write(intra_msg);
+            if (msg.last == 1)
+            {
+                next_worker = (next_worker + 1) % MAX_PMA_WORKER;
+            }
+        }
+        else 
+        {
+            ap_wait();
+        }
+    }
+}
+
+void alloc_free_sender(
+    hls::stream<COMMAND> alloc_free_from_app[MAX_PMA_WORKER],
+    hls::stream<VEC_INFO> alloc_free_vec_info_from_app[MAX_PMA_WORKER],
+    hls::stream<VEC_INFO> alloc_free_vec_info_to_app[MAX_PMA_WORKER],
+    hls::stream<COMMAND_STREAM>& alloc_free_to_outer,
+    hls::stream<VEC_INFO_STREAM>& alloc_free_vec_info_to_outer,
+    hls::stream<VEC_INFO_STREAM>& alloc_free_vec_info_from_outer
+)
+{
+    int idx = 0;
+    ap_uint<MAX_PMA_WORKER> finished_pma_mask = -1;
+    #pragma HLS protocol fixed
+    while(finished_pma_mask != 0)
+    {
+        COMMAND request_info;
+        if (alloc_free_from_app[idx].read_nb(request_info))
+        {
+            if (request_info == MEM_STOP)
+            {
+                finished_pma_mask[idx] = 0;
+                continue;
+            }
+            alloc_free_to_outer.write({.data=request_info});
+            VEC_INFO vec_info;
+            alloc_free_vec_info_from_app[idx].read(vec_info);
+            ap_wait();
+            alloc_free_vec_info_to_outer.write({.data = vec_info});
+            ap_wait();
+            if (request_info == MEM_ALLOC)
+            {
+                VEC_INFO_STREAM vec_info_response;
+                alloc_free_vec_info_from_outer.read(vec_info_response);
+                ap_wait();
+                alloc_free_vec_info_to_app[idx].write(vec_info_response.data);
+            }
+        }
+        idx = (idx + 1) % MAX_PMA_WORKER;
+    }
+}
+
+void ack_backer(
+    hls::stream<COMMAND_STREAM>& ack_to_router,
+    hls::stream<INTRA_COMMAND_STREAM> ack_from_app[MAX_PMA_WORKER]
+)
+{
+    ap_uint<MAX_PMA_WORKER> finished_pma_mask = -1;
+    int idx = 0;
+    while(finished_pma_mask != 0)
+    {
+        INTRA_COMMAND_STREAM ack;
+        if (ack_from_app[idx].read_nb(ack)) 
+        {
+            if (ack.last == 1)
+            {
+                finished_pma_mask[idx] = 0;
+                continue;
+            }
+            ack_to_router.write({.data = ack.data, .last = ack.last});
+        }
+        idx = (idx + 1) % MAX_PMA_WORKER;
+    }
+}
+
+void vec_info_accesser(
+    hls::stream<VEC_INFO_ACCESS> vec_info_access_from_app[MAX_PMA_WORKER][2],
+    hls::stream<VEC_INFO> vec_info_from_app[MAX_PMA_WORKER],
+    hls::stream<VEC_INFO> vec_info_to_app[MAX_PMA_WORKER],
+    VEC_INFO* pos_pma_addrs,
+    VEC_INFO* neg_pma_addrs
+)
+{
+    ap_uint<MAX_PMA_WORKER * 2> finished_pma_mask = -1;
+    int worker = 0;
+    int idx = 0;
+    while(finished_pma_mask != 0)
+    {
+        VEC_INFO_ACCESS request_info;
+        if (vec_info_access_from_app[worker][idx].read_nb(request_info))
+        {
+            if (request_info.command_type == FINISH)
+            {
+                finished_pma_mask[worker * 2 + idx] = 0;
+                continue;
+            }
+            VEC_INFO vec_info;
+            if (request_info.command_type == READ)
+            {
+                if (request_info.direction == OUT_DIRECTION)
+                {
+                    vec_info = pos_pma_addrs[request_info.pma_idx];
+                }
+                else 
+                {
+                    vec_info = neg_pma_addrs[request_info.pma_idx];
+                }
+                vec_info_to_app[worker].write(vec_info);
+            }
+            else // WRITE
+            {
+                vec_info_from_app[worker].read(vec_info);
+                if (request_info.direction == OUT_DIRECTION)
+                {
+                    pos_pma_addrs[request_info.pma_idx] = vec_info;
+                }
+                else 
+                {
+                    neg_pma_addrs[request_info.pma_idx] = vec_info;
+                }
+            }
+        }
+        idx = (idx + 1) % 2;
+        if (idx == 0)
+        {
+            worker = (worker + 1) % MAX_PMA_WORKER;
+        }
+    }
+}
 void process_cmd(
-    hls::stream<PMA_UPDATE_MESSAGE> &cmd_stream,
+    hls::stream<INTRA_PMA_UPDATE_MESSAGE> &cmd_stream,
     hls::stream<int> &cmd_count_stream,
     hls::stream<ap_uint<128>> &cmd_batch_stream,
     hls::stream<pma_idx_info> pma_info_request[MAX_PMA_IDX_INFO_REQUEST]
@@ -382,8 +558,11 @@ void head_read(
     hls::stream<memory_access_command>& memory_access_stream,
     hls::stream<ap_uint<512>>& data_to_mem,
     hls::stream<ap_uint<512>>& data_from_mem,
-    VEC_INFO* pos_pma_addrs,
-    VEC_INFO* neg_pma_addrs,
+    // VEC_INFO* pos_pma_addrs,
+    // VEC_INFO* neg_pma_addrs,
+    hls::stream<VEC_INFO_ACCESS> &vec_info_access_command,
+    hls::stream<VEC_INFO> &vec_info_from_accesser,
+
     hls::stream<pma_idx_info> &pma_idx_info_request,
     hls::stream<PMA_HEADER>& header_out,
     hls::stream<VEC_INFO> pma_addr[MAX_PMA_ADDR_REQUEST]
@@ -401,19 +580,42 @@ void head_read(
             x.type = FINISH;
             memory_access_stream.write(x);
             data_to_mem.write(0);
+
+            
+            vec_info_access_command.write({.command_type=FINISH});
             break;
         }
         int pma_idx = info.pma_idx;
         int direction = info.direction;
         VEC_INFO vec;
-        if (direction == IN_DIRECTION)
-        {
-            vec = neg_pma_addrs[pma_idx];
-        }
-        else
-        {
-            vec = pos_pma_addrs[pma_idx];
-        }
+        VEC_INFO_ACCESS access_command;
+        access_command.command_type = READ;
+        access_command.direction = direction;
+        access_command.pma_idx = pma_idx;
+        vec_info_access_command.write(access_command);
+        #pragma HLS protocol fixed
+        ap_wait();
+        vec = vec_info_from_accesser.read();
+        // if (direction == IN_DIRECTION)
+        // {
+        //     // vec = neg_pma_addrs[pma_idx];
+        //     VEC_INFO_ACCESS access_command;
+        //     access_command.command_type = READ;
+        //     access_command.direction = IN_DIRECTION;
+        //     vec_info_access_command.write(access_command);
+        //     #pragma HLS protocol fixed
+        //     vec = vec_info_from_accesser.read();
+        // }
+        // else
+        // {
+        //     // vec = pos_pma_addrs[pma_idx];
+        //     VEC_INFO_ACCESS access_command;
+        //     access_command.command_type = READ;
+        //     access_command.direction = OUT_DIRECTION;
+        //     vec_info_access_command.write(access_command);
+        //     #pragma HLS protocol fixed
+        //     vec = vec_info_from_accesser.read();
+        // }
         
         PMA_HEADER header;
         int bias = int(vec.range(31,0));
@@ -727,7 +929,7 @@ void rebalance_cu(
     hls::stream<VEC_INFO>& pma_addr_in,
     hls::stream<pma_idx_info>& pma_idx,
     hls::stream<inserted_seg>& inserted_seg_info,
-    hls::stream<COMMAND_STREAM>& ack_back_to_router
+    hls::stream<INTRA_COMMAND_STREAM>& ack_back_to_router
 )
 {
         
@@ -744,6 +946,7 @@ void rebalance_cu(
             x.type = FINISH;
             memory_access_stream.write(x);
             data_to_mem.write(0);
+            ack_back_to_router.write({.data=-1, .last=1});
             break;
         }
         PMA_HEADER pma_header = pma_header_in.read();
@@ -930,17 +1133,19 @@ void move_and_change_header(
     hls::stream<memory_access_command>& memory_access_stream,
     hls::stream<ap_uint<512>>& data_to_mem,
     hls::stream<ap_uint<512>>& data_from_mem,
-    VEC_INFO* pos_addr,
-    VEC_INFO* neg_addr,
+    // VEC_INFO* pos_addr,
+    // VEC_INFO* neg_addr,
+    hls::stream<VEC_INFO_ACCESS> &vec_info_access_command,
+    hls::stream<VEC_INFO>& vec_info_to_accesser,
     hls::stream<PMA_HEADER>& header_stream,
     hls::stream<PMA_HEADER>& new_header_stream,
 
     hls::stream<VEC_INFO>& pma_addr_in,
     hls::stream<VEC_INFO>& pma_addr_out,
 
-    hls::stream<VEC_INFO_STREAM>& new_alloc_addr,
-    hls::stream<VEC_INFO_STREAM>& vec_info_to_mem,
-    hls::stream<COMMAND_STREAM>& cmd_to_mem,
+    hls::stream<VEC_INFO>& new_alloc_addr,
+    hls::stream<VEC_INFO>& vec_info_to_mem,
+    hls::stream<COMMAND>& cmd_to_mem,
 
     hls::stream<pma_idx_info>& pma_idx_info_in
 )
@@ -965,6 +1170,10 @@ void move_and_change_header(
             x.type = FINISH;
             memory_access_stream.write(x);
             data_to_mem.write(0);
+
+            cmd_to_mem.write(MEM_STOP);
+
+            vec_info_access_command.write({.command_type=FINISH});
             break;
         }
         auto header = header_stream.read();
@@ -1003,21 +1212,37 @@ void move_and_change_header(
         if (enlarged)
         {
             HERE
-            cmd_to_mem.write({.data=MEM_ALLOC});
+            cmd_to_mem.write(MEM_ALLOC);
             VEC_INFO to_enlarge;
             to_enlarge.range(31,0) = 0; //alloc 只看长度
             to_enlarge.range(63,32) = int(old_addr.range(63,32)) + total_enlarge_segs * SEGMENT_SIZE * sizeof(int);
-            vec_info_to_mem.write({.data = to_enlarge});
+            vec_info_to_mem.write(to_enlarge);
             ap_wait();
-            new_addr = new_alloc_addr.read().data;
-            if (direction == IN_DIRECTION)
-            {
-                neg_addr[pma_index] = new_addr;
-            }
-            else  
-            {
-                pos_addr[pma_index] = new_addr;
-            }
+            new_addr = new_alloc_addr.read();
+            // if (direction == IN_DIRECTION)
+            // {
+            //     // neg_addr[pma_index] = new_addr;
+            //     VEC_INFO_ACCESS access_command;
+            //     access_command.command_type = WRITE;
+            //     access_command.direction = IN_DIRECTION;
+            //     vec_info_access_command.write(access_command);
+            //     vec_info_to_accesser.write(new_addr);
+            // }
+            // else  
+            // {
+            //     // pos_addr[pma_index] = new_addr;
+            //     VEC_INFO_ACCESS access_command;
+            //     access_command.command_type = WRITE;
+            //     access_command.direction = OUT_DIRECTION;
+            //     vec_info_access_command.write(access_command);
+            //     vec_info_to_accesser.write(new_addr);
+            // }
+            VEC_INFO_ACCESS access_command;
+            access_command.command_type = WRITE;
+            access_command.direction = direction;
+            access_command.pma_idx = pma_index;
+            vec_info_access_command.write(access_command);
+            vec_info_to_accesser.write(new_addr);
             // memmove(hbm_ptr + (int)new_addr.range(31,0),  hbm_ptr + (int)old_addr.range(31,0), (int)old_addr.range(63,32));
             ap_wait();
             for (int i = 0 ; i < VERTEX_PER_PMA ; i++)
@@ -1066,8 +1291,8 @@ void move_and_change_header(
             //     }
             // }
             
-            cmd_to_mem.write({.data = MEM_FREE});
-            vec_info_to_mem.write({.data=old_addr});
+            cmd_to_mem.write( (MEM_FREE));
+            vec_info_to_mem.write(old_addr);
             int new_data_start = (int)new_addr.range(31,0) + (int)old_addr.range(63,32);
             // int unused_segment[SEGMENT_SIZE];
 
@@ -1102,28 +1327,30 @@ void move_and_change_header(
 }
 
 void hbm_access_unit(
-    hls::stream<memory_access_command> request[MAX_MEMORY_REQUEST],
-    hls::stream<ap_uint<512>> data_in[MAX_MEMORY_REQUEST],
-    hls::stream<ap_uint<512>> data_out[MAX_MEMORY_REQUEST],
+    hls::stream<memory_access_command> request[MAX_PMA_WORKER][MAX_MEMORY_REQUEST],
+    hls::stream<ap_uint<512>> data_in[MAX_PMA_WORKER][MAX_MEMORY_REQUEST],
+    hls::stream<ap_uint<512>> data_out[MAX_PMA_WORKER][MAX_MEMORY_REQUEST],
     ap_uint<512>* hbm_ptr
 )
 {
-    bool finished[MAX_MEMORY_REQUEST];
+    // bool finished[MAX_MEMORY_REQUEST];
     memory_access_command request_info;
     int addr_in_512_pattern = 0;
     int len_in_512_pattern  = 0;
-    for (int i = 0 ; i < MAX_MEMORY_REQUEST ; i++) finished[i] = false;
+    // for (int i = 0 ; i < MAX_MEMORY_REQUEST ; i++) finished[i] = false;
+    ap_uint<MAX_PMA_WORKER*MAX_MEMORY_REQUEST> finished_bitmap = -1;
     int idx = 0;
+    int worker_num = 0;
     while (
-        !finished[0] || !finished[1] || !finished[2] || !finished[3] || !finished[4]
+        finished_bitmap != 0
     )
     {
-        if(request[idx].read_nb(request_info))
+        if(request[worker_num][idx].read_nb(request_info))
         {
             if (request_info.type == FINISH)
             {
-                finished[idx] = true;
-                auto dummy = data_in[idx].read();
+                finished_bitmap[worker_num * MAX_MEMORY_REQUEST + idx] = 0;
+                auto dummy = data_in[worker_num][idx].read();
                 continue;
             }
             addr_in_512_pattern = request_info.addr_in_byte_patten >> 6;
@@ -1133,21 +1360,26 @@ void hbm_access_unit(
                 for (int i = 0 ; i < len_in_512_pattern ; i++)
                 {
                     auto x = hbm_ptr[addr_in_512_pattern + i];
-                    data_out[idx].write(x);
+                    data_out[worker_num][idx].write(x);
                 }
             }
             else if (request_info.type == WRITE)
             {
                 for (int i = 0 ; i < len_in_512_pattern ; i++)
                 {
-                    auto x = data_in[idx].read();
+                    auto x = data_in[worker_num][idx].read();
                     hbm_ptr[addr_in_512_pattern + i] = x;
                 }
-                data_out[idx].write(WRITE_ACK);
+                data_out[worker_num][idx].write(WRITE_ACK);
             }
         }
         idx = (idx + 1);
         idx = idx % MAX_MEMORY_REQUEST;
+        if (idx == 0) 
+        {
+            worker_num = (worker_num + 1);
+            worker_num = worker_num % MAX_PMA_WORKER;
+        }
         // if (!is_request) continue;
         
     }
@@ -1155,10 +1387,10 @@ void hbm_access_unit(
 extern "C"
 {
     void pma_insert_edge(
-        VEC_INFO* pos_pma_addrs_read,
-        VEC_INFO* pos_pma_addrs_write,
-        VEC_INFO* neg_pma_addrs_read,
-        VEC_INFO* neg_pma_addrs_write,
+        VEC_INFO* pos_pma_addrs,
+        VEC_INFO* neg_pma_addrs,
+        // VEC_INFO* neg_pma_addrs_read,
+        // VEC_INFO* neg_pma_addrs_write,
         ap_uint<512>* hbm_ptr,
         // ap_uint<512>* hbm_ptr_1,
         // ap_uint<512>* hbm_ptr_2,
@@ -1171,10 +1403,10 @@ extern "C"
         hls::stream<COMMAND_STREAM> &ack_back_to_router
     )
     {
-        #pragma HLS INTERFACE m_axi port=pos_pma_addrs_read offset=slave bundle=gmem0 depth=50
-        #pragma HLS INTERFACE m_axi port=pos_pma_addrs_write offset=slave bundle=gmem0 depth=50
-        #pragma HLS INTERFACE m_axi port=neg_pma_addrs_read offset=slave bundle=gmem1 depth=50 max_widen_bitwidth=512
-        #pragma HLS INTERFACE m_axi port=neg_pma_addrs_write offset=slave bundle=gmem1 depth=50 max_widen_bitwidth=512
+        #pragma HLS INTERFACE m_axi port=pos_pma_addrs offset=slave bundle=gmem0 depth=50
+        #pragma HLS INTERFACE m_axi port=neg_pma_addrs offset=slave bundle=gmem1 depth=50
+        // #pragma HLS INTERFACE m_axi port=neg_pma_addrs_read offset=slave bundle=gmem1 depth=50 max_widen_bitwidth=512
+        // #pragma HLS INTERFACE m_axi port=neg_pma_addrs_write offset=slave bundle=gmem1 depth=50 max_widen_bitwidth=512
         #pragma HLS INTERFACE m_axi port=hbm_ptr offset=slave bundle=gmem2 depth=50 max_widen_bitwidth=512 
         // #pragma HLS INTERFACE m_axi port=hbm_ptr_1 offset=slave bundle=gmem3 depth=50 max_widen_bitwidth=512
         // #pragma HLS INTERFACE m_axi port=hbm_ptr_2 offset=slave bundle=gmem4 depth=50 max_widen_bitwidth=512 
@@ -1186,29 +1418,29 @@ extern "C"
         #pragma HLS INTERFACE axis port=vec_info_back_stream
         #pragma HLS INTERFACE axis port=ack_back_to_router
        
-        hls::stream<pma_idx_info> pma_idx_info_request[MAX_PMA_IDX_INFO_REQUEST];
-        hls::stream<VEC_INFO> pma_addr_request[MAX_PMA_ADDR_REQUEST];
-        hls::stream<PMA_HEADER> pma_header_request("pma_header_request");
+        hls::stream<pma_idx_info> pma_idx_info_request[MAX_PMA_WORKER][MAX_PMA_IDX_INFO_REQUEST];
+        hls::stream<VEC_INFO> pma_addr_request[MAX_PMA_WORKER][MAX_PMA_ADDR_REQUEST];
+        hls::stream<PMA_HEADER> pma_header_request[MAX_PMA_WORKER];
 
-        hls::stream<int> cmd_count_stream("cmd_count_stream");
-        hls::stream<ap_uint<128>> cmd_batch_stream("cmd_batch_stream");
+        hls::stream<int> cmd_count_stream[MAX_PMA_WORKER];
+        hls::stream<ap_uint<128>> cmd_batch_stream[MAX_PMA_WORKER];
 
-        hls::stream<ap_uint<64>> edge_info_stream("edge_info_stream");
-        hls::stream<int> edge_count_stream("edge_count_stream");
+        hls::stream<ap_uint<64>> edge_info_stream[MAX_PMA_WORKER];
+        hls::stream<int> edge_count_stream[MAX_PMA_WORKER];
 
-        hls::stream<PMA_HEADER> header_from_bs("header_from_bs");
-        hls::stream<PMA_HEADER> header_from_insert("header_from_insert");
-        hls::stream<InsertPos> insert_info_stream("insert_info_stream");
-        hls::stream<int> insert_count_stream("insert_count_stream");
+        hls::stream<PMA_HEADER> header_from_bs[MAX_PMA_WORKER];
+        hls::stream<PMA_HEADER> header_from_insert[MAX_PMA_WORKER];
+        hls::stream<InsertPos> insert_info_stream[MAX_PMA_WORKER];
+        hls::stream<int> insert_count_stream[MAX_PMA_WORKER];
 
-        hls::stream<PMA_HEADER> new_pma_header("new_pma_header");
-        hls::stream<VEC_INFO> pma_addr_to_rebalance("pma_addr_to_rebalance");
+        hls::stream<PMA_HEADER> new_pma_header[MAX_PMA_WORKER];
+        hls::stream<VEC_INFO> pma_addr_to_rebalance[MAX_PMA_WORKER];
 
-        hls::stream<inserted_seg> inserted_seg_info("inserted_seg_info");
+        hls::stream<inserted_seg> inserted_seg_info[MAX_PMA_WORKER];
 
-        hls::stream<memory_access_command> memory_access_stream[MAX_MEMORY_REQUEST];
-        hls::stream<ap_uint<512>> data_to_mem[MAX_MEMORY_REQUEST];
-        hls::stream<ap_uint<512>> data_from_mem[MAX_MEMORY_REQUEST];
+        hls::stream<memory_access_command> memory_access_stream[MAX_PMA_WORKER][MAX_MEMORY_REQUEST];
+        hls::stream<ap_uint<512>> data_to_mem[MAX_PMA_WORKER][MAX_MEMORY_REQUEST];
+        hls::stream<ap_uint<512>> data_from_mem[MAX_PMA_WORKER][MAX_MEMORY_REQUEST];
         #pragma HLS STREAM variable=memory_access_stream depth=16
         #pragma HLS STREAM variable=data_to_mem depth=16
         #pragma HLS STREAM variable=data_from_mem depth=16
@@ -1225,108 +1457,213 @@ extern "C"
         // #pragma HLS STREAM variable=insert_count_stream depth=16
         // #pragma HLS STREAM variable=new_pma_header depth=16
         // #pragma HLS STREAM variable=pma_addr_to_rebalance depth=16
+        hls::stream<INTRA_PMA_UPDATE_MESSAGE> cmd_from_dispatcher[MAX_PMA_WORKER];
 
+        hls::stream<VEC_INFO> alloc_free_vec_info_from_app[MAX_PMA_WORKER];
+        hls::stream<VEC_INFO> alloc_free_vec_info_to_app[MAX_PMA_WORKER];
+        hls::stream<COMMAND> alloc_free_cmd_from_app[MAX_PMA_WORKER];
 
+        hls::stream<INTRA_COMMAND_STREAM> ack_from_app[MAX_PMA_WORKER];
+
+        hls::stream<VEC_INFO_ACCESS> vec_info_access_from_app[MAX_PMA_WORKER][2];
+        hls::stream<VEC_INFO> vec_info_from_app[MAX_PMA_WORKER];
+        hls::stream<VEC_INFO> vec_info_to_app[MAX_PMA_WORKER];
         #pragma HLS DATAFLOW
         
         
         hbm_access_unit(memory_access_stream, data_to_mem, data_from_mem, hbm_ptr);
 
+        dispatch(cmd_stream, cmd_from_dispatcher);
 
+        alloc_free_sender(alloc_free_cmd_from_app, alloc_free_vec_info_from_app, alloc_free_vec_info_to_app,
+            cmd_to_mem_stream, vec_info_to_mem_stream, vec_info_back_stream);
+
+        ack_backer(ack_back_to_router, ack_from_app);
+
+        vec_info_accesser(vec_info_access_from_app, vec_info_from_app, vec_info_to_app, pos_pma_addrs, neg_pma_addrs);
+        
         process_cmd(
-            cmd_stream,
-            cmd_count_stream,
-            cmd_batch_stream,
-            pma_idx_info_request
+            cmd_from_dispatcher[0],
+            cmd_count_stream[0],
+            cmd_batch_stream[0],
+            pma_idx_info_request[0]
+        );
+        process_cmd(
+            cmd_from_dispatcher[1],
+            cmd_count_stream[1],
+            cmd_batch_stream[1],
+            pma_idx_info_request[1]
         );
         
         sort_cu(
-            cmd_count_stream,
-            cmd_batch_stream,
-            edge_info_stream,
-            edge_count_stream,
-            pma_idx_info_request[5]
+            cmd_count_stream[0],
+            cmd_batch_stream[0],
+            edge_info_stream[0],
+            edge_count_stream[0],
+            pma_idx_info_request[0][5]
         );
-
+        sort_cu(
+            cmd_count_stream[1],
+            cmd_batch_stream[1],
+            edge_info_stream[1],
+            edge_count_stream[1],
+            pma_idx_info_request[1][5]
+        );
         
         head_read(
             // hbm_ptr_0,
-            memory_access_stream[0],
-            data_to_mem[0],
-            data_from_mem[0],
-            pos_pma_addrs_read, 
-            neg_pma_addrs_read, 
-            pma_idx_info_request[0],
-            pma_header_request,
-            pma_addr_request
+            memory_access_stream[0][0],
+            data_to_mem[0][0],
+            data_from_mem[0][0],
+            vec_info_access_from_app[0][0],
+            vec_info_to_app[0], 
+            pma_idx_info_request[0][0],
+            pma_header_request[0],
+            pma_addr_request[0]
+        );
+        head_read(
+            // hbm_ptr_0,
+            memory_access_stream[1][0],
+            data_to_mem[1][0],
+            data_from_mem[1][0],
+            vec_info_access_from_app[1][0],
+            vec_info_to_app[1],
+            pma_idx_info_request[1][0],
+            pma_header_request[1],
+            pma_addr_request[1]
         );
 
         binary_search_cu(
             // hbm_ptr_1,
             
-            memory_access_stream[1],
-            data_to_mem[1],
-            data_from_mem[1],
-            pma_header_request,
-            header_from_bs,
-            pma_addr_request[0],
-            edge_info_stream,
-            edge_count_stream,
-            insert_info_stream,
-            insert_count_stream,
-            pma_idx_info_request[3],
-            inserted_seg_info
+            memory_access_stream[0][1],
+            data_to_mem[0][1],
+            data_from_mem[0][1],
+            pma_header_request[0],
+            header_from_bs[0],
+            pma_addr_request[0][0],
+            edge_info_stream[0],
+            edge_count_stream[0],
+            insert_info_stream[0],
+            insert_count_stream[0],
+            pma_idx_info_request[0][3],
+            inserted_seg_info[0]
         );
 
-        
+        binary_search_cu(
+            // hbm_ptr_1,
+            
+            memory_access_stream[1][1],
+            data_to_mem[1][1],
+            data_from_mem[1][1],
+            pma_header_request[1],
+            header_from_bs[1],
+            pma_addr_request[1][0],
+            edge_info_stream[1],
+            edge_count_stream[1],
+            insert_info_stream[1],
+            insert_count_stream[1],
+            pma_idx_info_request[1][3],
+            inserted_seg_info[1]
+        );
+
+
         insert_element_cu(
             // hbm_ptr_2,
             
-            memory_access_stream[2],
-            data_to_mem[2],
-            data_from_mem[2],
-            insert_info_stream,
-            insert_count_stream,
-            pma_addr_request[1],
-            header_from_bs,
-            header_from_insert,
-            pma_idx_info_request[4]
+            memory_access_stream[0][2],
+            data_to_mem[0][2],
+            data_from_mem[0][2],
+            insert_info_stream[0],
+            insert_count_stream[0],
+            pma_addr_request[0][1],
+            header_from_bs[0],
+            header_from_insert[0],
+            pma_idx_info_request[0][4]
         );
-
+        insert_element_cu(
+            // hbm_ptr_2,
+            
+            memory_access_stream[1][2],
+            data_to_mem[1][2],
+            data_from_mem[1][2],
+            insert_info_stream[1],
+            insert_count_stream[1],
+            pma_addr_request[1][1],
+            header_from_bs[1],
+            header_from_insert[1],
+            pma_idx_info_request[1][4]
+        );
         
         move_and_change_header(
             // hbm_ptr_3,
             
-            memory_access_stream[3],
-            data_to_mem[3],
-            data_from_mem[3],
-            pos_pma_addrs_write,
-            neg_pma_addrs_write,
-            header_from_insert,
-            new_pma_header, 
+            memory_access_stream[0][3],
+            data_to_mem[0][3],
+            data_from_mem[0][3],
+            vec_info_access_from_app[0][1],
+            vec_info_from_app[0],
+            header_from_insert[0],
+            new_pma_header[0], 
 
-            pma_addr_request[2],
-            pma_addr_to_rebalance, 
+            pma_addr_request[0][2],
+            pma_addr_to_rebalance[0], 
 
-            vec_info_back_stream,
-            vec_info_to_mem_stream,
-            cmd_to_mem_stream,
-            pma_idx_info_request[1]
+            // vec_info_back_stream,
+            // vec_info_to_mem_stream,
+            // cmd_to_mem_stream,
+            alloc_free_vec_info_to_app[0],
+            alloc_free_vec_info_from_app[0],
+            alloc_free_cmd_from_app[0],
+            pma_idx_info_request[0][1]
+        );
+        move_and_change_header(
+        //     // hbm_ptr_3,
+            
+            memory_access_stream[1][3],
+            data_to_mem[1][3],
+            data_from_mem[1][3],
+            vec_info_access_from_app[1][1],
+            vec_info_from_app[1],
+            header_from_insert[1],
+            new_pma_header[1], 
+
+            pma_addr_request[1][2],
+            pma_addr_to_rebalance[1], 
+
+            // vec_info_back_stream,
+            // vec_info_to_mem_stream,
+            // cmd_to_mem_stream,
+            alloc_free_vec_info_to_app[1],
+            alloc_free_vec_info_from_app[1],
+            alloc_free_cmd_from_app[1],
+            pma_idx_info_request[1][1]
         );
         
         rebalance_cu(
             // hbm_ptr_4,
             
-            memory_access_stream[4],
-            data_to_mem[4],
-            data_from_mem[4],
-            new_pma_header,
-            pma_addr_to_rebalance,
-            pma_idx_info_request[2],
-            inserted_seg_info,
-            ack_back_to_router
+            memory_access_stream[0][4],
+            data_to_mem[0][4],
+            data_from_mem[0][4],
+            new_pma_header[0],
+            pma_addr_to_rebalance[0],
+            pma_idx_info_request[0][2],
+            inserted_seg_info[0],
+            ack_from_app[0]
         );
 
-        
+        rebalance_cu(
+            // hbm_ptr_4,
+            
+            memory_access_stream[1][4],
+            data_to_mem[1][4],
+            data_from_mem[1][4],
+            new_pma_header[1],
+            pma_addr_to_rebalance[1],
+            pma_idx_info_request[1][2],
+            inserted_seg_info[1],
+            ack_from_app[1]
+        );
     }
 }
