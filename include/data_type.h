@@ -1,4 +1,5 @@
 #pragma once 
+#define ATTR_CACHEABLE 
 
 #define AP_INT_MAX_W 2048 
 #include "ap_int.h"
@@ -50,13 +51,30 @@ typedef ap_axiu<128, 0, 0, 0> PMA_UPDATE_MESSAGE;
 #define IN_DIRECTION 1
 typedef ap_axiu<64,0,0,0> READ_COMMAND_STREAM; 
 typedef  ap_axiu<8,0,0,0> CLEAR_ICON;
+
+
+
+#define VERTEX_ATTR_SIZE_IN_BYTE 16
+typedef ap_uint<64> VERTEX_ATTR_TYPE; 
+struct VERTEX_ATTR_STREAM_TYPE {
+    VERTEX_ATTR_TYPE data;
+    ap_uint<1> last;
+};
+#ifdef ATTR_CACHEABLE
 struct alignas(64)PMA_HEADER
 {
     int vertex_range[VERTEX_PER_PMA];//every vertex in PMA's end segment [)
     int edge_count[VERTEX_PER_PMA];//every vertex in PMA's edge count
-    double attr[VERTEX_PER_PMA];//every vertex in PMA's attr
+    VERTEX_ATTR_TYPE attr[VERTEX_PER_PMA];//every vertex in PMA's attr
 };
-
+#else
+struct alignas(64)PMA_HEADER
+{
+    int vertex_range[VERTEX_PER_PMA];//every vertex in PMA's end segment [)
+    int edge_count[VERTEX_PER_PMA];//every vertex in PMA's edge count
+    ap_uint<64> attr[VERTEX_PER_PMA];//every vertex in PMA's attr
+};
+#endif
 typedef ap_uint<512> memory_chunk; 
 
 

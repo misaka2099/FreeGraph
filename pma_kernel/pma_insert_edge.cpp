@@ -283,7 +283,6 @@ void dispatch(
             {
                 for (int i = 0 ; i < MAX_PMA_WORKER ; i++)
                 {
-                    #pragma HLS UNROLL
                     INTRA_PMA_UPDATE_MESSAGE stop_msg;
                     stop_msg.data = PMA_STOP;
                     stop_msg.last = 1;
@@ -451,7 +450,6 @@ void process_cmd(
                 info.last = 1;
                 for (int i = 0 ; i < MAX_PMA_IDX_INFO_REQUEST ; i++)
                 {
-                    #pragma HLS UNROLL
                     pma_info_request[i].write(info);
                 }
                 return;
@@ -469,7 +467,6 @@ void process_cmd(
         
         for (int i = 0 ; i < MAX_PMA_IDX_INFO_REQUEST ; i++)
         {
-            #pragma HLS UNROLL
             pma_info_request[i].write(info);
         }
         // 将批次数据和数量写入输出流
@@ -533,7 +530,6 @@ void sort_cu(
         //     }
         // }
         for (int i = 1; i < cmd_count; i++) {
-            #pragma HLS UNROLL
             ap_uint<64> key = edge_info[i];
             int j = i - 1;
             while (j >= 0 && edge_info[j] > key) {
@@ -624,7 +620,6 @@ void head_read(
         
         for (int i = 0 ; i < MAX_PMA_ADDR_REQUEST ; i++)
         {
-            #pragma HLS UNROLL
             pma_addr[i].write(vec);
         }
         // {
@@ -673,7 +668,6 @@ void binary_search_cu(
         inserted_seg inserted_seg_info;
         for (int i = 0 ; i < 16 ; i++)
         {
-            #pragma HLS UNROLL
             inserted_seg_info.old_vertex_relative_seg_number[i] = -1;
             inserted_seg_info.vertex_number[i] = -1;
         }
@@ -829,11 +823,12 @@ void redistribute(int seg_start, int seg_end,
     hls::stream<ap_uint<512>>& data_from_mem, int pma_data_base_addr)
 {
     HERE
-    int valid_buffer[SEGMENT_SIZE];
-    for (int i = 0 ; i < SEGMENT_SIZE ; i++)
-    {
-        valid_buffer[i] = UNUSED_ICON;
-    }
+    int valid_buffer[SEGMENT_SIZE*512];
+    #pragma HLS bind_storage variable=valid_buffer type=ram_t2p impl=uram
+    // for (int i = 0 ; i < SEGMENT_SIZE ; i++)
+    // {
+    //     valid_buffer[i] = UNUSED_ICON;
+    // }
     int collect_buffer[SEGMENT_SIZE];
     for (int i = 0 ; i < SEGMENT_SIZE ; i++)
     {
@@ -841,8 +836,9 @@ void redistribute(int seg_start, int seg_end,
     }
     int pack_ptr = 0;
     int pack_buffer_ptr = 0;
-    int complete_seg = 0;
+    // int complete_seg = 0;
     int seg_count = seg_end - seg_start;
+    int complete_valid_buffer_count = 0;
     for (int i = seg_start ; i < seg_end ; i++)
     {
         // ap_uint<512>* collect_buffer_ptr = (ap_uint<512>*)(collect_buffer);
@@ -860,7 +856,11 @@ void redistribute(int seg_start, int seg_end,
                 valid_buffer[pack_buffer_ptr] = collect_buffer[j];
                 pack_buffer_ptr++;
                 pack_ptr++;
-                if (pack_buffer_ptr == SEGMENT_SIZE)
+                // if (pack_ptr % SEGMENT_SIZE == 0)
+                // {
+                //     complete_seg++;
+                // }
+                if (pack_buffer_ptr == 512*SEGMENT_SIZE)
                 {
                     // ap_uint<512>* valid_buffer_ptr = (ap_uint<512>*)(valid_buffer);
                     // for (int k = 0 ; k < SEGMENT_SIZE * sizeof(int) / 64 ; k++)
@@ -868,9 +868,11 @@ void redistribute(int seg_start, int seg_end,
                     //     hbm_ptr[(pma_data_base_addr + (complete_seg) * SEGMENT_SIZE * sizeof(int)) / 64 + k]
                     //         = valid_buffer_ptr[k];
                     // }
-                    write_seg(memory_access_stream, data_to_mem, data_from_mem, valid_buffer, pma_data_base_addr, complete_seg + seg_start);
+                    for (int k = 0 ; k < 512 ; k++)
+                        write_seg(memory_access_stream, data_to_mem, data_from_mem, valid_buffer+k*SEGMENT_SIZE, pma_data_base_addr, k + seg_start + complete_valid_buffer_count * 512);
+                    complete_valid_buffer_count++;
                     pack_buffer_ptr = 0;
-                    complete_seg++;
+                    // complete_seg++;
                 }
             }
         }
@@ -895,15 +897,21 @@ void redistribute(int seg_start, int seg_end,
         {
             if (pack_buffer_ptr == -1)
             {
-                complete_seg--;
+                // complete_seg-=512;
+                complete_valid_buffer_count--;
                 // ap_uint<512>* valid_buffer_ptr = (ap_uint<512>*)(valid_buffer);
                 // for (int k = 0 ; k < SEGMENT_SIZE * sizeof(int) / 64 ; k++)
                 // {
                 //     valid_buffer_ptr[k] 
                 //         = hbm_ptr[(pma_data_base_addr + (complete_seg) * SEGMENT_SIZE * sizeof(int)) / 64 + k];
                 // }
-                read_seg(memory_access_stream, data_from_mem, valid_buffer, pma_data_base_addr, complete_seg + seg_start);
-                pack_buffer_ptr = SEGMENT_SIZE - 1;
+                for (int k = 0 ; k < 512 ; k++)
+                {
+                   read_seg(memory_access_stream, data_from_mem, valid_buffer + k * SEGMENT_SIZE, pma_data_base_addr, k + seg_start + complete_valid_buffer_count * 512);
+                }
+                // read_seg(memory_access_stream, data_from_mem, valid_buffer, pma_data_base_addr, complete_seg + seg_start);
+                // pack_buffer_ptr = SEGMENT_SIZE - 1;
+                pack_buffer_ptr = 512 * SEGMENT_SIZE - 1;
             }
             write_back_buffer[i] = valid_buffer[pack_buffer_ptr];
             valid_buffer[pack_buffer_ptr] = UNUSED_ICON;
@@ -915,7 +923,7 @@ void redistribute(int seg_start, int seg_end,
         //     ap_uint<512>* write_back_buffer_ptr = (ap_uint<512>*) write_back_buffer;
         //     hbm_ptr[(s * SEGMENT_SIZE * sizeof(int) + pma_data_base_addr) / 64 + i] = write_back_buffer_ptr[i];
         // }
-        write_seg(memory_access_stream, data_to_mem, data_from_mem, valid_buffer, pma_data_base_addr, complete_seg + seg_start);
+        // write_seg(memory_access_stream, data_to_mem, data_from_mem, valid_buffer, pma_data_base_addr, complete_seg + seg_start);
         write_seg(memory_access_stream, data_to_mem, data_from_mem, write_back_buffer, pma_data_base_addr, s);
     }
 }
@@ -1154,7 +1162,6 @@ void move_and_change_header(
     int unused_data[SEGMENT_SIZE];
     for (int i = 0 ; i < 64 ; i++)
     {
-        #pragma HLS UNROLL
         unused_data[i] = UNUSED_ICON;
     }
     while (true)
@@ -1183,7 +1190,6 @@ void move_and_change_header(
         int enlarge_segs[16];
         for (int i = 0 ; i < 16 ; i++)
         {
-            #pragma HLS UNROLL
             enlarge_segs[i] = 0;
         }
         bool enlarged = false;

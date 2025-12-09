@@ -12,6 +12,7 @@
 #include <xrt/xrt_bo.h>
 #include <unordered_set>
 #include <fstream>
+#include <random>
 void print_pma(
     int pma_idx,
     VEC_INFO* pos_info,
@@ -76,6 +77,10 @@ int main(int argc, char** argv)
         Graph[edge.first].insert(edge.second);
     }
     int buffer_len = edges.size() + (max_vertex + 1);
+
+    // std::random_device rd;
+    // std::mt19937 g(rd());
+    // std::shuffle(edges.begin(), edges.end(), g);
     // Debug: Print edges read from the file
     std::cout << "Edges read from the file:" << std::endl;
     // for (const auto& edge : edges) {
