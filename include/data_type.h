@@ -5,8 +5,8 @@
 #include "ap_int.h"
 #include "ap_axi_sdata.h"
 // typedef  ap_uint<8> BYTE_STREAM;
-#define CHANNEL_CAPACITY (64*1024*1024)
-#define CHANNEL_NUM 2
+#define CHANNEL_CAPACITY (250*1024*1024)
+#define CHANNEL_NUM 4
 typedef ap_axiu<8,0,0,0> BYTE_STREAM ;
 typedef ap_axiu<32,3,0,0> COMMAND_STREAM;
 typedef ap_uint<32> COMMAND;
@@ -45,7 +45,7 @@ typedef ap_axiu<72, 0, 0, 0> TAG_STREAM; // 64 VECINFO + 8tag
 #define READER_CHUNK_BYTES 512
 // (0,31) src (32,63) dst or (32, 95) attr (96,97) type(insert vertex, insert edge, change attr) (98)direction()
 typedef ap_axiu<128, 0, 0, 0> PMA_UPDATE_MESSAGE; 
-#define MAX_PMA_NUM 2048
+#define MAX_PMA_NUM 100000
 
 #define OUT_DIRECTION 0
 #define IN_DIRECTION 1
@@ -83,3 +83,4 @@ typedef ap_uint<512> memory_chunk;
 #define MAX_COMMAND_BUFFER_LENGTH 16
 #define MAX_COMMAND_BUFFER_NUM 16
 #define MAX_CMD_NUM 16
+#define LOAD_BITMAP 19

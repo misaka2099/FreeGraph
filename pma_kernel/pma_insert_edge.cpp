@@ -143,7 +143,7 @@ void write_seg(
         data_to_mem.write(buffer[i]);
     }
     #pragma HLS protocol fixed
-    ap_uint<512> ack = data_from_mem.read();
+    // ap_uint<512> ack = data_from_mem.read();
     // const int seg_addr_in_ap_512_pattern = (seg_number * SEGMENT_SIZE * sizeof(int) + pma_data_base_addr) >> 6;
     // for (int i = 0; i < 4; i++) {
     //     #pragma HLS PIPELINE II=1
@@ -265,7 +265,7 @@ void write_header(
         data_to_mem.write(buffer[i]);
     }
     #pragma HLS protocol fixed
-    ap_uint<512> ack = data_from_mem.read();
+    // ap_uint<512> ack = data_from_mem.read();
 }
 void dispatch(
     hls::stream<PMA_UPDATE_MESSAGE> &cmd_from_generator,
@@ -1202,7 +1202,7 @@ void move_and_change_header(
             if (max_edge < header.edge_count[v])
             {
                 enlarged = true;
-                enlarge_segs[v] = seg_end - seg_start;
+                enlarge_segs[v] = 3 * (seg_end - seg_start);
             }
         }
         int total_enlarge_segs = 0;
@@ -1299,8 +1299,7 @@ void move_and_change_header(
             
             cmd_to_mem.write( (MEM_FREE));
             vec_info_to_mem.write(old_addr);
-            int new_data_start = (int)new_addr.range(31,0) + (int)old_addr.range(63,32);
-            // int unused_segment[SEGMENT_SIZE];
+             // int unused_segment[SEGMENT_SIZE];
 
 
             // for (int i = 0; i < SEGMENT_SIZE; i++) {
@@ -1376,7 +1375,7 @@ void hbm_access_unit(
                     auto x = data_in[worker_num][idx].read();
                     hbm_ptr[addr_in_512_pattern + i] = x;
                 }
-                data_out[worker_num][idx].write(WRITE_ACK);
+                // data_out[worker_num][idx].write(WRITE_ACK);
             }
         }
         idx = (idx + 1);

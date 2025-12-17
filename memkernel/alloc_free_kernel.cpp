@@ -4,9 +4,11 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
+const int TOTAL_BLOCKS = (CHANNEL_CAPACITY * CHANNEL_NUM / INIT_VEC_LEN_IN_BYTE);
+
 void set(int start, int len, BYTE* bitmap)
 {
-    #pragma HLS INLINE
+    #pragma HLS INLINE off
     for (int i = start; i < start + len; i++)
     {
         bitmap[i / 8] |= ((BYTE)1 << (i % 8));
@@ -16,7 +18,7 @@ void set(int start, int len, BYTE* bitmap)
 
 bool is_free(int start, int len, int &first_set , BYTE* bitmap)
 {
-    #pragma HLS INLINE
+    #pragma HLS INLINE off
     for (int i = start; i < start + len; i++)
     {
         if (bitmap[i / 8] & (1 << (i % 8)))
@@ -29,11 +31,11 @@ bool is_free(int start, int len, int &first_set , BYTE* bitmap)
 } 
 void allocate(int &start, int len, BYTE* bitmap)
 {
-    #pragma HLS INLINE
+    #pragma HLS INLINE off
     start = -1;
     if (len == 0) return;
     int first_set = -1;
-    for (int i = 0 ; i < CHANNEL_CAPACITY * CHANNEL_NUM ; i++)
+    for (int i = 0 ; i < TOTAL_BLOCKS ; i++)
     {
         if (is_free(i, len, first_set, bitmap))
         {
@@ -51,7 +53,7 @@ void allocate(int &start, int len, BYTE* bitmap)
 
 void reset(int start, int len, BYTE* bitmap)
 {
-    #pragma HLS INLINE
+    #pragma HLS INLINE off
     for (int i = start; i < start + len; i++)
     {
         bitmap[i / 8] &= ~((BYTE)1 << (i % 8));
@@ -59,7 +61,7 @@ void reset(int start, int len, BYTE* bitmap)
 }
 void deallocate(int start, int len, BYTE* bitmap)
 {
-    #pragma HLS INLINE
+    #pragma HLS INLINE off
     if (len == 0) return;
     reset(start, len, bitmap);
 }
@@ -68,12 +70,14 @@ extern "C"
     void alloc_free_kernel(
         hls::stream<COMMAND_STREAM>& cmd,
         hls::stream<VEC_INFO_STREAM>& vec_info_in,
-        hls::stream<VEC_INFO_STREAM>& vec_info_back
+        hls::stream<VEC_INFO_STREAM>& vec_info_back,
+        BYTE* bm_in_hbm
     )
     {
         #pragma HLS INTERFACE axis port=cmd
         #pragma HLS INTERFACE axis port=vec_info_in
         #pragma HLS INTERFACE axis port=vec_info_back
+        #pragma HLS INTERFACE m_axi port=bm_in_hbm offset=slave bundle=gmem0
         
         BYTE storage[(CHANNEL_CAPACITY *CHANNEL_NUM / INIT_VEC_LEN_IN_BYTE)];
         #pragma HLS bind_storage variable=storage type=ram_t2p impl=uram
@@ -149,6 +153,15 @@ extern "C"
                 //     printf("WARNING: skip free: start_bytes=%d len_bytes=%d (start_seg=%d len_segs=%d TOTAL_SEGS=%d)\n",
                 //            start_bytes, len_bytes, start_seg, len_segs, TOTAL_SEGS);
                 // }
+                back_info = 0;
+            }
+            else if (command.data == LOAD_BITMAP)
+            {
+                for (int i = 0 ; i < (CHANNEL_CAPACITY * CHANNEL_NUM / INIT_VEC_LEN_IN_BYTE) ; i++)
+                {
+                    #pragma HLS PIPELINE II=1
+                    storage[i] = bm_in_hbm[i];
+                }
                 back_info = 0;
             }
             VEC_INFO_STREAM out; out.data = back_info; out.last = 0;

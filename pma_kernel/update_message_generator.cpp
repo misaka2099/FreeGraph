@@ -30,7 +30,14 @@ extern "C"
         //(66,66) for direction (65,64) for command type (63,32) for dst (31,0) for src
         // static int total_vertex_num_out = 0;
         // HERE
-        for (int i = 0 ; i < (add_vertex_num + VERTEX_PER_PMA - 1) / VERTEX_PER_PMA ; i++)
+
+        static int total_vertex_num_out = 0;
+        
+        int start_pma_idx = (total_vertex_num_out + VERTEX_PER_PMA - 1) / VERTEX_PER_PMA;
+        int end_pma_idx = (total_vertex_num_out + add_vertex_num + VERTEX_PER_PMA - 1) / VERTEX_PER_PMA;
+
+
+        for (int i = start_pma_idx ; i < end_pma_idx ; i++)
         {
             #pragma HLS PIPELINE II=1
             PMA_UPDATE_MESSAGE msg;
@@ -39,10 +46,11 @@ extern "C"
             msg.data.range(97,96) = PMA_INSERT_VERTEX;
             msg.data.range(98,98) = IN_DIRECTION; //default in direction
             msg.data[127] = 1;
+            msg.last = 0;
             cmd_to_router.write(msg);
         }
         // HERE
-        for (int i = 0 ; i < (add_vertex_num + VERTEX_PER_PMA - 1) / VERTEX_PER_PMA ; i++)
+        for (int i = start_pma_idx ; i < end_pma_idx  ; i++)
         {
             #pragma HLS PIPELINE II=1
             PMA_UPDATE_MESSAGE msg;
@@ -51,10 +59,12 @@ extern "C"
             msg.data.range(97,96) = PMA_INSERT_VERTEX;
             msg.data.range(98,98) = OUT_DIRECTION; //default in direction
             msg.data[127] = 1;
+            msg.last = 0;
             cmd_to_router.write(msg);
         }
         //get batch update info vertex update + edge_update
         HERE
+            total_vertex_num_out += add_vertex_num;
         cmd_to_router.write({.data = -1, .last = 0});
         // clear_message_to_router.write({.data = 111});
         for (int i = 0 ; i < add_edge_num ; i++)
@@ -69,9 +79,11 @@ extern "C"
             msg.data.range(97,96) = PMA_INSERT_EDGE;
             msg.data.range(98,98) = IN_DIRECTION; //default in direction
             msg.data[127] = 1;
+            msg.last = 0;
             cmd_to_router.write(msg);
         }
         HERE
+        
         for (int i = 0 ; i < add_edge_num ; i++)
         {
             #pragma HLS PIPELINE II=1
@@ -81,6 +93,7 @@ extern "C"
             msg.data.range(97,96) = PMA_INSERT_EDGE;
             msg.data.range(98,98) = OUT_DIRECTION; //default in direction
             msg.data[127] = 1;
+            msg.last = 0;
             cmd_to_router.write(msg);
         }
         HERE

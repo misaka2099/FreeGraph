@@ -2,7 +2,7 @@
 #include <hls_stream.h>
 #include "data_type.h"
 #include "debug.h"
-
+#include <ap_utils.h>
 #define MAX_WORKERS 4
 extern "C"
 {
@@ -29,7 +29,7 @@ extern "C"
         hls::stream<VEC_INFO_STREAM> &vec_info_from_mem,
 
 
-        hls::stream<COMMAND_STREAM> &stop_signal
+        hls::stream<COMMAND_STREAM> &signal
     )
     {
         #pragma HLS INTERFACE axis port=cmd_from_app_1
@@ -50,7 +50,7 @@ extern "C"
         #pragma HLS INTERFACE axis port=vec_info_to_mem
         #pragma HLS INTERFACE axis port=cmd_to_mem
         #pragma HLS INTERFACE axis port=vec_info_from_mem
-        #pragma HLS INTERFACE axis port=stop_signal
+        #pragma HLS INTERFACE axis port=signal
         // bool alloc_app_1 = false;
         // bool alloc_app_2 = false;
         // bool free_app_1 = false;
@@ -68,10 +68,19 @@ extern "C"
         {
             // 进入停止流程：不再接收新请求，只清空在途请求
             #pragma HLS PIPELINE II = 1
-            if (!stopping && stop_signal.empty() == false)
+            if (!stopping && signal.empty() == false)
             {
-                (void)stop_signal.read();
-                stopping = true;
+                auto control_signal = signal.read();
+                if (control_signal.data == MEM_STOP)
+                    stopping = true;
+                else if (control_signal.data == LOAD_BITMAP)
+                {
+                    vec_info_to_mem.write({.data = 0, .last = 0});
+                    cmd_to_mem.write({.data = LOAD_BITMAP, .last = 0});
+                    #pragma HLS protocol fixed
+                    ap_wait();
+                    vec_info_from_mem.read();  
+                }
             }
 
             // 处理返回路径：无论是否 stopping 都要及时清空在途响应
