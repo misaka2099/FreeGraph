@@ -4,7 +4,7 @@
 #include "debug.h"
 
 #define MAX_WORKERS 4
-const int TOTAL_BLOCKS = (CHANNEL_CAPACITY * CHANNEL_NUM / INIT_VEC_LEN_IN_BYTE);
+const int TOTAL_BLOCKS = (CHANNEL_CAPACITY / INIT_VEC_LEN_IN_BYTE * CHANNEL_NUM );
 
 void set(int start, int len, BYTE* bitmap)
 {
@@ -131,10 +131,10 @@ extern "C"
         }
         // bool stopping = false;
         int next_worker_ptr = 0;
-        BYTE storage[(CHANNEL_CAPACITY *CHANNEL_NUM / INIT_VEC_LEN_IN_BYTE)];
+        BYTE storage[(CHANNEL_CAPACITY / INIT_VEC_LEN_IN_BYTE * CHANNEL_NUM)];
         #pragma HLS bind_storage variable=storage type=ram_t2p impl=uram
         // memset(storage, 0, sizeof(storage));
-        for (int i = 0; i < (CHANNEL_CAPACITY * CHANNEL_NUM / INIT_VEC_LEN_IN_BYTE); i++) {
+        for (int i = 0; i < (CHANNEL_CAPACITY / INIT_VEC_LEN_IN_BYTE * CHANNEL_NUM ); i++) {
             #pragma HLS PIPELINE II=1
             storage[i] = 0;
         }
@@ -149,7 +149,7 @@ extern "C"
                     break;
                 else if (x.data == LOAD_BITMAP)
                 {
-                    for (int i = 0; i < (CHANNEL_CAPACITY * CHANNEL_NUM / INIT_VEC_LEN_IN_BYTE); i++) {
+                    for (int i = 0; i < (CHANNEL_CAPACITY  / INIT_VEC_LEN_IN_BYTE * CHANNEL_NUM); i++) {
                         #pragma HLS PIPELINE II=1
                         storage[i] = bm_in_hbm[i];
                     }

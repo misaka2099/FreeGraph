@@ -4,7 +4,8 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
-const int TOTAL_BLOCKS = (CHANNEL_CAPACITY * CHANNEL_NUM / INIT_VEC_LEN_IN_BYTE);
+const int TOTAL_BLOCKS = (CHANNEL_CAPACITY / INIT_VEC_LEN_IN_BYTE * CHANNEL_NUM);
+const int BITMAP_SIZE = (TOTAL_BLOCKS + 7) / 8;
 
 void set(int start, int len, BYTE* bitmap)
 {
@@ -79,10 +80,10 @@ extern "C"
         #pragma HLS INTERFACE axis port=vec_info_back
         #pragma HLS INTERFACE m_axi port=bm_in_hbm offset=slave bundle=gmem0
         
-        BYTE storage[(CHANNEL_CAPACITY *CHANNEL_NUM / INIT_VEC_LEN_IN_BYTE)];
+        BYTE storage[BITMAP_SIZE];
         #pragma HLS bind_storage variable=storage type=ram_t2p impl=uram
         // memset(storage, 0, sizeof(storage));
-        for (int i = 0; i < (CHANNEL_CAPACITY * CHANNEL_NUM / INIT_VEC_LEN_IN_BYTE); i++) {
+        for (int i = 0; i < BITMAP_SIZE; i++) {
             #pragma HLS PIPELINE II=1
             storage[i] = 0;
         }
@@ -157,7 +158,7 @@ extern "C"
             }
             else if (command.data == LOAD_BITMAP)
             {
-                for (int i = 0 ; i < (CHANNEL_CAPACITY * CHANNEL_NUM / INIT_VEC_LEN_IN_BYTE) ; i++)
+                for (int i = 0 ; i < BITMAP_SIZE ; i++)
                 {
                     #pragma HLS PIPELINE II=1
                     storage[i] = bm_in_hbm[i];

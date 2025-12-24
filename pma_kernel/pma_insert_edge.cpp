@@ -45,11 +45,6 @@ struct memory_access_command
     memory_access_type type;
 };
 
-struct INTRA_PMA_UPDATE_MESSAGE
-{
-    ap_uint<128> data;
-    ap_uint<1> last;
-};
 
 struct INTRA_COMMAND_STREAM
 {
@@ -279,16 +274,30 @@ void dispatch(
         PMA_UPDATE_MESSAGE msg;
         if (cmd_from_generator.read_nb(msg))
         {
-            if (msg.data == PMA_STOP && msg.last == 1)
+            // if (msg.data == PMA_STOP && msg.last == 1)
+            // {
+            //     for (int i = 0 ; i < MAX_PMA_WORKER ; i++)
+            //     {
+            //         INTRA_PMA_UPDATE_MESSAGE stop_msg;
+            //         stop_msg.data = PMA_STOP;
+            //         stop_msg.last = 1;
+            //         cmd_to_process_cmd[i].write(stop_msg);
+            //     }
+            //     return;
+            // }
+            if (msg.data == PMA_STOP)
             {
                 for (int i = 0 ; i < MAX_PMA_WORKER ; i++)
                 {
                     INTRA_PMA_UPDATE_MESSAGE stop_msg;
                     stop_msg.data = PMA_STOP;
-                    stop_msg.last = 1;
+                    stop_msg.last = msg.last;
                     cmd_to_process_cmd[i].write(stop_msg);
                 }
-                return;
+                if (msg.last == 1)
+                {
+                    return;
+                }
             }
             INTRA_PMA_UPDATE_MESSAGE intra_msg;
             intra_msg.data = msg.data;
@@ -444,15 +453,26 @@ void process_cmd(
         for (int i = 0; i < MAX_CMD_NUM; i++) {
             #pragma HLS PIPELINE II=1
             auto cmd = cmd_stream.read();
-            if (cmd.data == PMA_STOP && cmd.last == 1) 
+            // if (cmd.data == PMA_STOP && cmd.last == 1) 
+            // {
+            //     pma_idx_info info;
+            //     info.last = 1;
+            //     for (int i = 0 ; i < MAX_PMA_IDX_INFO_REQUEST ; i++)
+            //     {
+            //         pma_info_request[i].write(info);
+            //     }
+            //     return;
+            // }
+            if (cmd.data == PMA_STOP) 
             {
                 pma_idx_info info;
-                info.last = 1;
+                info.last = cmd.last;
                 for (int i = 0 ; i < MAX_PMA_IDX_INFO_REQUEST ; i++)
                 {
                     pma_info_request[i].write(info);
                 }
-                return;
+                if (cmd.last == 1)
+                    return;
             }
             cmd_batch[i] = cmd.data;
             cmd_batch[i][127] = 1;
@@ -947,7 +967,6 @@ void rebalance_cu(
         auto signal = pma_idx.read();
         if (signal.last == 1)
         {
-            
             memory_access_command x;
             x.addr_in_byte_patten = 0;
             x.len_in_byte_patten = 0;

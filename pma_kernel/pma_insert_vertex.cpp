@@ -8,9 +8,9 @@
 const int extra_mem_needed = VERTEX_PER_PMA * SEGMENT_SIZE * sizeof(int);
 void read_cmd(
     hls::stream<PMA_UPDATE_MESSAGE> &cmd_stream,
-    hls::stream<ap_uint<128>> &cmd_to_alloc,
-    hls::stream<ap_uint<128>> &cmd_to_header,
-    hls::stream<ap_uint<128>> &cmd_to_writer
+    hls::stream<INTRA_PMA_UPDATE_MESSAGE> &cmd_to_alloc,
+    hls::stream<INTRA_PMA_UPDATE_MESSAGE> &cmd_to_header,
+    hls::stream<INTRA_PMA_UPDATE_MESSAGE> &cmd_to_writer
 )
 {
     printf("read_cmd\n");
@@ -18,9 +18,9 @@ void read_cmd(
     while(true) {
         #pragma HLS PIPELINE II=1
         PMA_UPDATE_MESSAGE cmd = cmd_stream.read();
-        cmd_to_alloc.write(cmd.data);
-        cmd_to_header.write(cmd.data);
-        cmd_to_writer.write(cmd.data);
+        cmd_to_alloc.write({.data=cmd.data,.last = cmd.last});
+        cmd_to_header.write({.data=cmd.data,.last = cmd.last});
+        cmd_to_writer.write({.data=cmd.data,.last = cmd.last});
         if (cmd.data == PMA_STOP && cmd.last == 1) {
             break;
         }
@@ -29,7 +29,7 @@ void read_cmd(
 void send_alloc_request(
     hls::stream<VEC_INFO_STREAM> &vec_info_to_mem_stream,
     hls::stream<COMMAND_STREAM> &cmd_to_mem_stream,
-    hls::stream<ap_uint<128>> &cmd_in_stream
+    hls::stream<INTRA_PMA_UPDATE_MESSAGE> &cmd_in_stream
 )
 {
     
@@ -43,7 +43,8 @@ void send_alloc_request(
             continue;
         }
         auto cmd = cmd_in_stream.read();
-        if (cmd == PMA_STOP) {
+        if (cmd.data == PMA_STOP && cmd.last == 1) 
+        {
             break;
         }
         VEC_INFO vec;
@@ -57,7 +58,7 @@ void send_alloc_request(
 
 void process_header(
     
-    hls::stream<ap_uint<128>> &cmd_in_stream,
+    hls::stream<INTRA_PMA_UPDATE_MESSAGE> &cmd_in_stream,
     hls::stream<PMA_HEADER>& header_out
 )
 {
@@ -72,7 +73,7 @@ void process_header(
             continue;
         }
         auto cmd = cmd_in_stream.read();
-        if (cmd == PMA_STOP)
+        if (cmd.data == PMA_STOP && cmd.last == 1)
         {
             break;
         }
@@ -94,7 +95,7 @@ void write_hbm(
     VEC_INFO* pos_pma_addrs,
     VEC_INFO* neg_pma_addrs,
     ap_uint<512>* hbm_ptr,
-    hls::stream<ap_uint<128>>& cmd_in,
+    hls::stream<INTRA_PMA_UPDATE_MESSAGE>& cmd_in,
     hls::stream<VEC_INFO_STREAM> &vec_info_back_stream,
     hls::stream<PMA_HEADER>& header_in,
     hls::stream<COMMAND_STREAM>& ack_back_to_router
@@ -113,15 +114,16 @@ void write_hbm(
     {
         #pragma HLS PIPELINE II=1
         auto cmd = cmd_in.read();
-        if (cmd == PMA_STOP)
+        if (cmd.data == PMA_STOP)
         {
             ack_back_to_router.write({.data = 1});
+            if (cmd.last == 1)
             break;
         }        
         VEC_INFO vec_info = vec_info_back_stream.read().data;
         PMA_HEADER header = header_in.read();
-        int pma_idx = cmd.range(31,0) / VERTEX_PER_PMA;
-        int direction = cmd.range(98,98);
+        int pma_idx = cmd.data.range(31,0) / VERTEX_PER_PMA;
+        int direction = cmd.data.range(98,98);
         // printf("PROCESSING PMA IDX %d START %d, LEN %d \n",pma_idx, int(vec_info.range(31,0)), int(vec_info.range(63,32)));
        
         if (direction == OUT_DIRECTION)
@@ -208,9 +210,9 @@ extern "C"
         #pragma HLS INTERFACE axis port=ack_back_to_router
 
 
-        hls::stream<ap_uint<128>> cmd_to_alloc("cmd_to_alloc");
-        hls::stream<ap_uint<128>> cmd_to_header("cmd_to_header");
-        hls::stream<ap_uint<128>> cmd_to_writer("cmd_to_writer");
+        hls::stream<INTRA_PMA_UPDATE_MESSAGE> cmd_to_alloc("cmd_to_alloc");
+        hls::stream<INTRA_PMA_UPDATE_MESSAGE> cmd_to_header("cmd_to_header");
+        hls::stream<INTRA_PMA_UPDATE_MESSAGE> cmd_to_writer("cmd_to_writer");
         hls::stream<PMA_HEADER> header_to_writer("header_to_writer");
 
         #pragma HLS STREAM variable=cmd_to_alloc depth=8

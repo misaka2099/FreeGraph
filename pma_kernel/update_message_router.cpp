@@ -138,7 +138,11 @@ extern "C"
         hls::stream<COMMAND_STREAM> &ack_from_insert_edge_1,
         hls::stream<COMMAND_STREAM> &ack_from_insert_edge_2,
         hls::stream<COMMAND_STREAM> &ack_from_insert_vertex_1,
-        hls::stream<COMMAND_STREAM> &ack_from_insert_vertex_2
+        hls::stream<COMMAND_STREAM> &ack_from_insert_vertex_2,
+        hls::stream<VERTEX_ATTR_STREAM_TYPE> &attr_from_generator,
+        hls::stream<VERTEX_ATTR_STREAM_TYPE> &attr_to_pma,
+        hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_attr_updater,
+        hls::stream<COMMAND_STREAM> &ack_from_attr_updater
         // hls::stream<CLEAR_ICON> &clear_message_from_generator
     )
     {
@@ -191,7 +195,7 @@ extern "C"
                             HERE
                             stage++;
                             msg.data = PMA_STOP;
-                            msg.last = 1;
+                            // msg.last = 1;
                             cmd_to_insert_vertex_1.write(msg);
                             cmd_to_insert_vertex_2.write(msg);
                             break;
@@ -240,7 +244,7 @@ extern "C"
                             HERE
                             stage++;
                             msg.data = PMA_STOP;
-                            msg.last = 1;
+                            // msg.last = 1;
                             for (int i = 0 ; i < MAX_COMMAND_BUFFER_NUM ; i++)
                             {
                                 if (count[i] > 0)
@@ -309,6 +313,30 @@ extern "C"
                     break;
                 }
                 case 3:
+                {
+                    if (cmd_from_generator.read_nb(msg))
+                    {
+                        if (msg.data == -1)
+                        {
+                            if (msg.last == 0)
+                            {
+                                stage = 0;
+                                break;
+                            }
+                            else  
+                            {
+                                stage = 4;
+                                break;
+                            }
+                            msg.data = PMA_STOP;
+                            msg.last = 1;
+                        }
+                        auto attr = attr_from_generator.read();
+                        cmd_to_attr_updater.write(msg);
+                        attr_to_pma.write({.data = attr.data, .last = attr.last});
+                    }
+                }
+                case 4:
                 {
                     HERE
                     quit = true;

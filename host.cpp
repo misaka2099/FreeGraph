@@ -58,17 +58,21 @@ int main(int argc, char** argv)
 
     std::string xclbin_name = argv[1];
     std::string graph_path = argv[2];
+    
+    auto start_init = std::chrono::high_resolution_clock::now();
+    
     std::fstream graph_file(graph_path);
     if (!graph_file.is_open()) {
         std::cerr << "Failed to open graph file: " << graph_path << std::endl;
         return 1;
     }
-    std::vector<std::unordered_set<int>> Graph;
+    std::vector<std::vector<int>> Graph;
     int a,b;
+    long long ts;
     std::vector<std::pair<int,int>> edges;
     int max_vertex = -1;
     //这一部分是在构建验证的答案
-    while (graph_file >> a >> b)
+    while (graph_file >> a >> b >> ts)
     {
         edges.emplace_back(a,b);
         if (a > max_vertex) max_vertex = a;
@@ -77,7 +81,11 @@ int main(int argc, char** argv)
     
     Graph.resize(max_vertex + 1);
     for (size_t i = 0; i < edges.size(); ++i) {
-        Graph[edges[i].first].insert(edges[i].second);
+        Graph[edges[i].first].push_back(edges[i].second);
+    }
+    for (auto& neighbors : Graph) {
+        std::sort(neighbors.begin(), neighbors.end());
+        neighbors.erase(std::unique(neighbors.begin(), neighbors.end()), neighbors.end());
     }
     int buffer_len = edges.size() + (max_vertex + 1);
     //
@@ -88,7 +96,7 @@ int main(int argc, char** argv)
     std::shuffle(edges.begin(), edges.end(), g);
 
     // 将边拆分为"基线构图阶段"和"增量插入阶段"
-    const double incremental_fraction = 0.01; // 默认增量插入占 1%
+    const double incremental_fraction = 0.001; // 默认增量插入占 1%
     size_t incremental_edges = edges.empty() ? 0 : std::max<size_t>(1, static_cast<size_t>(edges.size() * incremental_fraction));
     if (incremental_edges > edges.size()) {
         incremental_edges = edges.size();
@@ -100,6 +108,15 @@ int main(int argc, char** argv)
     for (size_t i = 0; i < base_edges; ++i) {
         if (edges[i].first > static_max_vertex) static_max_vertex = edges[i].first;
         if (edges[i].second > static_max_vertex) static_max_vertex = edges[i].second;
+    }
+
+    std::vector<std::vector<int>> BaseGraph(static_max_vertex + 1);
+    for (size_t i = 0; i < base_edges; ++i) {
+        BaseGraph[edges[i].first].push_back(edges[i].second);
+    }
+    for (auto& neighbors : BaseGraph) {
+        std::sort(neighbors.begin(), neighbors.end());
+        neighbors.erase(std::unique(neighbors.begin(), neighbors.end()), neighbors.end());
     }
 
     // Then, calculate new vertices from incremental edges
@@ -126,6 +143,10 @@ int main(int argc, char** argv)
 
     // // Debug: Print max_vertex value
     // std::cout << "Max vertex: " << max_vertex << std::endl;
+
+    auto end_init = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed_init = end_init - start_init;
+    std::cout << "Initialization (File Read & Graph Build) time: " << elapsed_init.count() << " s" << std::endl;
 
     auto xclbin = xrt::xclbin(xclbin_name);
     auto device = xrt::device(0);
@@ -162,15 +183,17 @@ int main(int argc, char** argv)
     auto run_signal_kernel = xrt::run(signal_kernel);
     std::cout << "Kernels are created..." << std::endl;
 
-    auto bo_hbm_base_addr = xrt::bo(device, sizeof(BYTE) * CHANNEL_CAPACITY * CHANNEL_NUM, pma_insert_vertex_1.group_id(2));
-    // auto bo_valid_array = xrt::bo(device, sizeof(BYTE) * (CHANNEL_CAPACITY * CHANNEL_NUM / 8), allocate_kernel.group_id(0));
+    auto start_buffer = std::chrono::high_resolution_clock::now();
+
+    auto bo_hbm_base_addr = xrt::bo(device, sizeof(BYTE) * (size_t)CHANNEL_CAPACITY * CHANNEL_NUM, pma_insert_vertex_1.group_id(2));
+    // auto bo_valid_array = xrt::bo(device, sizeof(BYTE) * ((size_t)CHANNEL_CAPACITY * CHANNEL_NUM / 8), allocate_kernel.group_id(0));
 
 
     BYTE* hbm_base_address = bo_hbm_base_addr.map<BYTE*>();
     // BYTE* valid_array = bo_valid_array.map<BYTE*>();
 
     // 初始化 HBM 和有效性数组
-    std::fill_n(hbm_base_address, CHANNEL_CAPACITY * CHANNEL_NUM, -2);
+    // std::fill_n(hbm_base_address, CHANNEL_CAPACITY * CHANNEL_NUM, -2);
 
     // std::fill_n(valid_array, CHANNEL_CAPACITY / 8, 0);
 
@@ -196,9 +219,14 @@ int main(int argc, char** argv)
     auto check_src = bo_check_src.map<int*>();
     auto check_dst = bo_check_dst.map<int*>();
     auto bo_vertex_attr = xrt::bo(device, sizeof(double) *  (max_vertex + 10), check_kernel.group_id(2));
-    auto bo_bitmap = xrt::bo(device, sizeof(BYTE) * (CHANNEL_CAPACITY * CHANNEL_NUM / 8), alloc_free_kernel.group_id(3));
+    auto bo_bitmap = xrt::bo(device, sizeof(BYTE) * ((size_t)CHANNEL_CAPACITY * CHANNEL_NUM / INIT_VEC_LEN_IN_BYTE / 8), alloc_free_kernel.group_id(3));
     auto bitmap_ptr = bo_bitmap.map<BYTE*>();
-    std::fill_n(bitmap_ptr, CHANNEL_CAPACITY * CHANNEL_NUM / 8 / INIT_VEC_LEN_IN_BYTE, 0);
+    std::fill_n(bitmap_ptr, (size_t)CHANNEL_CAPACITY * CHANNEL_NUM / 8 / INIT_VEC_LEN_IN_BYTE, 0);
+
+    auto end_buffer = std::chrono::high_resolution_clock::now();
+    std::chrono::duration<double> elapsed_buffer = end_buffer - start_buffer;
+    std::cout << "Buffer allocation and initialization time: " << elapsed_buffer.count() << " s" << std::endl;
+
     std::cout << "Buffers allocated and initialized." << std::endl;
 
     // run_allocate_kernel.set_arg(0, bo_valid_array);
@@ -235,8 +263,81 @@ int main(int argc, char** argv)
     // run_pma_insert_edge_2.set_arg(7, bo_hbm_base_addr);
     // run_pma_insert_edge_2.set_arg(8, bo_hbm_base_addr);
 
+    auto verify_graph = [&](const std::vector<std::vector<int>>& expected_graph, int current_max_vertex, const std::string& label) {
+        auto start_verify = std::chrono::high_resolution_clock::now();
+        std::cout << "Verifying " << label << "..." << std::endl;
+        std::vector<std::vector<int>> Updated_Graph(current_max_vertex + 1);
+        
+        for (int i = 0 ; i < current_max_vertex + 1; i++)
+        {
+            check_src[i] = i;
+        }
+        std::fill(check_dst, check_dst + buffer_len, -1);
+        
+        bo_check_src.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        bo_check_dst.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        
+        run_check_kernel.set_arg(0, bo_check_src);
+        run_check_kernel.set_arg(1, bo_check_dst);
+        run_check_kernel.set_arg(2, bo_vertex_attr);
+        run_check_kernel.set_arg(3, current_max_vertex + 1);
+        run_check_kernel.set_arg(4, 0);
+        
+        run_pma_read_kernel.start();
+        run_check_kernel.start();
+        run_check_kernel.wait();
+        run_pma_read_kernel.wait();
+        
+        bo_check_dst.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+        std::cout << "Check kernel finished for " << label << "." << std::endl;
+        
+        int idx = 0;
+        for (int i = 0; i < current_max_vertex + 1; i++) 
+        {
+            while (idx < buffer_len && check_dst[idx] != -1) {
+                Updated_Graph[i].push_back(check_dst[idx]);
+                idx++;
+            }
+            std::sort(Updated_Graph[i].begin(), Updated_Graph[i].end());
+            Updated_Graph[i].erase(std::unique(Updated_Graph[i].begin(), Updated_Graph[i].end()), Updated_Graph[i].end());
+            idx++; // Skip separator -1
+        }
+        
+        std::string clean_label = label;
+        std::replace(clean_label.begin(), clean_label.end(), ' ', '_');
+        std::ofstream output_file("mismatch_" + clean_label + ".txt");
+        
+        bool all_match = true;
+        for (int i = 0; i <= current_max_vertex; ++i) {
+             const std::vector<int>& expected_neighbors = (i < expected_graph.size()) ? expected_graph[i] : std::vector<int>();
+             
+            if (expected_neighbors != Updated_Graph[i]) {
+                output_file << "MISMATCH AT VERTEX " << i << std::endl;
+                for (auto v : expected_neighbors)
+                {
+                    output_file << "EXPECTED EDGE: " << i << " -> " << v << std::endl;
+                }
+                for (auto v : Updated_Graph[i])
+                {
+                    output_file << "ACTUAL EDGE: " << i << " -> " << v << std::endl;
+                }
+                all_match = false;
+            }
+        }
+        
+        if (all_match) {
+            std::cout << label << " matches perfectly!" << std::endl;
+        } else {
+            std::cout << label << " does not match. See mismatch_" << clean_label << ".txt for details." << std::endl;
+        }
+        auto end_verify = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double> elapsed_verify = end_verify - start_verify;
+        std::cout << "Verification time for " << label << ": " << elapsed_verify.count() << " s" << std::endl;
+    };
+
     auto add_base_graph_to_hbm = [&](int vertex_num, int edge_num) ->void
     {
+        auto start_cpu_preprocess = std::chrono::high_resolution_clock::now();
         std::vector<ap_uint<64>> sorted_edges;
         std::vector<std::vector<int>> adj_pos(vertex_num+1); // src -> dst
         std::vector<std::vector<int>> adj_neg(vertex_num+1); // dst -> src
@@ -255,6 +356,7 @@ int main(int argc, char** argv)
         for(auto& neighbors : adj_neg) std::sort(neighbors.begin(), neighbors.end());
 
         int current_addr_offset = 0;
+        // std::ofstream debug_pma("debug_pma_content.txt");
 
         // 3. 构建 PMA 结构
         for (int pma_idx = 0; pma_idx < (vertex_num + VERTEX_PER_PMA - 1) / VERTEX_PER_PMA; ++pma_idx) 
@@ -279,6 +381,11 @@ int main(int argc, char** argv)
                     int total_segments = 1;
                     if (neighbors.size() > 0) {
                         total_segments = (neighbors.size() + SEGMENT_SIZE * DENSITY_BOUND - 1) / (SEGMENT_SIZE * DENSITY_BOUND);
+                        int power_of_2 = 1;
+                        while (power_of_2 < total_segments) {
+                            power_of_2 *= 4;
+                        }
+                        total_segments = power_of_2;
                     }
                     pos_header.vertex_range[i] = last_pos_range + total_segments;
 
@@ -305,13 +412,39 @@ int main(int argc, char** argv)
                 // Write to HBM
                 memcpy(hbm_base_address + current_addr_offset, &pos_header, sizeof(PMA_HEADER));
                 memcpy(hbm_base_address + current_addr_offset + sizeof(PMA_HEADER), pos_data.data(), pos_data.size() * sizeof(int));
+
+                // debug_pma << "PMA " << pma_idx << " POS" << std::endl;
+                // debug_pma << "START = " << current_addr_offset << " LEN = " << (sizeof(PMA_HEADER) + pos_data.size() * sizeof(int)) << std::endl;
+                // for (int i = 0 ; i < 16 ; i++)
+                // {
+                //     debug_pma << "VERTEX_RANGE " << i << " = " << pos_header.vertex_range[i] << std::endl;
+                // }
+                // for (int i = 0 ; i < 16 ; i++)
+                // {
+                //     debug_pma << "EDGE COUNT " << i << " = " << pos_header.edge_count[i] << std::endl;
+                // }
+                // debug_pma << std::endl;
+                
+                // for (int i = 0 ; i < 16 ; i++)
+                // {
+                //     int start_seg = i == 0 ? 0 : pos_header.vertex_range[i-1];
+                //     int end_seg = pos_header.vertex_range[i];
+                //     debug_pma << "SRC " << i << " : ";
+                //     for (int j = start_seg * SEGMENT_SIZE ; j < end_seg * SEGMENT_SIZE ; j++)
+                //     {
+                //         debug_pma << pos_data[j] << " ";
+                //     }   
+                //     debug_pma << std::endl;
+                // }
                 
                 int total_len = sizeof(PMA_HEADER) + pos_data.size() * sizeof(int);
+                int aligned_len = total_len;
+                if (aligned_len % INIT_VEC_LEN_IN_BYTE != 0) aligned_len += (INIT_VEC_LEN_IN_BYTE - (aligned_len % INIT_VEC_LEN_IN_BYTE));
                 pos_vec_info_ptr[pma_idx] = (ap_uint<64>(total_len) << 32) | current_addr_offset;
                 
-                current_addr_offset += total_len;
+                current_addr_offset += aligned_len;
                 // Align to 64 bytes
-                if (current_addr_offset % 64 != 0) current_addr_offset += (64 - (current_addr_offset % 64));
+                // if (current_addr_offset % 64 != 0) current_addr_offset += (64 - (current_addr_offset % 64));
             }
 
             // NEG Direction
@@ -334,6 +467,11 @@ int main(int argc, char** argv)
                     int total_segments = 1;
                     if (neighbors.size() > 0) {
                         total_segments = (neighbors.size() + SEGMENT_SIZE * DENSITY_BOUND - 1) / (SEGMENT_SIZE * DENSITY_BOUND);
+                        int power_of_2 = 1;
+                        while (power_of_2 < total_segments) {
+                            power_of_2 *= 4;
+                        }
+                        total_segments = power_of_2;
                     }
                     neg_header.vertex_range[i] = last_pos_range + total_segments;
 
@@ -360,13 +498,39 @@ int main(int argc, char** argv)
                 // Write to HBM
                 memcpy(hbm_base_address + current_addr_offset, &neg_header, sizeof(PMA_HEADER));
                 memcpy(hbm_base_address + current_addr_offset + sizeof(PMA_HEADER), neg_data.data(), neg_data.size() * sizeof(int));
+
+                // debug_pma << "PMA " << pma_idx << " NEG" << std::endl;
+                // debug_pma << "START = " << current_addr_offset << " LEN = " << (sizeof(PMA_HEADER) + neg_data.size() * sizeof(int)) << std::endl;
+                // for (int i = 0 ; i < 16 ; i++)
+                // {
+                //     debug_pma << "VERTEX_RANGE " << i << " = " << neg_header.vertex_range[i] << std::endl;
+                // }
+                // for (int i = 0 ; i < 16 ; i++)
+                // {
+                //     debug_pma << "EDGE COUNT " << i << " = " << neg_header.edge_count[i] << std::endl;
+                // }
+                // debug_pma << std::endl;
+                
+                // for (int i = 0 ; i < 16 ; i++)
+                // {
+                //     int start_seg = i == 0 ? 0 : neg_header.vertex_range[i-1];
+                //     int end_seg = neg_header.vertex_range[i];
+                //     debug_pma << "SRC " << i << " : ";
+                //     for (int j = start_seg * SEGMENT_SIZE ; j < end_seg * SEGMENT_SIZE ; j++)
+                //     {
+                //         debug_pma << neg_data[j] << " ";
+                //     }   
+                //     debug_pma << std::endl;
+                // }
                 
                 int total_len = sizeof(PMA_HEADER) + neg_data.size() * sizeof(int);
+                int aligned_len = total_len;
+                if (aligned_len % INIT_VEC_LEN_IN_BYTE != 0) aligned_len += (INIT_VEC_LEN_IN_BYTE - (aligned_len % INIT_VEC_LEN_IN_BYTE));
                 neg_vec_info_ptr[pma_idx] = (ap_uint<64>(total_len) << 32) | current_addr_offset;
                 
-                current_addr_offset += total_len;
+                current_addr_offset += aligned_len;
                 // Align to 64 bytes
-                if (current_addr_offset % 64 != 0) current_addr_offset += (64 - (current_addr_offset % 64));
+                // if (current_addr_offset % 64 != 0) current_addr_offset += (64 - (current_addr_offset % 64));
             }
         }
         // Update bitmap
@@ -375,11 +539,17 @@ int main(int argc, char** argv)
         int remaining_bits = total_blocks % 8;
         memset(bitmap_ptr, 0xFF, full_bytes);
         
-        if (remaining_bits > 0) {
-            bitmap_ptr[full_bytes] |= (BYTE)((1 << remaining_bits) - 1);
-        }
+        // if (remaining_bits > 0) {
+        //     bitmap_ptr[full_bytes] |= (BYTE)((1 << remaining_bits) - 1);
+        // }
+        // debug_pma.close();
+
+        auto end_cpu_preprocess = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double> elapsed_cpu_preprocess = end_cpu_preprocess - start_cpu_preprocess;
+        std::cout << "CPU preprocessing time in add_base_graph_to_hbm: " << elapsed_cpu_preprocess.count() << " s" << std::endl;
+
         bo_bitmap.sync(XCL_BO_SYNC_BO_TO_DEVICE);
-        
+        std::cout << "base bitmap added to device." << std::endl;
         run_signal_kernel.set_arg(1, LOAD_BITMAP);
         run_signal_kernel.start();
         run_signal_kernel.wait();
@@ -448,77 +618,23 @@ int main(int argc, char** argv)
     // run_memalloc_kernel.start();
     
     add_base_graph_to_hbm(static_max_vertex + 1, base_edges);
-    
+    std::cout << "Base graph loaded into HBM." << std::endl;
     bo_pos_vec_info.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     bo_neg_vec_info.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     bo_src.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     bo_dst.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     bo_hbm_base_addr.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     bo_bitmap.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+
+    // verify_graph(BaseGraph, static_max_vertex, "Base Graph");
+
     // long long base_phase_ms = run_phase(0, base_edges, static_max_vertex + 1, "Base graph build");
     long long base_phase_ms = 0;
     long long incremental_phase_ms = run_phase(base_edges, incremental_edges, incremental_new_vertex_count, "Incremental edge insert");
     std::cout << "GRAPH UPDATED. total_time=" << (base_phase_ms + incremental_phase_ms)
               << " ms" << std::endl;
 
-    std::vector<std::unordered_set<int>> Updated_Graph(max_vertex + 1);
-    for (int i = 0 ; i < max_vertex + 1; i++)
-    {
-        check_src[i] = i;
-        
-        // std::cout << std::endl;
-    }
-    std::fill(check_dst, check_dst + buffer_len, -1);
-    bo_check_src.sync(XCL_BO_SYNC_BO_TO_DEVICE);
-    bo_check_dst.sync(XCL_BO_SYNC_BO_TO_DEVICE);
-    run_check_kernel.set_arg(0, bo_check_src);
-    run_check_kernel.set_arg(1, bo_check_dst);
-    run_check_kernel.set_arg(2, bo_vertex_attr);
-    run_check_kernel.set_arg(3, max_vertex + 1);
-    run_check_kernel.set_arg(4, 0);
-    run_pma_read_kernel.start();
-    run_check_kernel.start();
-    run_check_kernel.wait();
-    run_pma_read_kernel.wait();
-    bo_check_dst.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
-    std::cout << "Check kernel finished." << std::endl;
-    int idx = 0;
-    for (int i = 0; i < max_vertex + 1; i++) 
-    {
-        while (idx < buffer_len && check_dst[idx] != -1) {
-            Updated_Graph[i].insert(check_dst[idx]);
-            idx++;
-        }
-        idx++; // 跳过分隔符 -1
-    }
-    // Compare Updated_Graph with the original Graph
-    std::fstream output_file("updated_graph.txt", std::ios::out);
-    if (!output_file.is_open()) {
-        std::cerr << "Failed to open output file for updated graph." << std::endl;
-        return 1;
-    }
-    bool all_match = true;
-    for (size_t i = 0; i < Graph.size(); ++i) {
-        if (Graph[i] != Updated_Graph[i]) {
-            std::cout << "Mismatch found at vertex " << i << std::endl;
-            output_file << "MISMATCH AT VERTEX " << i << std::endl;
-            for (auto v : Graph[i])
-            {
-                output_file << "GRAPH EDGE: " << i << " -> " << v << std::endl;
-            }
-            for (auto v : Updated_Graph[i])
-            {
-                output_file << "UPDATED GRAPH EDGE: " << i << " -> " << v << std::endl;
-            }
-            all_match = false;
-        }
-
-    }
-    if (all_match) {
-        std::cout << "Graphs match perfectly!" << std::endl;
-    } else {
-        std::cout << "Graphs do not match. See updated_graph.txt for details." << std::endl;
-    }
+    verify_graph(Graph, max_vertex, "Full Graph");
     // run_stop_kernel.start();
     // run_stop_kernel.wait();
     run_signal_kernel.set_arg(1, MEM_STOP);

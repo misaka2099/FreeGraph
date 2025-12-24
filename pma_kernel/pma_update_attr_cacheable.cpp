@@ -81,7 +81,10 @@ extern "C"
             auto cmd = cmd_stream.read();
             if (cmd.last == 1 && cmd.data == PMA_STOP)
             {
-                write_header(hbm_ptr, cur_pma_idx, pos_pma, neg_pma, pos_pma_addrs, neg_pma_addrs);
+                if (cur_pma_idx != -1)
+                {
+                    write_header(hbm_ptr, cur_pma_idx, pos_pma, neg_pma, pos_pma_addrs, neg_pma_addrs);
+                }
                 break;
             }
             int pma_idx = cmd.data.range(31,0) / VERTEX_PER_PMA;

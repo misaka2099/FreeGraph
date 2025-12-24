@@ -12,7 +12,9 @@ extern "C"
         int *src_to_change,
         double *attr_to_change,
         int src_attr_change_num,
-        hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_router
+        int last,
+        hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_router,
+        hls::stream<VERTEX_ATTR_STREAM_TYPE> &attr_to_pma
         // hls::stream<CLEAR_ICON> &clear_message_to_router
     )
     {
@@ -46,7 +48,7 @@ extern "C"
             msg.data.range(97,96) = PMA_INSERT_VERTEX;
             msg.data.range(98,98) = IN_DIRECTION; //default in direction
             msg.data[127] = 1;
-            msg.last = 0;
+            msg.last = last;
             cmd_to_router.write(msg);
         }
         // HERE
@@ -59,7 +61,7 @@ extern "C"
             msg.data.range(97,96) = PMA_INSERT_VERTEX;
             msg.data.range(98,98) = OUT_DIRECTION; //default in direction
             msg.data[127] = 1;
-            msg.last = 0;
+            msg.last = last;
             cmd_to_router.write(msg);
         }
         //get batch update info vertex update + edge_update
@@ -79,7 +81,7 @@ extern "C"
             msg.data.range(97,96) = PMA_INSERT_EDGE;
             msg.data.range(98,98) = IN_DIRECTION; //default in direction
             msg.data[127] = 1;
-            msg.last = 0;
+            msg.last = last;
             cmd_to_router.write(msg);
         }
         HERE
@@ -93,33 +95,25 @@ extern "C"
             msg.data.range(97,96) = PMA_INSERT_EDGE;
             msg.data.range(98,98) = OUT_DIRECTION; //default in direction
             msg.data[127] = 1;
-            msg.last = 0;
+            msg.last = last;
             cmd_to_router.write(msg);
         }
         HERE
-        // for (int i = 0 ; i < src_attr_change_num ; i++)
-        // {
-        //     PMA_UPDATE_MESSAGE msg;
-        //     msg.data.range(31,0) = src_to_change[i];
-        //     double attr_bits = attr_to_change[i];
-        //     msg.data.range(95,32) = attr_bits;
-        //     msg.data.range(97,96) = PMA_CHANGE_ATTR;
-        //     msg.data.range(98,98) = IN_DIRECTION; //default in direction
-        //     cmd_to_router.write(msg);
-        // }
-        // // HERE
-        // for (int i = 0 ; i < src_attr_change_num ; i++)
-        // {
-        //     PMA_UPDATE_MESSAGE msg;
-        //     msg.data.range(31,0) = src_to_change[i];
-        //     double attr_bits = attr_to_change[i];
-        //     msg.data.range(95,32) = attr_bits;
-        //     msg.data.range(97,96) = PMA_CHANGE_ATTR;
-        //     msg.data.range(98,98) = OUT_DIRECTION; //default in direction
-        //     cmd_to_router.write(msg);
-        // }
-        // //send to pma_kernel
+        cmd_to_router.write({.data = -1, .last = 0});
+
+        for (int i = 0 ; i < src_attr_change_num ; i++)
+        {
+            PMA_UPDATE_MESSAGE msg;
+            msg.data.range(31,0) = src_to_change[i];
+            double attr_bits = attr_to_change[i];
+            msg.data.range(95,32) = attr_bits;
+            msg.data.range(97,96) = PMA_CHANGE_ATTR;
+            attr_to_pma.write({.data = (VERTEX_ATTR_TYPE)attr_bits, .last = 0});
+            msg.last = last;
+            cmd_to_router.write(msg);
+        }
+        //send to pma_kernel
         HERE
-        cmd_to_router.write({.data = -1, .last = 1});
+        cmd_to_router.write({.data = -1, .last = last});
     }
 }
