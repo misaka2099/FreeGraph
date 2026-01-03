@@ -25,6 +25,10 @@ typedef ap_uint<8> BYTE;
 #define MEM_ALLOC 10
 #define MEM_FREE 11
 #define MEM_COPY 12
+#define PMA_GET_ALL_OUT_EDGE_COO 17
+#define PMA_GET_ALL_IN_EDGE_COO 18
+#define PMA_GET_ALL_OUT_EDGE_CSR 19
+#define PMA_GET_ALL_IN_EDGE_CSR 20
 #define INIT_VEC_LEN_IN_BYTE 1024
 //64 elements
 #define SEGMENT_SIZE 64 
@@ -89,3 +93,10 @@ struct INTRA_PMA_UPDATE_MESSAGE
 #define MAX_COMMAND_BUFFER_NUM 16
 #define MAX_CMD_NUM 16
 #define LOAD_BITMAP 19
+
+struct pma_idx_info
+{
+    int pma_idx;
+    int direction;
+    int last;
+};

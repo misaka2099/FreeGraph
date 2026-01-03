@@ -3,6 +3,10 @@
 #include "debug.h"
 #include "hls_stream.h"
 #include <cstdio>
+// 可配置的 in-flight 上限（可在编译命令中定义以覆盖默认值）
+#ifndef MAX_INFLIGHT_NUM
+#define MAX_INFLIGHT_NUM 16
+#endif
 // static int task_tag = 0;
 void flush_buffer_aux(
     int buffer_idx,
@@ -29,7 +33,7 @@ bool check_inflight(
     int pma_idx
 )
 {
-    for (int i = 0 ; i < 16 ; i++)
+    for (int i = 0 ; i < MAX_INFLIGHT_NUM ; i++)
     {
         if (in_flight_arr[i] == pma_idx)
         {
@@ -50,7 +54,7 @@ void check_ack_back(
     if (ack_from_insert_edge_1.read_nb(ack))
     {
         int pma_idx = ack.data;
-        for (int i = 0 ; i < 16 ; i++)
+        for (int i = 0 ; i < MAX_INFLIGHT_NUM ; i++)
         {
             if (in_flight_arr[i] == pma_idx)
             {
@@ -63,7 +67,7 @@ void check_ack_back(
     if (ack_from_insert_edge_2.read_nb(ack))
     {
         int pma_idx = ack.data;
-        for (int i = 0 ; i < 16 ; i++)
+        for (int i = 0 ; i < MAX_INFLIGHT_NUM ; i++)
         {
             if (in_flight_arr[i] == pma_idx)
             {
@@ -80,7 +84,7 @@ void add_inflight(
     int pma_idx
 )
 {
-    for (int i  = 0 ; i < 16 ; i++)
+    for (int i  = 0 ; i < MAX_INFLIGHT_NUM ; i++)
     {
         if (in_flight_arr[i] == -1)
         {
@@ -106,7 +110,7 @@ void flush_and_add_inflight(
 )
 {
     // 等待没有冲突且 inflight 未满
-    while (check_inflight(in_flight_arr, pma_idx) || in_flight_count >= 16)
+    while (check_inflight(in_flight_arr, pma_idx) || in_flight_count >= MAX_INFLIGHT_NUM)
     {
         check_ack_back(
             in_flight_arr,
@@ -139,10 +143,11 @@ extern "C"
         hls::stream<COMMAND_STREAM> &ack_from_insert_edge_2,
         hls::stream<COMMAND_STREAM> &ack_from_insert_vertex_1,
         hls::stream<COMMAND_STREAM> &ack_from_insert_vertex_2,
-        hls::stream<VERTEX_ATTR_STREAM_TYPE> &attr_from_generator,
-        hls::stream<VERTEX_ATTR_STREAM_TYPE> &attr_to_pma,
-        hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_attr_updater,
-        hls::stream<COMMAND_STREAM> &ack_from_attr_updater
+        hls::stream<COMMAND_STREAM> &ack_to_generator
+        // hls::stream<VERTEX_ATTR_STREAM_TYPE> &attr_from_generator,
+        // hls::stream<VERTEX_ATTR_STREAM_TYPE> &attr_to_pma,
+        // hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_attr_updater,
+        // hls::stream<COMMAND_STREAM> &ack_from_attr_updater
         // hls::stream<CLEAR_ICON> &clear_message_from_generator
     )
     {
@@ -151,6 +156,15 @@ extern "C"
         #pragma HLS INTERFACE axis port=cmd_to_insert_vertex_2
         #pragma HLS INTERFACE axis port=cmd_to_insert_edge_1
         #pragma HLS INTERFACE axis port=cmd_to_insert_edge_2
+        #pragma HLS INTERFACE axis port=ack_from_insert_edge_1
+        #pragma HLS INTERFACE axis port=ack_from_insert_edge_2
+        #pragma HLS INTERFACE axis port=ack_from_insert_vertex_1
+        #pragma HLS INTERFACE axis port=ack_from_insert_vertex_2
+        #pragma HLS INTERFACE axis port=ack_to_generator
+        // #pragma HLS INTERFACE axis port=attr_from_generator
+        // #pragma HLS INTERFACE axis port=attr_to_pma
+        // #pragma HLS INTERFACE axis port=cmd_to_attr_updater
+        // #pragma HLS INTERFACE axis port=ack_from_attr_updater
         // #pragma HLS INTERFACE axis port=clear_message_from_generator
         // int processing_pma_idx[MAX_WORKERS] = {-1};
         // #pragma HLS ARRAY_PARTITION variable=processing_pma_idx complete
@@ -163,8 +177,8 @@ extern "C"
         #pragma HLS BIND_STORAGE variable=msg_buffer type=RAM_2P impl=URAM
         int count[MAX_COMMAND_BUFFER_NUM]; 
         #pragma HLS ARRAY_PARTITION variable=count complete
-        int in_flight[16];
-        for (int i = 0 ; i < 16 ; i++)
+        int in_flight[MAX_INFLIGHT_NUM];
+        for (int i = 0 ; i < MAX_INFLIGHT_NUM ; i++)
         {
             in_flight[i] = -1;
         }
@@ -242,7 +256,7 @@ extern "C"
                         if (msg.data == -1)
                         {
                             HERE
-                            stage++;
+                            // stage++;
                             msg.data = PMA_STOP;
                             // msg.last = 1;
                             for (int i = 0 ; i < MAX_COMMAND_BUFFER_NUM ; i++)
@@ -256,8 +270,33 @@ extern "C"
                                     msg_buffer, count
                                 );
                             }
-                            cmd_to_insert_edge_1.write(msg);
-                            cmd_to_insert_edge_2.write(msg);
+                            if (msg.last == 1)
+                            {
+                                cmd_to_insert_edge_1.write(msg);
+                                cmd_to_insert_edge_2.write(msg);
+                                quit = true;
+                                stage++;
+                            }
+                            else  
+                            {
+                                stage = 0;
+                            }
+                            while (in_flight_count > 0)
+                            {
+                                check_ack_back(
+                                    in_flight,
+                                    in_flight_count,
+                                    ack_from_insert_edge_1,
+                                    ack_from_insert_edge_2
+                                );
+                            }
+                            // If this batch is the final (last==1), send an ACK back to the generator to notify completion
+                            COMMAND_STREAM ack_pkt;
+                            ack_pkt.data = 1;
+                            ack_pkt.keep = (ap_uint<4>)0xF;
+                            ack_pkt.strb = (ap_uint<4>)0xF;
+                            ack_pkt.last = 1;
+                            ack_to_generator.write(ack_pkt);
                             break;
                         }
                         int src = msg.data.range(31,0);  
@@ -314,31 +353,6 @@ extern "C"
                 }
                 case 3:
                 {
-                    if (cmd_from_generator.read_nb(msg))
-                    {
-                        if (msg.data == -1)
-                        {
-                            if (msg.last == 0)
-                            {
-                                stage = 0;
-                                break;
-                            }
-                            else  
-                            {
-                                stage = 4;
-                                break;
-                            }
-                            msg.data = PMA_STOP;
-                            msg.last = 1;
-                        }
-                        auto attr = attr_from_generator.read();
-                        cmd_to_attr_updater.write(msg);
-                        attr_to_pma.write({.data = attr.data, .last = attr.last});
-                    }
-                }
-                case 4:
-                {
-                    HERE
                     quit = true;
                     break;
                 }

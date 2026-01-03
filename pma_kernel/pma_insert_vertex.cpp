@@ -43,9 +43,11 @@ void send_alloc_request(
             continue;
         }
         auto cmd = cmd_in_stream.read();
-        if (cmd.data == PMA_STOP && cmd.last == 1) 
+        if (cmd.data == PMA_STOP) 
         {
-            break;
+            if (cmd.last == 1)
+                break;
+            continue;
         }
         VEC_INFO vec;
         vec.range(31,0) = 0;
@@ -73,9 +75,11 @@ void process_header(
             continue;
         }
         auto cmd = cmd_in_stream.read();
-        if (cmd.data == PMA_STOP && cmd.last == 1)
+        if (cmd.data == PMA_STOP)
         {
-            break;
+            if (cmd.last == 1)
+                break;
+            continue;
         }
         PMA_HEADER header;
         for (int i = 0 ; i < VERTEX_PER_PMA ; i++)
@@ -118,7 +122,8 @@ void write_hbm(
         {
             ack_back_to_router.write({.data = 1});
             if (cmd.last == 1)
-            break;
+                break;
+            continue;  
         }        
         VEC_INFO vec_info = vec_info_back_stream.read().data;
         PMA_HEADER header = header_in.read();

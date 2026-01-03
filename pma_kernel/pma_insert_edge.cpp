@@ -17,12 +17,7 @@
 #define WRITE_ACK 114514
 #define MAX_PMA_WORKER 2
 // #define MAX_PMA_HEADER_REQUEST 3
-struct pma_idx_info
-{
-    int pma_idx;
-    int direction;
-    int last;
-};
+
 struct InsertPos {
     int idx;      // 插入索引
     int val;      // 查找结果值
