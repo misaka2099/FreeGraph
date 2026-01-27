@@ -5,8 +5,8 @@
 #include "ap_int.h"
 #include "ap_axi_sdata.h"
 // typedef  ap_uint<8> BYTE_STREAM;
-#define CHANNEL_CAPACITY (250*1024*1024)
-#define CHANNEL_NUM 15
+#define CHANNEL_CAPACITY (64*1024*1024)
+#define CHANNEL_NUM 2
 typedef ap_axiu<8,0,0,0> BYTE_STREAM ;
 typedef ap_axiu<32,3,0,0> COMMAND_STREAM;
 typedef ap_uint<32> COMMAND;
@@ -100,3 +100,15 @@ struct pma_idx_info
     int direction;
     int last;
 };
+//range(31,0) start
+//range(63,32) len
+//range(64): alloc or free 0->alloc 1->free
+typedef ap_axiu<96,32,0,0> MEMORY_ALLOC_FREE_REQUEST;
+
+typedef ap_uint<72> MEMORY_ALLOC_FREE_REQUEST_INTERNAL;
+#define REQ_TYPE_ALLOC 0
+#define REQ_TYPE_FREE 1
+#define REQ_TYPE_FINISH 2
+#define REQ_TYPE_LOAD_BITMAP 3
+#define NUM_MEM_PARTITIONS 4
+#define CHANNELS_PER_PARTITION 1

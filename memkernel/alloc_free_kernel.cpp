@@ -4,7 +4,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
-const int TOTAL_BLOCKS = (CHANNEL_CAPACITY / INIT_VEC_LEN_IN_BYTE * CHANNEL_NUM);
+const int TOTAL_BLOCKS = (CHANNEL_CAPACITY / INIT_VEC_LEN_IN_BYTE * CHANNELS_PER_PARTITION);
 const int BITMAP_SIZE = (TOTAL_BLOCKS + 7) / 8;
 
 void set(int start, int len, BYTE* bitmap)
@@ -69,13 +69,12 @@ void deallocate(int start, int len, BYTE* bitmap)
 extern "C"
 {
     void alloc_free_kernel(
-        hls::stream<COMMAND_STREAM>& cmd,
-        hls::stream<VEC_INFO_STREAM>& vec_info_in,
+        hls::stream<MEMORY_ALLOC_FREE_REQUEST>& vec_info_in,
         hls::stream<VEC_INFO_STREAM>& vec_info_back,
         BYTE* bm_in_hbm
     )
     {
-        #pragma HLS INTERFACE axis port=cmd
+        // #pragma HLS INTERFACE axis port=cmd
         #pragma HLS INTERFACE axis port=vec_info_in
         #pragma HLS INTERFACE axis port=vec_info_back
         #pragma HLS INTERFACE m_axi port=bm_in_hbm offset=slave bundle=gmem0
@@ -93,14 +92,13 @@ extern "C"
         while (true)
         {
             // 非阻塞获取 vec_info，拿到后再去阻塞读取 cmd，避免跨流死锁
-            VEC_INFO_STREAM pending_info;
+            MEMORY_ALLOC_FREE_REQUEST pending_info;
             bool has_info = false;
 
             if (!has_info) {
-                VEC_INFO_STREAM tmp;
+                MEMORY_ALLOC_FREE_REQUEST tmp;
                 if (vec_info_in.read_nb(tmp)) {
                     if (tmp.last == 1) {
-                        cmd.read();
                         break;
                     }
                     // HERE
@@ -112,11 +110,11 @@ extern "C"
                 }
             }
 
-            // 到这里说明已有 vec_info，可安全阻塞读 cmd
-            COMMAND_STREAM command = cmd.read();
-
             VEC_INFO back_info = 0;
-            if (command.data == MEM_ALLOC)
+            
+            // Check command type directly from MEMORY_ALLOC_FREE_REQUEST
+            MEMORY_ALLOC_FREE_REQUEST_INTERNAL req_internal = pending_info.data;
+            if (req_internal.range(67, 64) == REQ_TYPE_ALLOC)
             {
                 int req_bytes = pending_info.data.range(63,32);
                 int len_segs = (req_bytes + INIT_VEC_LEN_IN_BYTE - 1) / INIT_VEC_LEN_IN_BYTE;
@@ -138,7 +136,7 @@ extern "C"
                 back_info.range(31,0) = start_bytes;
                 back_info.range(63,32) = req_bytes;
             }
-            else if (command.data == MEM_FREE)
+            else if (req_internal.range(67, 64) == REQ_TYPE_FREE)
             {
                 int start_bytes = pending_info.data.range(31,0);
                 int len_bytes = pending_info.data.range(63,32);
@@ -156,7 +154,7 @@ extern "C"
                 // }
                 back_info = 0;
             }
-            else if (command.data == LOAD_BITMAP)
+            else if (req_internal.range(67, 64) == REQ_TYPE_LOAD_BITMAP)
             {
                 for (int i = 0 ; i < BITMAP_SIZE ; i++)
                 {

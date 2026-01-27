@@ -96,12 +96,14 @@ int main(int argc, char** argv)
     std::shuffle(edges.begin(), edges.end(), g);
 
     // 将边拆分为"基线构图阶段"和"增量插入阶段"
-    const double incremental_fraction = 0.001; // 默认增量插入占 1%
-    size_t incremental_edges = edges.empty() ? 0 : std::max<size_t>(1, static_cast<size_t>(edges.size() * incremental_fraction));
-    if (incremental_edges > edges.size()) {
-        incremental_edges = edges.size();
-    }
-    size_t base_edges = edges.size() >= incremental_edges ? edges.size() - incremental_edges : 0;
+    size_t incremental_edges = edges.size();
+    size_t base_edges = 0;
+    // const double incremental_fraction = 0.001; // 默认增量插入占 1%
+    // size_t incremental_edges = edges.empty() ? 0 : std::max<size_t>(1, static_cast<size_t>(edges.size() * incremental_fraction));
+    // if (incremental_edges > edges.size()) {
+    //     incremental_edges = edges.size();
+    // }
+    // size_t base_edges = edges.size() >= incremental_edges ? edges.size() - incremental_edges : 0;
 
     // First, calculate max_vertex from base edges (static edges)
     int static_max_vertex = -1;
@@ -219,7 +221,15 @@ int main(int argc, char** argv)
     auto check_src = bo_check_src.map<int*>();
     auto check_dst = bo_check_dst.map<int*>();
     auto bo_vertex_attr = xrt::bo(device, sizeof(double) *  (max_vertex + 10), check_kernel.group_id(2));
-    auto bo_bitmap = xrt::bo(device, sizeof(BYTE) * ((size_t)CHANNEL_CAPACITY * CHANNEL_NUM / INIT_VEC_LEN_IN_BYTE / 8), alloc_free_kernel.group_id(3));
+
+    auto bo_coo_src = xrt::bo(device, sizeof(int) * buffer_len, check_kernel.group_id(3));
+    auto bo_coo_dst = xrt::bo(device, sizeof(int) * buffer_len, check_kernel.group_id(4));
+    auto bo_row_ptr = xrt::bo(device, sizeof(int) * (max_vertex + 10), check_kernel.group_id(5));
+    auto bo_col_idx = xrt::bo(device, sizeof(int) * buffer_len, check_kernel.group_id(6));
+    auto bo_num_vertices = xrt::bo(device, sizeof(int), check_kernel.group_id(7));
+    auto bo_num_edges = xrt::bo(device, sizeof(int), check_kernel.group_id(8));
+
+    auto bo_bitmap = xrt::bo(device, sizeof(BYTE) * ((size_t)CHANNEL_CAPACITY * CHANNEL_NUM / INIT_VEC_LEN_IN_BYTE / 8), alloc_free_kernel.group_id(2));
     auto bitmap_ptr = bo_bitmap.map<BYTE*>();
     std::fill_n(bitmap_ptr, (size_t)CHANNEL_CAPACITY * CHANNEL_NUM / 8 / INIT_VEC_LEN_IN_BYTE, 0);
 
@@ -257,7 +267,7 @@ int main(int argc, char** argv)
     // run_pma_insert_edge_2.set_arg(3, bo_neg_vec_info);
     run_pma_insert_edge_2.set_arg(2, bo_hbm_base_addr);
 
-    run_alloc_free_kernel.set_arg(3, bo_bitmap);
+    run_alloc_free_kernel.set_arg(2, bo_bitmap);
     // run_pma_insert_edge_2.set_arg(5, bo_hbm_base_addr);
     // run_pma_insert_edge_2.set_arg(6, bo_hbm_base_addr);
     // run_pma_insert_edge_2.set_arg(7, bo_hbm_base_addr);
@@ -280,8 +290,16 @@ int main(int argc, char** argv)
         run_check_kernel.set_arg(0, bo_check_src);
         run_check_kernel.set_arg(1, bo_check_dst);
         run_check_kernel.set_arg(2, bo_vertex_attr);
-        run_check_kernel.set_arg(3, current_max_vertex + 1);
-        run_check_kernel.set_arg(4, 0);
+        run_check_kernel.set_arg(3, bo_coo_src);
+        run_check_kernel.set_arg(4, bo_coo_dst);
+        run_check_kernel.set_arg(5, bo_row_ptr);
+        run_check_kernel.set_arg(6, bo_col_idx);
+        run_check_kernel.set_arg(7, bo_num_vertices);
+        run_check_kernel.set_arg(8, bo_num_edges);
+        run_check_kernel.set_arg(9, current_max_vertex + 1);
+        run_check_kernel.set_arg(10, 0);
+        run_check_kernel.set_arg(11, 0);
+        run_check_kernel.set_arg(12, 1);
         
         run_pma_read_kernel.start();
         run_check_kernel.start();
@@ -576,7 +594,7 @@ int main(int argc, char** argv)
         }
     };
 
-    auto run_phase = [&](size_t edge_start_idx, size_t edge_count, int new_vertex_count, const std::string& label) -> long long {
+    auto run_phase = [&](size_t edge_start_idx, size_t edge_count, int new_vertex_count, const std::string& label, bool last) -> long long {
         if (edge_count == 0 && new_vertex_count == 0) {
             std::cout << label << ": vertices=0, edges=0, time=0 ms" << std::endl;
             return 0;
@@ -588,6 +606,7 @@ int main(int argc, char** argv)
         run_update_message_generator_kernel.set_arg(1, static_cast<int>(edge_count));
         run_update_message_generator_kernel.set_arg(2, bo_src);
         run_update_message_generator_kernel.set_arg(3, bo_dst);
+        run_update_message_generator_kernel.set_arg(4, static_cast<int>(last));
 
         auto phase_start = std::chrono::high_resolution_clock::now();
 
@@ -630,7 +649,7 @@ int main(int argc, char** argv)
 
     // long long base_phase_ms = run_phase(0, base_edges, static_max_vertex + 1, "Base graph build");
     long long base_phase_ms = 0;
-    long long incremental_phase_ms = run_phase(base_edges, incremental_edges, incremental_new_vertex_count, "Incremental edge insert");
+    long long incremental_phase_ms = run_phase(base_edges, incremental_edges, incremental_new_vertex_count, "Incremental edge insert", true);
     std::cout << "GRAPH UPDATED. total_time=" << (base_phase_ms + incremental_phase_ms)
               << " ms" << std::endl;
 

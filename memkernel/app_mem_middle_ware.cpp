@@ -7,54 +7,37 @@
 extern "C"
 {
     void app_mem_middle_ware(
-        hls::stream<COMMAND_STREAM> &cmd_from_app_1,
-        hls::stream<VEC_INFO_STREAM> &vec_info_from_app_1,
+        hls::stream<MEMORY_ALLOC_FREE_REQUEST> &req_from_app_1,
         hls::stream<VEC_INFO_STREAM> &vec_info_to_app_1,
 
-        hls::stream<COMMAND_STREAM> &cmd_from_app_2,
-        hls::stream<VEC_INFO_STREAM> &vec_info_from_app_2,
+        hls::stream<MEMORY_ALLOC_FREE_REQUEST> &req_from_app_2,
         hls::stream<VEC_INFO_STREAM> &vec_info_to_app_2,
 
-        
-        hls::stream<COMMAND_STREAM> &cmd_from_app_3,
-        hls::stream<VEC_INFO_STREAM> &vec_info_from_app_3,
+        hls::stream<MEMORY_ALLOC_FREE_REQUEST> &req_from_app_3,
         hls::stream<VEC_INFO_STREAM> &vec_info_to_app_3,
 
-        hls::stream<COMMAND_STREAM> &cmd_from_app_4,
-        hls::stream<VEC_INFO_STREAM> &vec_info_from_app_4,
+        hls::stream<MEMORY_ALLOC_FREE_REQUEST> &req_from_app_4,
         hls::stream<VEC_INFO_STREAM> &vec_info_to_app_4,
 
-        hls::stream<VEC_INFO_STREAM> &vec_info_to_mem,
-        hls::stream<COMMAND_STREAM> &cmd_to_mem,
+        hls::stream<MEMORY_ALLOC_FREE_REQUEST> &vec_info_to_mem,
         hls::stream<VEC_INFO_STREAM> &vec_info_from_mem,
-
 
         hls::stream<COMMAND_STREAM> &signal
     )
     {
-        #pragma HLS INTERFACE axis port=cmd_from_app_1
-        #pragma HLS INTERFACE axis port=vec_info_from_app_1
+        #pragma HLS INTERFACE axis port=req_from_app_1
         #pragma HLS INTERFACE axis port=vec_info_to_app_1
-        #pragma HLS INTERFACE axis port=cmd_from_app_2
-        #pragma HLS INTERFACE axis port=vec_info_from_app_2
+        #pragma HLS INTERFACE axis port=req_from_app_2
         #pragma HLS INTERFACE axis port=vec_info_to_app_2
-
-        
-        #pragma HLS INTERFACE axis port=cmd_from_app_3
-        #pragma HLS INTERFACE axis port=vec_info_from_app_3
+        #pragma HLS INTERFACE axis port=req_from_app_3
         #pragma HLS INTERFACE axis port=vec_info_to_app_3
-        #pragma HLS INTERFACE axis port=cmd_from_app_4
-        #pragma HLS INTERFACE axis port=vec_info_from_app_4
+        #pragma HLS INTERFACE axis port=req_from_app_4
         #pragma HLS INTERFACE axis port=vec_info_to_app_4
 
         #pragma HLS INTERFACE axis port=vec_info_to_mem
-        #pragma HLS INTERFACE axis port=cmd_to_mem
         #pragma HLS INTERFACE axis port=vec_info_from_mem
         #pragma HLS INTERFACE axis port=signal
-        // bool alloc_app_1 = false;
-        // bool alloc_app_2 = false;
-        // bool free_app_1 = false;
-        // bool free_app_2 = false;
+
         bool alloc_app[4];
         bool free_app[4];
         for (int i = 0 ; i < 4 ; i++)
@@ -75,15 +58,21 @@ extern "C"
                     stopping = true;
                 else if (control_signal.data == LOAD_BITMAP)
                 {
-                    vec_info_to_mem.write({.data = 0, .last = 0});
-                    cmd_to_mem.write({.data = LOAD_BITMAP, .last = 0});
+                    // vec_info_to_mem.write({.data = 0, .last = 0});
+                    MEMORY_ALLOC_FREE_REQUEST_INTERNAL req = 0;
+                    req.range(67, 64) = REQ_TYPE_LOAD_BITMAP;
+                    MEMORY_ALLOC_FREE_REQUEST out_req;
+                    out_req.data = req;
+                    out_req.last = 0;
+                    vec_info_to_mem.write(out_req);
+                    // cmd_to_mem.write({.data = LOAD_BITMAP, .last = 0});
                     #pragma HLS protocol fixed
                     ap_wait();
                     vec_info_from_mem.read();  
                 }
             }
 
-            // 处理返回路径：无论是否 stopping 都要及时清空在途响应
+            // check in-flight transactions
             bool in_flight = alloc_app[0] || alloc_app[1] || alloc_app[2] || alloc_app[3] ||
                 free_app[0] || free_app[1] || free_app[2] || free_app[3] ;
             if (in_flight)
@@ -116,215 +105,61 @@ extern "C"
                         vec_info_to_app_4.write(info_back);
                         alloc_app[3] = false;
                     }
-                    else if (free_app[0])
-                    {
-                        // HERE 
-                        free_app[0] = false;
-                    }
-                    else if (free_app[1])
-                    {
-                        // HERE
-                        free_app[1] = false;
-                    }
-                    else if (free_app[2])
-                    {
-                        // HERE 
-                        free_app[2] = false;
-                    }
-                    else if (free_app[3])
-                    {
-                        // HERE 
-                        free_app[3] = false;
-                    }
+                    else if (free_app[0]) free_app[0] = false;
+                    else if (free_app[1]) free_app[1] = false;
+                    else if (free_app[2]) free_app[2] = false;
+                    else if (free_app[3]) free_app[3] = false;
                 }
             }
 
-            // 若处于 stopping，等待在途清空后发终止标记
             if (stopping)
             {
                 // HERE
                 if (!in_flight)
                 {
                     // HERE
-                    VEC_INFO_STREAM term; term.data = 0; term.last = 1;
+                    MEMORY_ALLOC_FREE_REQUEST term; term.data = 0; term.last = 1;
                     vec_info_to_mem.write(term);
-                    COMMAND_STREAM to_stop; to_stop.data = 0; to_stop.last = 1;
-                    cmd_to_mem.write(to_stop);
                     break;
                 }
-                // 仍有在途，继续循环收敛
                 continue;
             }
 
             bool process_in_this_cycle = false;
-
+            // Round robin scheduling
             switch (next_worker_ptr) 
             {
-                case 0:
-                {
-                    process_in_this_cycle = cmd_from_app_1.empty() == false && vec_info_from_app_1.empty() == false && 
-                            !in_flight;
-                    break;
-                }
-                case 1:
-                {
-                    process_in_this_cycle = cmd_from_app_2.empty() == false && vec_info_from_app_2.empty() == false && 
-                            !in_flight;
-                    break;
-                }
-                case 2:
-                {
-                    process_in_this_cycle = cmd_from_app_3.empty() == false && vec_info_from_app_3.empty() == false && 
-                            !in_flight;
-                    break;
-                }
-                case 3:
-                {
-                    process_in_this_cycle = cmd_from_app_4.empty() == false && vec_info_from_app_4.empty() == false &&
-                            !in_flight;
-                    break;
-                }
+                case 0: process_in_this_cycle = !req_from_app_1.empty() && !in_flight; break;
+                case 1: process_in_this_cycle = !req_from_app_2.empty() && !in_flight; break;
+                case 2: process_in_this_cycle = !req_from_app_3.empty() && !in_flight; break;
+                case 3: process_in_this_cycle = !req_from_app_4.empty() && !in_flight; break;
             }
             if (process_in_this_cycle)
             {
+                MEMORY_ALLOC_FREE_REQUEST req_pkg;
                 switch (next_worker_ptr) 
                 {
-                    case 0:
-                    {
-                        VEC_INFO_STREAM info = vec_info_from_app_1.read();
-                        COMMAND_STREAM cmd = cmd_from_app_1.read();
-                        if (cmd.data == MEM_ALLOC)
-                        {
-                            // HERE
-                            COMMAND_STREAM outc; outc.data = MEM_ALLOC; outc.last = 0;
-                            vec_info_to_mem.write(info);
-                            cmd_to_mem.write(outc);
-                            alloc_app[0] = true;
-                        }
-                        else if (cmd.data == MEM_FREE)
-                        {
-                            // HERE
-                            COMMAND_STREAM outc; outc.data = MEM_FREE; outc.last = 0;
-                            vec_info_to_mem.write(info);
-                            cmd_to_mem.write(outc);
-                            free_app[0] = true;
-                        }
-                        break;
-                    }
-                    case 1:
-                    {
-                        VEC_INFO_STREAM info = vec_info_from_app_2.read();
-                        COMMAND_STREAM cmd = cmd_from_app_2.read();
-                        if (cmd.data == MEM_ALLOC)
-                        {
-                            // HERE
-                            COMMAND_STREAM outc; outc.data = MEM_ALLOC; outc.last = 0;
-                            vec_info_to_mem.write(info);
-                            cmd_to_mem.write(outc);
-                            alloc_app[1] = true;
-                        }
-                        else if (cmd.data == MEM_FREE)
-                        {
-                            // HERE
-                            COMMAND_STREAM outc; outc.data = MEM_FREE; outc.last = 0;
-                            vec_info_to_mem.write(info);
-                            cmd_to_mem.write(outc);
-                            free_app[1] = true;
-                        }
-                        break;
-                    }
-                    case 2:
-                    {
-                        VEC_INFO_STREAM info = vec_info_from_app_3.read();
-                        COMMAND_STREAM cmd = cmd_from_app_3.read();
-                        if (cmd.data == MEM_ALLOC)
-                        {
-                            // HERE
-                            COMMAND_STREAM outc; outc.data = MEM_ALLOC; outc.last = 0;
-                            vec_info_to_mem.write(info);
-                            cmd_to_mem.write(outc);
-                            alloc_app[2] = true;
-                        }
-                        else if (cmd.data == MEM_FREE)
-                        {
-                            // HERE
-                            COMMAND_STREAM outc; outc.data = MEM_FREE; outc.last = 0;
-                            vec_info_to_mem.write(info);
-                            cmd_to_mem.write(outc);
-                            free_app[2] = true;
-                        }
-                        break;
-                    }
-                    case 3:
-                    {
-                        VEC_INFO_STREAM info = vec_info_from_app_4.read();
-                        COMMAND_STREAM cmd = cmd_from_app_4.read();
-                        if (cmd.data == MEM_ALLOC)
-                        {
-                            // HERE
-                            COMMAND_STREAM outc; outc.data = MEM_ALLOC; outc.last = 0;
-                            vec_info_to_mem.write(info);
-                            cmd_to_mem.write(outc);
-                            alloc_app[3] = true;
-                        }
-                        else if (cmd.data == MEM_FREE)
-                        {
-                            // HERE
-                            COMMAND_STREAM outc; outc.data = MEM_FREE; outc.last = 0;
-                            vec_info_to_mem.write(info);
-                            cmd_to_mem.write(outc);
-                            free_app[3] = true;
-                        }
-                        break;
-                    }
+                    case 0: req_pkg = req_from_app_1.read(); break;
+                    case 1: req_pkg = req_from_app_2.read(); break;
+                    case 2: req_pkg = req_from_app_3.read(); break;
+                    case 3: req_pkg = req_from_app_4.read(); break;
+                }
+                
+                MEMORY_ALLOC_FREE_REQUEST_INTERNAL req = req_pkg.data;
+                int type = req.range(67, 64);
+                
+                if (type == REQ_TYPE_ALLOC)
+                {
+                    vec_info_to_mem.write(req_pkg);
+                    alloc_app[next_worker_ptr] = true;
+                }
+                else if (type == REQ_TYPE_FREE)
+                {
+                    vec_info_to_mem.write(req_pkg);
+                    free_app[next_worker_ptr] = true;
                 }
             }
-            next_worker_ptr  = (next_worker_ptr + 1) % MAX_WORKERS;
-            // 正常接收新请求（仅在没有在途事务时）
-            // if (cmd_from_app_1.empty() == false && vec_info_from_app_1.empty() == false && 
-            //     alloc_app_1 == false && alloc_app_2 == false && free_app_1 == false && free_app_2 == false)
-            // {
-            //     VEC_INFO_STREAM info = vec_info_from_app_1.read();
-            //     COMMAND_STREAM cmd = cmd_from_app_1.read();
-            //     if (cmd.data == MEM_ALLOC)
-            //     {
-            //         HERE
-            //         COMMAND_STREAM outc; outc.data = MEM_ALLOC; outc.last = 0;
-            //         vec_info_to_mem.write(info);
-            //         cmd_to_mem.write(outc);
-            //         alloc_app_1 = true;
-            //     }
-            //     else if (cmd.data == MEM_FREE)
-            //     {
-            //         HERE
-            //         COMMAND_STREAM outc; outc.data = MEM_FREE; outc.last = 0;
-            //         vec_info_to_mem.write(info);
-            //         cmd_to_mem.write(outc);
-            //         free_app_1 = true;
-            //     }
-            // }
-            // if (cmd_from_app_2.empty() == false && vec_info_from_app_2.empty() == false && 
-            //    alloc_app_1 == false && alloc_app_2 == false && free_app_1 == false && free_app_2 == false)
-            // {
-            //     VEC_INFO_STREAM info = vec_info_from_app_2.read();
-            //     COMMAND_STREAM cmd = cmd_from_app_2.read();
-            //     if (cmd.data == MEM_ALLOC)
-            //     {
-            //         HERE
-            //         COMMAND_STREAM outc; outc.data = MEM_ALLOC; outc.last = 0;
-            //         vec_info_to_mem.write(info);
-            //         cmd_to_mem.write(outc);
-            //         alloc_app_2 = true;
-            //     }
-            //     else if (cmd.data == MEM_FREE)
-            //     {
-            //         HERE
-            //         COMMAND_STREAM outc; outc.data = MEM_FREE; outc.last = 0;
-            //         vec_info_to_mem.write(info);
-            //         cmd_to_mem.write(outc);
-            //         free_app_2 = true;
-            //     }
-            // }
+            next_worker_ptr = (next_worker_ptr + 1) % MAX_WORKERS;
         }
     }
 }

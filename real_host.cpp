@@ -215,7 +215,7 @@ int main(int argc, char** argv)
     auto check_src = bo_check_src.map<int*>();
     auto check_dst = bo_check_dst.map<int*>();
     auto bo_vertex_attr = xrt::bo(device, sizeof(double) *  (max_vertex + 10), check_kernel.group_id(2));
-    auto bo_bitmap = xrt::bo(device, sizeof(BYTE) * ((size_t)CHANNEL_CAPACITY * CHANNEL_NUM / INIT_VEC_LEN_IN_BYTE / 8), alloc_free_kernel.group_id(3));
+    auto bo_bitmap = xrt::bo(device, sizeof(BYTE) * ((size_t)CHANNEL_CAPACITY * CHANNEL_NUM / INIT_VEC_LEN_IN_BYTE / 8), alloc_free_kernel.group_id(2));
     auto bitmap_ptr = bo_bitmap.map<BYTE*>();
     std::fill_n(bitmap_ptr, (size_t)CHANNEL_CAPACITY * CHANNEL_NUM / 8 / INIT_VEC_LEN_IN_BYTE, 0);
 
@@ -253,7 +253,7 @@ int main(int argc, char** argv)
     // run_pma_insert_edge_2.set_arg(3, bo_neg_vec_info);
     run_pma_insert_edge_2.set_arg(2, bo_hbm_base_addr);
 
-    run_alloc_free_kernel.set_arg(3, bo_bitmap);
+    run_alloc_free_kernel.set_arg(2, bo_bitmap);
     // run_pma_insert_edge_2.set_arg(5, bo_hbm_base_addr);
     // run_pma_insert_edge_2.set_arg(6, bo_hbm_base_addr);
     // run_pma_insert_edge_2.set_arg(7, bo_hbm_base_addr);
@@ -572,8 +572,8 @@ int main(int argc, char** argv)
         }
     };
 
-    auto run_phase = [&](size_t edge_start_idx, size_t edge_count, int new_vertex_count, const std::string& label) -> long long {
-        if (edge_count == 0 && new_vertex_count == 0) {
+    auto run_phase = [&](size_t edge_start_idx, size_t edge_count, int new_vertex_count, const std::string& label, bool last) -> long long {
+        if (edge_count == 0 && new_vertex_count == 0 && !last) {
             std::cout << label << ": vertices=0, edges=0, time=0 ms" << std::endl;
             return 0;
         }
@@ -584,22 +584,25 @@ int main(int argc, char** argv)
         run_update_message_generator_kernel.set_arg(1, static_cast<int>(edge_count));
         run_update_message_generator_kernel.set_arg(2, bo_src);
         run_update_message_generator_kernel.set_arg(3, bo_dst);
+        run_update_message_generator_kernel.set_arg(4, static_cast<int>(last));
 
         auto phase_start = std::chrono::high_resolution_clock::now();
 
-        run_pma_insert_vertex_1.start();
-        run_pma_insert_vertex_2.start();
-        run_pma_insert_edge_1.start();
-        run_pma_insert_edge_2.start();
-        run_update_message_router_kernel.start();
+        // run_pma_insert_vertex_1.start();
+        // run_pma_insert_vertex_2.start();
+        // run_pma_insert_edge_1.start();
+        // run_pma_insert_edge_2.start();
+        // run_update_message_router_kernel.start();
         run_update_message_generator_kernel.start();
 
         run_update_message_generator_kernel.wait();
-        run_update_message_router_kernel.wait();
-        run_pma_insert_edge_1.wait();
-        run_pma_insert_edge_2.wait();
-        run_pma_insert_vertex_1.wait();
-        run_pma_insert_vertex_2.wait();
+        if (last) {
+            run_update_message_router_kernel.wait();
+            run_pma_insert_edge_1.wait();
+            run_pma_insert_edge_2.wait();
+            run_pma_insert_vertex_1.wait();
+            run_pma_insert_vertex_2.wait();
+        }
 
         auto phase_end = std::chrono::high_resolution_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(phase_end - phase_start).count();
@@ -626,6 +629,12 @@ int main(int argc, char** argv)
 
     // long long base_phase_ms = run_phase(0, base_edges, static_max_vertex + 1, "Base graph build");
     std::cout << "\n--- Starting Incremental Updates ---" << std::endl;
+    run_pma_insert_vertex_1.start();
+    run_pma_insert_vertex_2.start();
+    run_pma_insert_edge_1.start();
+    run_pma_insert_edge_2.start();
+    run_update_message_router_kernel.start();
+
     long long base_phase_ms = 0;
     long long incremental_phase_ms = 0;
     int current_max_v = static_max_vertex;
@@ -652,12 +661,13 @@ int main(int argc, char** argv)
         }
 
         size_t current_batch_count = j - i;
+        bool is_last = (j >= edges.size());
         
         // 计算当前批次新增的顶点数量
         int new_v_count = (batch_max_v > current_max_v) ? (batch_max_v - current_max_v) : 0;
         
         std::string label = "Timestamp Update [" + std::to_string(current_ts) + "]";
-        long long duration = run_phase(i, current_batch_count, new_v_count, label);
+        long long duration = run_phase(i, current_batch_count, new_v_count, label, is_last);
         
         phase_results.push_back({current_ts, current_batch_count, new_v_count, duration});
         incremental_phase_ms += duration;
