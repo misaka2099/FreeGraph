@@ -106,6 +106,25 @@ struct pma_idx_info
 typedef ap_axiu<96,32,0,0> MEMORY_ALLOC_FREE_REQUEST;
 
 typedef ap_uint<72> MEMORY_ALLOC_FREE_REQUEST_INTERNAL;
+
+enum MEMORY_INFO_ACCESS_TYPE
+{
+    MEMORY_READ = 0,
+    MEMORY_WRITE = 1,
+    POS_VEC_INFO_READ = 2,
+    POS_VEC_INFO_WRITE = 3,
+    NEG_VEC_INFO_READ = 4,
+    NEG_VEC_INFO_WRITE = 5
+};
+
+struct MEMORY_INFO_ACCESS_COMMAND
+{
+    MEMORY_INFO_ACCESS_TYPE command_type;
+    int pma_idx;
+    int start;
+    int len;
+    int last;
+};
 #define REQ_TYPE_ALLOC 0
 #define REQ_TYPE_FREE 1
 #define REQ_TYPE_FINISH 2

@@ -1,20 +1,62 @@
 #include "data_type.h"
+#include <ap_utils.h>
 #include "debug.h"
 #include <cstdio>
 #include <cstring>
 #include <hls_stream.h>
-#include <ap_int.h> 
+#include <ap_int.h>
+
+struct MemChannelSet {
+    hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req;
+    hls::stream<VEC_INFO_STREAM> &vec;
+    hls::stream<ap_axiu<512,0,0,0>> &data;
+};
+
+static inline MemChannelSet select_channel(
+    int pma_idx,
+    hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_ch1,
+    hls::stream<VEC_INFO_STREAM> &vec_ch1,
+    hls::stream<ap_axiu<512,0,0,0>> &data_ch1,
+    hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_ch2,
+    hls::stream<VEC_INFO_STREAM> &vec_ch2,
+    hls::stream<ap_axiu<512,0,0,0>> &data_ch2)
+{
+    if (pma_idx & 1)
+    {
+        return {req_ch1, vec_ch1, data_ch1};
+    }
+    return {req_ch2, vec_ch2, data_ch2};
+}
+
+static VEC_INFO fetch_vec_info(
+    hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_stream,
+    hls::stream<VEC_INFO_STREAM> &vec_stream,
+    ap_uint<1> direction,
+    int pma_idx)
+{
+    MEMORY_INFO_ACCESS_COMMAND cmd = {};
+    cmd.command_type = (direction == OUT_DIRECTION) ? POS_VEC_INFO_READ : NEG_VEC_INFO_READ;
+    cmd.pma_idx = pma_idx;
+    cmd.start = 0;
+    cmd.len = 0;
+    cmd.last = 0;
+    req_stream.write(cmd);
+    #pragma HLS protocol fixed
+    ap_wait();
+    VEC_INFO_STREAM vec_pkt = vec_stream.read();
+    return vec_pkt.data;
+}
 
 int read_edge(
     int src,
     PMA_HEADER &pma_header,
     int header_start,
-    ap_uint<512>* hbm_ptr,
     hls::stream<ap_axiu<32,0,0,0>> &nei_stream,
     hls::stream<ap_axiu<64,0,0,0>> &coo_stream,
     hls::stream<ap_axiu<32,0,0,0>> &csr_col_stream,
-    int mode
-)
+    hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access,
+    hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access,
+    int mode)
 {
     int local_src = src % VERTEX_PER_PMA;
     int start_seg_offset = local_src == 0 ? 0 : pma_header.vertex_range[local_src - 1];
@@ -59,13 +101,24 @@ int read_edge(
     int word_count = aligned_len >> 6;
     ap_uint<512> segment_buffer[4];
     int csr_count = 0;
+    MEMORY_INFO_ACCESS_COMMAND req_cmd = {};
+    req_cmd.command_type = MEMORY_READ;
+    req_cmd.start = edge_start;
+    req_cmd.len = aligned_len;
+    req_cmd.last = 0;
+    req_to_mem_access.write(req_cmd);
+    #pragma HLS protocol fixed
+    ap_wait();
     for (int seg = 0 ; seg < src_seg ; seg++)
     {
         #pragma HLS PIPELINE II=1
         for (int i = 0 ; i < 4 ; i++)
         {
-            #pragma HLS UNROLL
-            segment_buffer[i] = hbm_ptr[first_word + seg * 4 + i];
+            #pragma HLS PIPELINE II=1
+            auto pkt = data_from_mem_access.read();
+            #pragma HLS PROTOCOL fixed
+            ap_wait();
+            segment_buffer[i] = pkt.data;
         }
         for (int i = 0 ; i < SEGMENT_SIZE; i++)
         {
@@ -139,53 +192,59 @@ int read_edge(
 
 void read_header(
     int start_addr,
-    ap_uint<512>* hbm_ptr,
-    PMA_HEADER &pma_header
-)
+    hls::stream<MEMORY_INFO_ACCESS_COMMAND> &memory_access_stream,
+    hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access,
+    PMA_HEADER &pma_header)
 {
-    const int header_word_offset = start_addr >> 6;
+    MEMORY_INFO_ACCESS_COMMAND header_cmd = {};
+    header_cmd.command_type = MEMORY_READ;
+    header_cmd.start = start_addr;
+    header_cmd.len = sizeof(PMA_HEADER);
+    header_cmd.last = 0;
+    memory_access_stream.write(header_cmd);
     const int header_word_count = sizeof(PMA_HEADER) >> 6;
     ap_uint<512>* header_ptr = reinterpret_cast<ap_uint<512>*>(&pma_header);
     for (int i = 0; i < header_word_count; ++i)
     {
         #pragma HLS PIPELINE II=1
-        header_ptr[i] = hbm_ptr[header_word_offset + i];
+        auto pkt = data_from_mem_access.read();
+        #pragma HLS protocol fixed
+        ap_wait();
+        header_ptr[i] = pkt.data;
     }
 }
 extern "C"
 {
     void pma_read_kernel(
-        VEC_INFO* pos_pma_addrs,
-        VEC_INFO* neg_pma_addrs,
-        ap_uint<512>* hbm_ptr,
         hls::stream<READ_COMMAND_STREAM> &cmd_stream,
         hls::stream<ap_axiu<32,0,0,0>> &data_to_nei_query,
         hls::stream<ap_axiu<64,0,0,0>> &data_to_coo_stream,
         hls::stream<ap_axiu<32,0,0,0>> &data_to_csr_col_stream,
         hls::stream<ap_axiu<32,0,0,0>> &data_to_csr_row_ptr_stream,
-        hls::stream<ap_axiu<64,0,0,0>> &data_to_attr_query
-        //memory
-        // hls::stream<VEC_INFO_STREAM> &vec_info_stream,
-        // hls::stream<COMMAND_STREAM> &cmd_to_mem_stream,
-        // hls::stream<BYTE_STREAM> &data_from_mem_stream,
-        // hls::stream<VEC_INFO_STREAM> &vec_info_from_mem,
-        // hls::stream<BYTE_STREAM> &data_to_mem_stream
-        // hls::stream<COMMAND_STREAM> &stop_signal
+        hls::stream<ap_axiu<64,0,0,0>> &data_to_attr_query,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch1,
+        hls::stream<VEC_INFO_STREAM> &vec_info_back_stream_ch1,
+        hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch1,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch2,
+        hls::stream<VEC_INFO_STREAM> &vec_info_back_stream_ch2,
+        hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch2
     )
     {
-        #pragma HLS INTERFACE m_axi port=pos_pma_addrs offset=slave bundle=gmem0
-        #pragma HLS INTERFACE m_axi port=neg_pma_addrs offset=slave bundle=gmem1
         #pragma HLS INTERFACE axis port=cmd_stream
         #pragma HLS INTERFACE axis port=data_to_nei_query
         #pragma HLS INTERFACE axis port=data_to_coo_stream
         #pragma HLS INTERFACE axis port=data_to_csr_col_stream
         #pragma HLS INTERFACE axis port=data_to_csr_row_ptr_stream
         #pragma HLS INTERFACE axis port=data_to_attr_query
-        #pragma HLS INTERFACE m_axi port=hbm_ptr offset=slave bundle=gmem2 depth=256 max_widen_bitwidth=512
+        #pragma HLS INTERFACE axis port=req_to_mem_access_ch1
+        #pragma HLS INTERFACE axis port=vec_info_back_stream_ch1
+        #pragma HLS INTERFACE axis port=data_from_mem_access_ch1
+        #pragma HLS INTERFACE axis port=req_to_mem_access_ch2
+        #pragma HLS INTERFACE axis port=vec_info_back_stream_ch2
+        #pragma HLS INTERFACE axis port=data_from_mem_access_ch2
         while (true)
         {
             READ_COMMAND_STREAM cmd = cmd_stream.read();
-            // HERE
             if (cmd.data == PMA_STOP && cmd.last == 1) 
             {
                 break;
@@ -194,58 +253,69 @@ extern "C"
             {
                 case PMA_GET_OUT_EDGE:
                 {
-                    // HERE
                     int src = cmd.data.range(63,32);
                     int pma_idx = src / VERTEX_PER_PMA;
-                    VEC_INFO vec_info;
-                    vec_info = pos_pma_addrs[pma_idx];
+                    MemChannelSet channel = select_channel(
+                        pma_idx,
+                        req_to_mem_access_ch1,
+                        vec_info_back_stream_ch1,
+                        data_from_mem_access_ch1,
+                        req_to_mem_access_ch2,
+                        vec_info_back_stream_ch2,
+                        data_from_mem_access_ch2);
+                    VEC_INFO vec_info = fetch_vec_info(channel.req, channel.vec, OUT_DIRECTION, pma_idx);
                     int start_addr = vec_info.range(31,0);
-                    int pma_len = vec_info.range(63,32);
                     if (vec_info == 0) // empty PMA
                     {
                         data_to_nei_query.write({.data=-1});
                         break;
                     }
                     PMA_HEADER pma_header;
-                    HERE
-                    read_header(start_addr, hbm_ptr, pma_header);
+                    read_header(start_addr, channel.req, channel.data, pma_header);
                     read_edge(
                         src,
                         pma_header,
                         vec_info.range(31,0),
-                        hbm_ptr,
                         data_to_nei_query,
                         data_to_coo_stream,
                         data_to_csr_col_stream,
+                        channel.req,
+                        channel.data,
                         0
                     );
-                    HERE
                     break;
                 }
                 case PMA_GET_IN_EDGE:
                 {
                     int src = cmd.data.range(63,32);
                     int pma_idx = src / VERTEX_PER_PMA;
-                    VEC_INFO vec_info;
-                    vec_info = neg_pma_addrs[pma_idx];
+                    MemChannelSet channel = select_channel(
+                        pma_idx,
+                        req_to_mem_access_ch1,
+                        vec_info_back_stream_ch1,
+                        data_from_mem_access_ch1,
+                        req_to_mem_access_ch2,
+                        vec_info_back_stream_ch2,
+                        data_from_mem_access_ch2);
+                    VEC_INFO vec_info = fetch_vec_info(channel.req, channel.vec, IN_DIRECTION, pma_idx);
                     int start_addr = vec_info.range(31,0);
-                    int pma_len = vec_info.range(63,32);
                     if (vec_info == 0) // empty PMA
                     {
                         data_to_nei_query.write({.data=-1});
                         break;
                     }
                     PMA_HEADER pma_header;
-                    read_header(start_addr, hbm_ptr, pma_header);
+                    read_header(start_addr, channel.req, channel.data, pma_header);
                     
                     read_edge(
                         src,
                         pma_header,
                         vec_info.range(31,0),
-                        hbm_ptr,
                         data_to_nei_query,
                         data_to_coo_stream,
                         data_to_csr_col_stream,
+                        channel.req,
+                        channel.data,
                         0
                     );
                     break;
@@ -254,22 +324,23 @@ extern "C"
                 {
                     int vertex = cmd.data.range(63,32);
                     int pma_idx = vertex / VERTEX_PER_PMA;
-                    VEC_INFO vec_info;
-                    vec_info = pos_pma_addrs[pma_idx];
+                    MemChannelSet channel = select_channel(
+                        pma_idx,
+                        req_to_mem_access_ch1,
+                        vec_info_back_stream_ch1,
+                        data_from_mem_access_ch1,
+                        req_to_mem_access_ch2,
+                        vec_info_back_stream_ch2,
+                        data_from_mem_access_ch2);
+                    VEC_INFO vec_info = fetch_vec_info(channel.req, channel.vec, OUT_DIRECTION, pma_idx);
                     if (vec_info == 0) // empty PMA
                     {
                         data_to_attr_query.write({.data=-1});
+                        break;
                     }
                     PMA_HEADER pma_header;
                     int start_addr = vec_info.range(31,0);
-                    const int header_word_offset = start_addr >> 6;
-                    const int header_word_count = sizeof(PMA_HEADER) >> 6;
-                    ap_uint<512>* header_ptr = reinterpret_cast<ap_uint<512>*>(&pma_header);
-                    for (int i = 0; i < header_word_count; ++i)
-                    {
-                        #pragma HLS PIPELINE II=1
-                        header_ptr[i] = hbm_ptr[header_word_offset + i];
-                    }
+                    read_header(start_addr, channel.req, channel.data, pma_header);
                     double attr = pma_header.attr[vertex % VERTEX_PER_PMA];
                     data_to_attr_query.write({.data=attr});
                     break;
@@ -278,17 +349,27 @@ extern "C"
                 {
                     for (int pma_idx = 0; pma_idx < MAX_PMA_NUM; pma_idx++)
                     {
-                        VEC_INFO vec_info = pos_pma_addrs[pma_idx];
+                        MemChannelSet channel = select_channel(
+                            pma_idx,
+                            req_to_mem_access_ch1,
+                            vec_info_back_stream_ch1,
+                            data_from_mem_access_ch1,
+                            req_to_mem_access_ch2,
+                            vec_info_back_stream_ch2,
+                            data_from_mem_access_ch2);
+                        VEC_INFO vec_info = fetch_vec_info(channel.req, channel.vec, OUT_DIRECTION, pma_idx);
                         if (vec_info == 0) break;
                         PMA_HEADER pma_header;
-                        read_header(vec_info.range(31,0), hbm_ptr, pma_header);
+                        read_header(vec_info.range(31,0), channel.req, channel.data, pma_header);
                         for (int local_v = 0; local_v < VERTEX_PER_PMA; local_v++)
                         {
                             int src = pma_idx * VERTEX_PER_PMA + local_v;
-                            read_edge(src, pma_header, vec_info.range(31,0), hbm_ptr, data_to_nei_query,
-                        data_to_coo_stream,
-                        data_to_csr_col_stream,
-                        1);
+                            read_edge(src, pma_header, vec_info.range(31,0), data_to_nei_query,
+                                data_to_coo_stream,
+                                data_to_csr_col_stream,
+                                channel.req,
+                                channel.data,
+                                1);
                         }
                     }
                     data_to_coo_stream.write({.data=-1, .last=1});
@@ -298,17 +379,27 @@ extern "C"
                 {
                     for (int pma_idx = 0; pma_idx < MAX_PMA_NUM; pma_idx++)
                     {
-                        VEC_INFO vec_info = neg_pma_addrs[pma_idx];
+                        MemChannelSet channel = select_channel(
+                            pma_idx,
+                            req_to_mem_access_ch1,
+                            vec_info_back_stream_ch1,
+                            data_from_mem_access_ch1,
+                            req_to_mem_access_ch2,
+                            vec_info_back_stream_ch2,
+                            data_from_mem_access_ch2);
+                        VEC_INFO vec_info = fetch_vec_info(channel.req, channel.vec, IN_DIRECTION, pma_idx);
                         if (vec_info == 0) break;
                         PMA_HEADER pma_header;
-                        read_header(vec_info.range(31,0), hbm_ptr, pma_header);
+                        read_header(vec_info.range(31,0), channel.req, channel.data, pma_header);
                         for (int local_v = 0; local_v < VERTEX_PER_PMA; local_v++)
                         {
                             int src = pma_idx * VERTEX_PER_PMA + local_v;
-                            read_edge(src, pma_header, vec_info.range(31,0), hbm_ptr, data_to_nei_query,
-                        data_to_coo_stream,
-                        data_to_csr_col_stream,
-                        1);
+                            read_edge(src, pma_header, vec_info.range(31,0), data_to_nei_query,
+                                data_to_coo_stream,
+                                data_to_csr_col_stream,
+                                channel.req,
+                                channel.data,
+                                1);
                         }
                     }
                     data_to_coo_stream.write({.data=-1, .last=1});
@@ -319,10 +410,18 @@ extern "C"
                     ap_uint<32> csr_offset = 0;
                     for (int pma_idx = 0; pma_idx < MAX_PMA_NUM; pma_idx++)
                     {
-                        VEC_INFO vec_info = pos_pma_addrs[pma_idx];
+                        MemChannelSet channel = select_channel(
+                            pma_idx,
+                            req_to_mem_access_ch1,
+                            vec_info_back_stream_ch1,
+                            data_from_mem_access_ch1,
+                            req_to_mem_access_ch2,
+                            vec_info_back_stream_ch2,
+                            data_from_mem_access_ch2);
+                        VEC_INFO vec_info = fetch_vec_info(channel.req, channel.vec, OUT_DIRECTION, pma_idx);
                         if (vec_info == 0) break;
                         PMA_HEADER pma_header;
-                        read_header(vec_info.range(31,0), hbm_ptr, pma_header);
+                        read_header(vec_info.range(31,0), channel.req, channel.data, pma_header);
                         for (int local_v = 0; local_v < VERTEX_PER_PMA; local_v++)
                         {
                             int src = pma_idx * VERTEX_PER_PMA + local_v;
@@ -333,7 +432,7 @@ extern "C"
                             row_ptr_pkt.strb = (ap_uint<8>)0xFF;
                             row_ptr_pkt.last = 0;
                             data_to_csr_row_ptr_stream.write(row_ptr_pkt);
-                            int emitted = read_edge(src, pma_header, vec_info.range(31,0), hbm_ptr, data_to_nei_query, data_to_coo_stream, data_to_csr_col_stream, 2);
+                            int emitted = read_edge(src, pma_header, vec_info.range(31,0), data_to_nei_query, data_to_coo_stream, data_to_csr_col_stream, channel.req, channel.data, 2);
                             csr_offset += emitted;
                         }
                     }
@@ -352,10 +451,18 @@ extern "C"
                     ap_uint<32> csr_offset = 0;
                     for (int pma_idx = 0; pma_idx < MAX_PMA_NUM; pma_idx++)
                     {
-                        VEC_INFO vec_info = neg_pma_addrs[pma_idx];
+                        MemChannelSet channel = select_channel(
+                            pma_idx,
+                            req_to_mem_access_ch1,
+                            vec_info_back_stream_ch1,
+                            data_from_mem_access_ch1,
+                            req_to_mem_access_ch2,
+                            vec_info_back_stream_ch2,
+                            data_from_mem_access_ch2);
+                        VEC_INFO vec_info = fetch_vec_info(channel.req, channel.vec, IN_DIRECTION, pma_idx);
                         if (vec_info == 0) break;
                         PMA_HEADER pma_header;
-                        read_header(vec_info.range(31,0), hbm_ptr, pma_header);
+                        read_header(vec_info.range(31,0), channel.req, channel.data, pma_header);
                         for (int local_v = 0; local_v < VERTEX_PER_PMA; local_v++)
                         {
                             int src = pma_idx * VERTEX_PER_PMA + local_v;
@@ -366,7 +473,7 @@ extern "C"
                             row_ptr_pkt.strb = (ap_uint<8>)0xFF;
                             row_ptr_pkt.last = 0;
                             data_to_csr_row_ptr_stream.write(row_ptr_pkt);
-                            int emitted = read_edge(src, pma_header, vec_info.range(31,0), hbm_ptr, data_to_nei_query, data_to_coo_stream, data_to_csr_col_stream, 2);
+                            int emitted = read_edge(src, pma_header, vec_info.range(31,0), data_to_nei_query, data_to_coo_stream, data_to_csr_col_stream, channel.req, channel.data, 2);
                             csr_offset += emitted;
                         }
                     }

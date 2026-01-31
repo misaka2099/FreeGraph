@@ -91,7 +91,6 @@ extern "C"
         
         while (true)
         {
-            // 非阻塞获取 vec_info，拿到后再去阻塞读取 cmd，避免跨流死锁
             MEMORY_ALLOC_FREE_REQUEST pending_info;
             bool has_info = false;
 

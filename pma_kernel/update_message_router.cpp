@@ -121,10 +121,11 @@ void flush_and_add_inflight(
     }
     // 只有 buffer 有数据时才 flush
     if (count_arr[hash] > 0) {
-        if (hash % 2 == 0) {
-            flush_buffer_aux(hash, cmd_to_insert_edge_1, msg_buffer, count_arr);
-        } else {
-            flush_buffer_aux(hash, cmd_to_insert_edge_2, msg_buffer, count_arr);
+        int worker = hash % 2;
+        switch (worker)
+        {
+            case 0: flush_buffer_aux(hash, cmd_to_insert_edge_1, msg_buffer, count_arr); break;
+            case 1: flush_buffer_aux(hash, cmd_to_insert_edge_2, msg_buffer, count_arr); break;
         }
         add_inflight(in_flight_arr, in_flight_count, pma_idx);
     }
@@ -216,10 +217,11 @@ extern "C"
                         }
                         int src = msg.data.range(31,0);  
                         int pma_idx = src / VERTEX_PER_PMA;
-                        if (pma_idx % 2 == 0) {
-                            cmd_to_insert_vertex_1.write(msg);
-                        } else {
-                            cmd_to_insert_vertex_2.write(msg);
+                        int worker = pma_idx % 2;
+                        switch (worker)
+                        {
+                            case 0: cmd_to_insert_vertex_1.write(msg); break;
+                            case 1: cmd_to_insert_vertex_2.write(msg); break;
                         }
                     }
                     break;
@@ -231,14 +233,8 @@ extern "C"
                     while (!(ack1 && ack2))
                     {
                         COMMAND_STREAM tmp;
-                        if (ack_from_insert_vertex_1.read_nb(tmp))
-                        {
-                            ack1 = true;
-                        }
-                        if (ack_from_insert_vertex_2.read_nb(tmp))
-                        {
-                            ack2 = true;
-                        }
+                        if (ack_from_insert_vertex_1.read_nb(tmp)) { ack1 = true; }
+                        if (ack_from_insert_vertex_2.read_nb(tmp)) { ack2 = true; }
                     }
                     stage++;
                 }

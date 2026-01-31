@@ -14,7 +14,7 @@ INCLUDES := -I/home/sail/lyf/pma_demo/stream/include
 TARGET ?= sw_emu
 
 # List of kernels (file names without .cpp and matching extern "C" function names)
-KERNELS :=  alloc_free_kernel  app_mem_middle_ware
+KERNELS :=  alloc_free_kernel  merge_alloc_req mem_access_kernel
 
 XO_FILES := $(patsubst %,%.xo,$(KERNELS))
 
