@@ -41,18 +41,18 @@ extern "C"
         int end_pma_idx = (total_vertex_num_out + add_vertex_num + VERTEX_PER_PMA - 1) / VERTEX_PER_PMA;
 
 
-        for (int i = start_pma_idx ; i < end_pma_idx ; i++)
-        {
-            #pragma HLS PIPELINE II=1
-            PMA_UPDATE_MESSAGE msg;
-            msg.data.range(31,0) = i * VERTEX_PER_PMA;
-            msg.data.range(63,32) = 0;
-            msg.data.range(97,96) = PMA_INSERT_VERTEX;
-            msg.data.range(98,98) = IN_DIRECTION; //default in direction
-            msg.data[127] = 1;
-            msg.last = last;
-            cmd_to_router.write(msg);
-        }
+        // for (int i = start_pma_idx ; i < end_pma_idx ; i++)
+        // {
+        //     #pragma HLS PIPELINE II=1
+        //     PMA_UPDATE_MESSAGE msg;
+        //     msg.data.range(31,0) = i * VERTEX_PER_PMA;
+        //     msg.data.range(63,32) = 0;
+        //     msg.data.range(97,96) = PMA_INSERT_VERTEX;
+        //     msg.data.range(98,98) = IN_DIRECTION; //default in direction
+        //     msg.data[127] = 1;
+        //     msg.last = last;
+        //     cmd_to_router.write(msg);
+        // }
         // HERE
         for (int i = start_pma_idx ; i < end_pma_idx  ; i++)
         {
@@ -70,22 +70,22 @@ extern "C"
         HERE
             total_vertex_num_out += add_vertex_num;
         cmd_to_router.write({.data = -1, .last = last});
-        // clear_message_to_router.write({.data = 111});
-        for (int i = 0 ; i < add_edge_num ; i++)
-        {
-            #pragma HLS PIPELINE II=1
-            PMA_UPDATE_MESSAGE msg;
-            // printf("INSERTING EDGE FROM %d TO %d\n", src[i], dst[i]);
-            // msg.data.range(31,0) = src[i];
-            // msg.data.range(63,32) = dst[i];
-            msg.data.range(31,0) = dst[i];
-            msg.data.range(63,32) = src[i];
-            msg.data.range(97,96) = PMA_INSERT_EDGE;
-            msg.data.range(98,98) = IN_DIRECTION; //default in direction
-            msg.data[127] = 1;
-            msg.last = last;
-            cmd_to_router.write(msg);
-        }
+        // // clear_message_to_router.write({.data = 111});
+        // for (int i = 0 ; i < add_edge_num ; i++)
+        // {
+        //     #pragma HLS PIPELINE II=1
+        //     PMA_UPDATE_MESSAGE msg;
+        //     // printf("INSERTING EDGE FROM %d TO %d\n", src[i], dst[i]);
+        //     // msg.data.range(31,0) = src[i];
+        //     // msg.data.range(63,32) = dst[i];
+        //     msg.data.range(31,0) = dst[i];
+        //     msg.data.range(63,32) = src[i];
+        //     msg.data.range(97,96) = PMA_INSERT_EDGE;
+        //     msg.data.range(98,98) = IN_DIRECTION; //default in direction
+        //     msg.data[127] = 1;
+        //     msg.last = last;
+        //     cmd_to_router.write(msg);
+        // }
         HERE
         
         for (int i = 0 ; i < add_edge_num ; i++)

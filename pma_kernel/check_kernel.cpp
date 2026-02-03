@@ -8,7 +8,7 @@ extern "C"
     void check_kernel(
         int *src,
         int *dst,
-        double *vertex_attr,
+        // double *vertex_attr,
         int *coo_src,
         int *coo_dst,
         int *row_ptr,
@@ -16,12 +16,12 @@ extern "C"
         int *num_vertices,
         int *num_edges,
         int vertex_to_check,
-        int attr_vertex_to_check,
+        // int attr_vertex_to_check,
         int mode,  // 0: check, 1: COO, 2: CSR
         int last,
         hls::stream<READ_COMMAND_STREAM> &cmd_to_read,
         hls::stream<ap_axiu<32,0,0,0>> &data_to_check,
-        hls::stream<ap_axiu<64,0,0,0>> &attr_to_check,
+        // hls::stream<ap_axiu<64,0,0,0>> &attr_to_check,
         hls::stream<ap_axiu<64,0,0,0>> &data_to_coo_stream,
         hls::stream<ap_axiu<32,0,0,0>> &data_to_csr_row_ptr_stream,
         hls::stream<ap_axiu<32,0,0,0>> &data_to_csr_col_stream
@@ -29,7 +29,7 @@ extern "C"
     {
         #pragma HLS INTERFACE m_axi port=src offset=slave bundle=gmem0
         #pragma HLS INTERFACE m_axi port=dst offset=slave bundle=gmem1
-        #pragma HLS INTERFACE m_axi port=vertex_attr offset=slave bundle=gmem2
+        // #pragma HLS INTERFACE m_axi port=vertex_attr offset=slave bundle=gmem2
         #pragma HLS INTERFACE m_axi port=coo_src offset=slave bundle=gmem3
         #pragma HLS INTERFACE m_axi port=coo_dst offset=slave bundle=gmem4
         #pragma HLS INTERFACE m_axi port=row_ptr offset=slave bundle=gmem5
@@ -38,13 +38,13 @@ extern "C"
         #pragma HLS INTERFACE m_axi port=num_edges offset=slave bundle=gmem8
         #pragma HLS INTERFACE axis port=cmd_to_read depth=16
         #pragma HLS INTERFACE axis port=data_to_check depth=16
-        #pragma HLS INTERFACE axis port=attr_to_check depth=16
+        // #pragma HLS INTERFACE axis port=attr_to_check depth=16
         #pragma HLS INTERFACE axis port=data_to_coo_stream depth=16
         #pragma HLS INTERFACE axis port=data_to_csr_row_ptr_stream depth=1024
         #pragma HLS INTERFACE axis port=data_to_csr_col_stream depth=1024
         #pragma HLS INTERFACE s_axilite port=src 
         #pragma HLS INTERFACE s_axilite port=dst 
-        #pragma HLS INTERFACE s_axilite port=vertex_attr 
+        // #pragma HLS INTERFACE s_axilite port=vertex_attr 
         #pragma HLS INTERFACE s_axilite port=coo_src 
         #pragma HLS INTERFACE s_axilite port=coo_dst 
         #pragma HLS INTERFACE s_axilite port=row_ptr 
@@ -52,7 +52,6 @@ extern "C"
         #pragma HLS INTERFACE s_axilite port=num_vertices 
         #pragma HLS INTERFACE s_axilite port=num_edges 
         #pragma HLS INTERFACE s_axilite port=vertex_to_check 
-        #pragma HLS INTERFACE s_axilite port=attr_vertex_to_check 
         #pragma HLS INTERFACE s_axilite port=mode 
         #pragma HLS INTERFACE s_axilite port=return 
 
@@ -73,12 +72,14 @@ extern "C"
                     idx++;
                 }
             }
+            /*
             for (int i = 0 ; i < attr_vertex_to_check ; i++)
             { 
                 auto attr = attr_to_check.read();
                 double attr_value = attr.data;
                 vertex_attr[i] = attr_value;
             }
+            */
         } else if (mode == 1) {  // COO mode
             READ_COMMAND_STREAM cmd;
             cmd.data = PMA_GET_ALL_OUT_EDGE_COO;

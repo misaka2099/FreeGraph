@@ -109,10 +109,13 @@ void process_req(
     hls::stream<VEC_INFO> &vec_info_from_merger,
     hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_vertex,
     hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_edge,
+    hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_read,
     hls::stream<ap_axiu<512, 0, 0, 0>> &data_from_vertex,
     hls::stream<ap_axiu<512,0,0, 0>> &data_from_edge,
     hls::stream<ap_axiu<512,0,0, 0>> &data_to_edge,
+    hls::stream<ap_axiu<512,0,0, 0>> &data_to_read,
     hls::stream<VEC_INFO_STREAM>& vec_info_to_edge,
+    hls::stream<VEC_INFO_STREAM>& vec_info_to_read,
     hls::stream<COMMAND> &stop_signal
 )
 {
@@ -128,15 +131,16 @@ void process_req(
                 stop_requested = true;
             }
         }
-        bool no_inflight_reqs = req_from_vertex.empty() && req_from_edge.empty();
+        bool no_inflight_reqs = req_from_vertex.empty() && req_from_edge.empty() && req_from_read.empty();
         if (stop_requested && no_inflight_reqs)
         {
             break;
         }
         MEMORY_INFO_ACCESS_COMMAND cmd;
-        int turn = 0;
-        if (req_from_vertex.read_nb(cmd))  turn = 0;
-        else if (req_from_edge.read_nb(cmd)) turn = 1;
+        int turn = -1;
+        if (req_from_vertex.read_nb(cmd))      turn = 0;
+        else if (req_from_edge.read_nb(cmd))   turn = 1;
+        else if (req_from_read.read_nb(cmd))   turn = 2;
         else continue;
         switch (cmd.command_type) 
         {
@@ -151,6 +155,8 @@ void process_req(
                     ap_axiu<512, 0, 0, 0> pkt;
                     if (turn == 0)
                         pkt = data_from_vertex.read();
+                    else if (turn == 1)
+                        pkt = data_from_edge.read();
                     else
                         pkt = data_from_edge.read();
                     hbm_ptr[(start / 64) + i] = pkt.data;
@@ -168,12 +174,10 @@ void process_req(
                     ap_axiu<512,0,0,0> out_pkt;
                     out_pkt.data = pkt;
                     out_pkt.last = (i == (len / 64 - 1)) ? 1 : 0;
-                    if (turn == 0)
-                    {
-                        // data_to_vertex.write(out_pkt);
-                    }
-                    else
+                    if (turn == 1)
                         data_to_edge.write(out_pkt);
+                    else if (turn == 2)
+                        data_to_read.write(out_pkt);
                 }
                 break;
             }
@@ -218,6 +222,8 @@ void process_req(
                 VEC_INFO vec_info_pkt = vec_info_from_merger.read();
                 if (turn == 1)
                     vec_info_to_edge.write({.data = vec_info_pkt});
+                else if (turn == 2)
+                    vec_info_to_read.write({.data = vec_info_pkt});
                 break;
             }
             case NEG_VEC_INFO_READ:
@@ -233,6 +239,8 @@ void process_req(
                 VEC_INFO vec_info_pkt = vec_info_from_merger.read();
                 if (turn == 1)
                     vec_info_to_edge.write({.data = vec_info_pkt});
+                else if (turn == 2)
+                    vec_info_to_read.write({.data = vec_info_pkt});
                 break;
             }
             default:
@@ -298,8 +306,14 @@ extern "C"
         
         hls::stream<ap_axiu<512, 0, 0, 0>> &data_to_edge_1,
         hls::stream<ap_axiu<512, 0, 0, 0>> &data_to_edge_2,
+        hls::stream<ap_axiu<512, 0, 0, 0>> &data_to_read_1,
+        hls::stream<ap_axiu<512, 0, 0, 0>> &data_to_read_2,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_read_1,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_read_2,
         hls::stream<VEC_INFO_STREAM>& vec_info_to_edge_1,
         hls::stream<VEC_INFO_STREAM>& vec_info_to_edge_2,
+        hls::stream<VEC_INFO_STREAM>& vec_info_to_read_1,
+        hls::stream<VEC_INFO_STREAM>& vec_info_to_read_2,
         hls::stream<COMMAND_STREAM>& signal_stream
     )
     {
@@ -318,6 +332,8 @@ extern "C"
         #pragma HLS INTERFACE axis port=req_from_vertex_2
         #pragma HLS INTERFACE axis port=req_from_edge_1
         #pragma HLS INTERFACE axis port=req_from_edge_2
+        #pragma HLS INTERFACE axis port=req_from_read_1
+        #pragma HLS INTERFACE axis port=req_from_read_2
         
         #pragma HLS INTERFACE axis port=data_from_vertex_1
         #pragma HLS INTERFACE axis port=data_from_vertex_2
@@ -327,8 +343,12 @@ extern "C"
         
         #pragma HLS INTERFACE axis port=data_to_edge_1
         #pragma HLS INTERFACE axis port=data_to_edge_2
+        #pragma HLS INTERFACE axis port=data_to_read_1
+        #pragma HLS INTERFACE axis port=data_to_read_2
         #pragma HLS INTERFACE axis port=vec_info_to_edge_1
         #pragma HLS INTERFACE axis port=vec_info_to_edge_2
+        #pragma HLS INTERFACE axis port=vec_info_to_read_1
+        #pragma HLS INTERFACE axis port=vec_info_to_read_2
         #pragma HLS INTERFACE axis port=signal_stream
         #pragma HLS DATAFLOW 
         hls::stream<vec_info_access_command> vec_info_to_merger_1;
@@ -350,10 +370,13 @@ extern "C"
             vec_info_from_merger_1,
             req_from_vertex_1,
             req_from_edge_1,
+            req_from_read_1,
             data_from_vertex_1,
             data_from_edge_1,
             data_to_edge_1,
+            data_to_read_1,
             vec_info_to_edge_1,
+            vec_info_to_read_1,
             signal_to_worker[0]
         );
 
@@ -363,10 +386,13 @@ extern "C"
             vec_info_from_merger_2,
             req_from_vertex_2,
             req_from_edge_2,
+            req_from_read_2,
             data_from_vertex_2,
             data_from_edge_2,
             data_to_edge_2,
+            data_to_read_2,
             vec_info_to_edge_2,
+            vec_info_to_read_2,
             signal_to_worker[1]
         );
 

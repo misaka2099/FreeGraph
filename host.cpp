@@ -229,14 +229,13 @@ int main(int argc, char** argv)
     auto bo_check_dst = xrt::bo(device, sizeof(int) * buffer_len, check_kernel.group_id(1));
     auto check_src = bo_check_src.map<int*>();
     auto check_dst = bo_check_dst.map<int*>();
-    auto bo_vertex_attr = xrt::bo(device, sizeof(double) *  (max_vertex + 10), check_kernel.group_id(2));
 
-    auto bo_coo_src = xrt::bo(device, sizeof(int) * buffer_len, check_kernel.group_id(3));
-    auto bo_coo_dst = xrt::bo(device, sizeof(int) * buffer_len, check_kernel.group_id(4));
-    auto bo_row_ptr = xrt::bo(device, sizeof(int) * (max_vertex + 10), check_kernel.group_id(5));
-    auto bo_col_idx = xrt::bo(device, sizeof(int) * buffer_len, check_kernel.group_id(6));
-    auto bo_num_vertices = xrt::bo(device, sizeof(int), check_kernel.group_id(7));
-    auto bo_num_edges = xrt::bo(device, sizeof(int), check_kernel.group_id(8));
+    auto bo_coo_src = xrt::bo(device, sizeof(int) * buffer_len, check_kernel.group_id(2));
+    auto bo_coo_dst = xrt::bo(device, sizeof(int) * buffer_len, check_kernel.group_id(3));
+    auto bo_row_ptr = xrt::bo(device, sizeof(int) * (max_vertex + 10), check_kernel.group_id(4));
+    auto bo_col_idx = xrt::bo(device, sizeof(int) * buffer_len, check_kernel.group_id(5));
+    auto bo_num_vertices = xrt::bo(device, sizeof(int), check_kernel.group_id(6));
+    auto bo_num_edges = xrt::bo(device, sizeof(int), check_kernel.group_id(7));
 
     auto bo_bitmap_1 = xrt::bo(device, sizeof(BYTE) * ((size_t)CHANNEL_CAPACITY * CHANNEL_NUM / INIT_VEC_LEN_IN_BYTE / 8), alloc_free_kernel_1.group_id(2));
     auto bitmap_ptr_1 = bo_bitmap_1.map<BYTE*>();
@@ -254,11 +253,6 @@ int main(int argc, char** argv)
 
     // run_allocate_kernel.set_arg(0, bo_valid_array);
     // run_free_kernel.set_arg(0, bo_valid_array);
-    run_pma_read_kernel.set_arg(0, bo_pos_vec_info);
-    run_pma_read_kernel.set_arg(1, bo_neg_vec_info);
-    run_pma_read_kernel.set_arg(2, bo_hbm_base_addr_1);
-    run_pma_read_kernel.set_arg(3, bo_hbm_base_addr_2);
-    
     // Mem Access Kernel Args
     run_mem_access_kernel_1.set_arg(0, bo_hbm_base_addr_1);
     run_mem_access_kernel_1.set_arg(1, bo_hbm_base_addr_2);
@@ -305,17 +299,15 @@ int main(int argc, char** argv)
         
         run_check_kernel.set_arg(0, bo_check_src);
         run_check_kernel.set_arg(1, bo_check_dst);
-        run_check_kernel.set_arg(2, bo_vertex_attr);
-        run_check_kernel.set_arg(3, bo_coo_src);
-        run_check_kernel.set_arg(4, bo_coo_dst);
-        run_check_kernel.set_arg(5, bo_row_ptr);
-        run_check_kernel.set_arg(6, bo_col_idx);
-        run_check_kernel.set_arg(7, bo_num_vertices);
-        run_check_kernel.set_arg(8, bo_num_edges);
-        run_check_kernel.set_arg(9, current_max_vertex + 1);
-        run_check_kernel.set_arg(10, 0);
-        run_check_kernel.set_arg(11, 0);
-        run_check_kernel.set_arg(12, 1);
+        run_check_kernel.set_arg(2, bo_coo_src);
+        run_check_kernel.set_arg(3, bo_coo_dst);
+        run_check_kernel.set_arg(4, bo_row_ptr);
+        run_check_kernel.set_arg(5, bo_col_idx);
+        run_check_kernel.set_arg(6, bo_num_vertices);
+        run_check_kernel.set_arg(7, bo_num_edges);
+        run_check_kernel.set_arg(8, current_max_vertex + 1);
+        run_check_kernel.set_arg(9, 0);
+        run_check_kernel.set_arg(10, 1);
         
         run_pma_read_kernel.start();
         run_check_kernel.start();
