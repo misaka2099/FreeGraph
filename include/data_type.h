@@ -6,7 +6,7 @@
 #include "ap_axi_sdata.h"
 // typedef  ap_uint<8> BYTE_STREAM;
 #define CHANNEL_CAPACITY (64*1024*1024)
-#define CHANNEL_NUM 2
+#define CHANNEL_NUM 8
 typedef ap_axiu<8,0,0,0> BYTE_STREAM ;
 typedef ap_axiu<32,3,0,0> COMMAND_STREAM;
 typedef ap_uint<32> COMMAND;

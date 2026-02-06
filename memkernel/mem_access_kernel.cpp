@@ -6,7 +6,8 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
-const int WORKER_NUM = (2+1);
+const int MEM_CHANNELS = 8;
+const int WORKER_NUM = (MEM_CHANNELS + 1);
 enum vec_info_access_type
 {
     READ,
@@ -22,10 +23,8 @@ struct vec_info_access_command
 void vec_info_merger(
     VEC_INFO* pos_pma_addrs,
     VEC_INFO* neg_pma_addrs,
-    hls::stream<vec_info_access_command> &vec_info_to_merger_1,
-    hls::stream<VEC_INFO> &vec_info_from_merger_1,
-    hls::stream<vec_info_access_command> &vec_info_to_merger_2,
-    hls::stream<VEC_INFO> &vec_info_from_merger_2,
+    hls::stream<vec_info_access_command> vec_info_to_merger[MEM_CHANNELS],
+    hls::stream<VEC_INFO> vec_info_from_merger[MEM_CHANNELS],
     hls::stream<COMMAND> &stop_signal
 )
 {
@@ -41,65 +40,56 @@ void vec_info_merger(
                 stop_requested = true;
             }
         }
-        bool pending_work = !(vec_info_to_merger_1.empty() && vec_info_to_merger_2.empty());
+        bool pending_work = false;
+        for (int i = 0; i < MEM_CHANNELS; ++i)
+        {
+            if (!vec_info_to_merger[i].empty())
+            {
+                pending_work = true;
+                break;
+            }
+        }
         if (stop_requested && !pending_work)
         {
             break;
         }
         vec_info_access_command cmd;
-        if (vec_info_to_merger_1.read_nb(cmd))
+        bool handled = false;
+        for (int i = 0; i < MEM_CHANNELS; ++i)
         {
-            if (cmd.command_type == WRITE)
+            if (vec_info_to_merger[i].read_nb(cmd))
             {
-                if (cmd.direction == OUT_DIRECTION)
+                handled = true;
+                if (cmd.command_type == WRITE)
                 {
-                    pos_pma_addrs[cmd.pma_idx] = cmd.vec_info;
+                    if (cmd.direction == OUT_DIRECTION)
+                    {
+                        pos_pma_addrs[cmd.pma_idx] = cmd.vec_info;
+                    }
+                    else
+                    {
+                        neg_pma_addrs[cmd.pma_idx] = cmd.vec_info;
+                    }
                 }
                 else
                 {
-                    neg_pma_addrs[cmd.pma_idx] = cmd.vec_info;
+                    VEC_INFO vec_info;
+                    if (cmd.direction == OUT_DIRECTION)
+                    {
+                        vec_info = pos_pma_addrs[cmd.pma_idx];
+                    }
+                    else
+                    {
+                        vec_info = neg_pma_addrs[cmd.pma_idx];
+                    }
+                    vec_info_from_merger[i].write(vec_info);
                 }
-            }
-            else // READ
-            {
-                VEC_INFO vec_info;
-                if (cmd.direction == OUT_DIRECTION)
-                {
-                    vec_info = pos_pma_addrs[cmd.pma_idx];
-                }
-                else
-                {
-                    vec_info = neg_pma_addrs[cmd.pma_idx];
-                }
-                vec_info_from_merger_1.write(vec_info);
+                break;
             }
         }
-        else if (vec_info_to_merger_2.read_nb(cmd))
+        if (!handled)
         {
-            if (cmd.command_type == WRITE)
-            {
-                if (cmd.direction == OUT_DIRECTION)
-                {
-                    pos_pma_addrs[cmd.pma_idx] = cmd.vec_info;
-                }
-                else
-                {
-                    neg_pma_addrs[cmd.pma_idx] = cmd.vec_info;
-                }
-            }
-            else // READ
-            {
-                VEC_INFO vec_info;
-                if (cmd.direction == OUT_DIRECTION)
-                {
-                    vec_info = pos_pma_addrs[cmd.pma_idx];
-                }
-                else
-                {
-                    vec_info = neg_pma_addrs[cmd.pma_idx];
-                }
-                vec_info_from_merger_2.write(vec_info);
-            }
+            continue;
         }
     }
 }
@@ -272,138 +262,264 @@ void exit_handle(
 extern "C"
 {
     void mem_access_kernel(
-        ap_uint<512>* hbm_ptr_1, 
+        ap_uint<512>* hbm_ptr_1,
         ap_uint<512>* hbm_ptr_2,
-        // ap_uint<512>* hbm_ptr_3,
-        // ap_uint<512>* hbm_ptr_4,
-        // ap_uint<512>* hbm_ptr_5,
-        // ap_uint<512>* hbm_ptr_6,
-        // ap_uint<512>* hbm_ptr_7,
-        // ap_uint<512>* hbm_ptr_8,
+        ap_uint<512>* hbm_ptr_3,
+        ap_uint<512>* hbm_ptr_4,
+        ap_uint<512>* hbm_ptr_5,
+        ap_uint<512>* hbm_ptr_6,
+        ap_uint<512>* hbm_ptr_7,
+        ap_uint<512>* hbm_ptr_8,
         VEC_INFO* pos_pma_addrs,
         VEC_INFO* neg_pma_addrs,
         hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_vertex_1,
         hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_vertex_2,
-        // hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_vertex_3,
-        // hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_vertex_4,
-        // hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_vertex_5,
-        // hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_vertex_6,
-        // hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_vertex_7,
-        // hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_vertex_8,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_vertex_3,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_vertex_4,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_vertex_5,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_vertex_6,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_vertex_7,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_vertex_8,
         hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_edge_1,
-        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_edge_2,   
-        // hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_edge_3,
-        // hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_edge_4,
-        // hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_edge_5,
-        // hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_edge_6,
-        // hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_edge_7,
-        // hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_edge_8,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_edge_2,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_edge_3,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_edge_4,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_edge_5,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_edge_6,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_edge_7,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_edge_8,
         hls::stream<ap_axiu<512, 0, 0, 0>> &data_from_vertex_1,
         hls::stream<ap_axiu<512, 0, 0, 0>> &data_from_vertex_2,
-
+        hls::stream<ap_axiu<512, 0, 0, 0>> &data_from_vertex_3,
+        hls::stream<ap_axiu<512, 0, 0, 0>> &data_from_vertex_4,
+        hls::stream<ap_axiu<512, 0, 0, 0>> &data_from_vertex_5,
+        hls::stream<ap_axiu<512, 0, 0, 0>> &data_from_vertex_6,
+        hls::stream<ap_axiu<512, 0, 0, 0>> &data_from_vertex_7,
+        hls::stream<ap_axiu<512, 0, 0, 0>> &data_from_vertex_8,
         hls::stream<ap_axiu<512, 0, 0, 0>> &data_from_edge_1,
         hls::stream<ap_axiu<512, 0, 0, 0>> &data_from_edge_2,
-        
+        hls::stream<ap_axiu<512, 0, 0, 0>> &data_from_edge_3,
+        hls::stream<ap_axiu<512, 0, 0, 0>> &data_from_edge_4,
+        hls::stream<ap_axiu<512, 0, 0, 0>> &data_from_edge_5,
+        hls::stream<ap_axiu<512, 0, 0, 0>> &data_from_edge_6,
+        hls::stream<ap_axiu<512, 0, 0, 0>> &data_from_edge_7,
+        hls::stream<ap_axiu<512, 0, 0, 0>> &data_from_edge_8,
         hls::stream<ap_axiu<512, 0, 0, 0>> &data_to_edge_1,
         hls::stream<ap_axiu<512, 0, 0, 0>> &data_to_edge_2,
+        hls::stream<ap_axiu<512, 0, 0, 0>> &data_to_edge_3,
+        hls::stream<ap_axiu<512, 0, 0, 0>> &data_to_edge_4,
+        hls::stream<ap_axiu<512, 0, 0, 0>> &data_to_edge_5,
+        hls::stream<ap_axiu<512, 0, 0, 0>> &data_to_edge_6,
+        hls::stream<ap_axiu<512, 0, 0, 0>> &data_to_edge_7,
+        hls::stream<ap_axiu<512, 0, 0, 0>> &data_to_edge_8,
         hls::stream<ap_axiu<512, 0, 0, 0>> &data_to_read_1,
         hls::stream<ap_axiu<512, 0, 0, 0>> &data_to_read_2,
+        hls::stream<ap_axiu<512, 0, 0, 0>> &data_to_read_3,
+        hls::stream<ap_axiu<512, 0, 0, 0>> &data_to_read_4,
+        hls::stream<ap_axiu<512, 0, 0, 0>> &data_to_read_5,
+        hls::stream<ap_axiu<512, 0, 0, 0>> &data_to_read_6,
+        hls::stream<ap_axiu<512, 0, 0, 0>> &data_to_read_7,
+        hls::stream<ap_axiu<512, 0, 0, 0>> &data_to_read_8,
         hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_read_1,
         hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_read_2,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_read_3,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_read_4,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_read_5,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_read_6,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_read_7,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_read_8,
         hls::stream<VEC_INFO_STREAM>& vec_info_to_edge_1,
         hls::stream<VEC_INFO_STREAM>& vec_info_to_edge_2,
+        hls::stream<VEC_INFO_STREAM>& vec_info_to_edge_3,
+        hls::stream<VEC_INFO_STREAM>& vec_info_to_edge_4,
+        hls::stream<VEC_INFO_STREAM>& vec_info_to_edge_5,
+        hls::stream<VEC_INFO_STREAM>& vec_info_to_edge_6,
+        hls::stream<VEC_INFO_STREAM>& vec_info_to_edge_7,
+        hls::stream<VEC_INFO_STREAM>& vec_info_to_edge_8,
         hls::stream<VEC_INFO_STREAM>& vec_info_to_read_1,
         hls::stream<VEC_INFO_STREAM>& vec_info_to_read_2,
+        hls::stream<VEC_INFO_STREAM>& vec_info_to_read_3,
+        hls::stream<VEC_INFO_STREAM>& vec_info_to_read_4,
+        hls::stream<VEC_INFO_STREAM>& vec_info_to_read_5,
+        hls::stream<VEC_INFO_STREAM>& vec_info_to_read_6,
+        hls::stream<VEC_INFO_STREAM>& vec_info_to_read_7,
+        hls::stream<VEC_INFO_STREAM>& vec_info_to_read_8,
         hls::stream<COMMAND_STREAM>& signal_stream
     )
     {
         #pragma HLS INTERFACE m_axi port=hbm_ptr_1 offset=slave bundle=gmem1
         #pragma HLS INTERFACE m_axi port=hbm_ptr_2 offset=slave bundle=gmem2
-        #pragma HLS INTERFACE m_axi port=pos_pma_addrs offset=slave bundle=gmem3
-        #pragma HLS INTERFACE m_axi port=neg_pma_addrs offset=slave bundle=gmem3
+        #pragma HLS INTERFACE m_axi port=hbm_ptr_3 offset=slave bundle=gmem3
+        #pragma HLS INTERFACE m_axi port=hbm_ptr_4 offset=slave bundle=gmem4
+        #pragma HLS INTERFACE m_axi port=hbm_ptr_5 offset=slave bundle=gmem5
+        #pragma HLS INTERFACE m_axi port=hbm_ptr_6 offset=slave bundle=gmem6
+        #pragma HLS INTERFACE m_axi port=hbm_ptr_7 offset=slave bundle=gmem7
+        #pragma HLS INTERFACE m_axi port=hbm_ptr_8 offset=slave bundle=gmem8
+        #pragma HLS INTERFACE m_axi port=pos_pma_addrs offset=slave bundle=gmem17
+        #pragma HLS INTERFACE m_axi port=neg_pma_addrs offset=slave bundle=gmem17
         
         #pragma HLS INTERFACE s_axilite port=hbm_ptr_1 bundle=control
         #pragma HLS INTERFACE s_axilite port=hbm_ptr_2 bundle=control
+        #pragma HLS INTERFACE s_axilite port=hbm_ptr_3 bundle=control
+        #pragma HLS INTERFACE s_axilite port=hbm_ptr_4 bundle=control
+        #pragma HLS INTERFACE s_axilite port=hbm_ptr_5 bundle=control
+        #pragma HLS INTERFACE s_axilite port=hbm_ptr_6 bundle=control
+        #pragma HLS INTERFACE s_axilite port=hbm_ptr_7 bundle=control
+        #pragma HLS INTERFACE s_axilite port=hbm_ptr_8 bundle=control
         #pragma HLS INTERFACE s_axilite port=pos_pma_addrs bundle=control
         #pragma HLS INTERFACE s_axilite port=neg_pma_addrs bundle=control
         #pragma HLS INTERFACE s_axilite port=return bundle=control
 
         #pragma HLS INTERFACE axis port=req_from_vertex_1
         #pragma HLS INTERFACE axis port=req_from_vertex_2
+        #pragma HLS INTERFACE axis port=req_from_vertex_3
+        #pragma HLS INTERFACE axis port=req_from_vertex_4
+        #pragma HLS INTERFACE axis port=req_from_vertex_5
+        #pragma HLS INTERFACE axis port=req_from_vertex_6
+        #pragma HLS INTERFACE axis port=req_from_vertex_7
+        #pragma HLS INTERFACE axis port=req_from_vertex_8
         #pragma HLS INTERFACE axis port=req_from_edge_1
         #pragma HLS INTERFACE axis port=req_from_edge_2
+        #pragma HLS INTERFACE axis port=req_from_edge_3
+        #pragma HLS INTERFACE axis port=req_from_edge_4
+        #pragma HLS INTERFACE axis port=req_from_edge_5
+        #pragma HLS INTERFACE axis port=req_from_edge_6
+        #pragma HLS INTERFACE axis port=req_from_edge_7
+        #pragma HLS INTERFACE axis port=req_from_edge_8
         #pragma HLS INTERFACE axis port=req_from_read_1
         #pragma HLS INTERFACE axis port=req_from_read_2
-        
+        #pragma HLS INTERFACE axis port=req_from_read_3
+        #pragma HLS INTERFACE axis port=req_from_read_4
+        #pragma HLS INTERFACE axis port=req_from_read_5
+        #pragma HLS INTERFACE axis port=req_from_read_6
+        #pragma HLS INTERFACE axis port=req_from_read_7
+        #pragma HLS INTERFACE axis port=req_from_read_8
         #pragma HLS INTERFACE axis port=data_from_vertex_1
         #pragma HLS INTERFACE axis port=data_from_vertex_2
-        
+        #pragma HLS INTERFACE axis port=data_from_vertex_3
+        #pragma HLS INTERFACE axis port=data_from_vertex_4
+        #pragma HLS INTERFACE axis port=data_from_vertex_5
+        #pragma HLS INTERFACE axis port=data_from_vertex_6
+        #pragma HLS INTERFACE axis port=data_from_vertex_7
+        #pragma HLS INTERFACE axis port=data_from_vertex_8
         #pragma HLS INTERFACE axis port=data_from_edge_1
         #pragma HLS INTERFACE axis port=data_from_edge_2
-        
+        #pragma HLS INTERFACE axis port=data_from_edge_3
+        #pragma HLS INTERFACE axis port=data_from_edge_4
+        #pragma HLS INTERFACE axis port=data_from_edge_5
+        #pragma HLS INTERFACE axis port=data_from_edge_6
+        #pragma HLS INTERFACE axis port=data_from_edge_7
+        #pragma HLS INTERFACE axis port=data_from_edge_8
         #pragma HLS INTERFACE axis port=data_to_edge_1
         #pragma HLS INTERFACE axis port=data_to_edge_2
+        #pragma HLS INTERFACE axis port=data_to_edge_3
+        #pragma HLS INTERFACE axis port=data_to_edge_4
+        #pragma HLS INTERFACE axis port=data_to_edge_5
+        #pragma HLS INTERFACE axis port=data_to_edge_6
+        #pragma HLS INTERFACE axis port=data_to_edge_7
+        #pragma HLS INTERFACE axis port=data_to_edge_8
         #pragma HLS INTERFACE axis port=data_to_read_1
         #pragma HLS INTERFACE axis port=data_to_read_2
+        #pragma HLS INTERFACE axis port=data_to_read_3
+        #pragma HLS INTERFACE axis port=data_to_read_4
+        #pragma HLS INTERFACE axis port=data_to_read_5
+        #pragma HLS INTERFACE axis port=data_to_read_6
+        #pragma HLS INTERFACE axis port=data_to_read_7
+        #pragma HLS INTERFACE axis port=data_to_read_8
         #pragma HLS INTERFACE axis port=vec_info_to_edge_1
         #pragma HLS INTERFACE axis port=vec_info_to_edge_2
+        #pragma HLS INTERFACE axis port=vec_info_to_edge_3
+        #pragma HLS INTERFACE axis port=vec_info_to_edge_4
+        #pragma HLS INTERFACE axis port=vec_info_to_edge_5
+        #pragma HLS INTERFACE axis port=vec_info_to_edge_6
+        #pragma HLS INTERFACE axis port=vec_info_to_edge_7
+        #pragma HLS INTERFACE axis port=vec_info_to_edge_8
         #pragma HLS INTERFACE axis port=vec_info_to_read_1
         #pragma HLS INTERFACE axis port=vec_info_to_read_2
+        #pragma HLS INTERFACE axis port=vec_info_to_read_3
+        #pragma HLS INTERFACE axis port=vec_info_to_read_4
+        #pragma HLS INTERFACE axis port=vec_info_to_read_5
+        #pragma HLS INTERFACE axis port=vec_info_to_read_6
+        #pragma HLS INTERFACE axis port=vec_info_to_read_7
+        #pragma HLS INTERFACE axis port=vec_info_to_read_8
         #pragma HLS INTERFACE axis port=signal_stream
         #pragma HLS DATAFLOW 
-        hls::stream<vec_info_access_command> vec_info_to_merger_1;
-        #pragma HLS stream variable=vec_info_to_merger_1 depth=32
-        hls::stream<VEC_INFO> vec_info_from_merger_1;
-        #pragma HLS stream variable=vec_info_from_merger_1 depth=32
-        hls::stream<vec_info_access_command> vec_info_to_merger_2;
-        #pragma HLS stream variable=vec_info_to_merger_2 depth=32
-        hls::stream<VEC_INFO> vec_info_from_merger_2;
-        #pragma HLS stream variable=vec_info_from_merger_2 depth=32
+        ap_uint<512>* hbm_ptrs[MEM_CHANNELS] = {
+            hbm_ptr_1, hbm_ptr_2, hbm_ptr_3, hbm_ptr_4,
+            hbm_ptr_5, hbm_ptr_6, hbm_ptr_7, hbm_ptr_8
+        };
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND>* req_from_vertex[MEM_CHANNELS] = {
+            &req_from_vertex_1, &req_from_vertex_2, &req_from_vertex_3, &req_from_vertex_4,
+            &req_from_vertex_5, &req_from_vertex_6, &req_from_vertex_7, &req_from_vertex_8
+        };
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND>* req_from_edge[MEM_CHANNELS] = {
+            &req_from_edge_1, &req_from_edge_2, &req_from_edge_3, &req_from_edge_4,
+            &req_from_edge_5, &req_from_edge_6, &req_from_edge_7, &req_from_edge_8
+        };
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND>* req_from_read[MEM_CHANNELS] = {
+            &req_from_read_1, &req_from_read_2, &req_from_read_3, &req_from_read_4,
+            &req_from_read_5, &req_from_read_6, &req_from_read_7, &req_from_read_8
+        };
+        hls::stream<ap_axiu<512, 0, 0, 0>>* data_from_vertex[MEM_CHANNELS] = {
+            &data_from_vertex_1, &data_from_vertex_2, &data_from_vertex_3, &data_from_vertex_4,
+            &data_from_vertex_5, &data_from_vertex_6, &data_from_vertex_7, &data_from_vertex_8
+        };
+        hls::stream<ap_axiu<512, 0, 0, 0>>* data_from_edge[MEM_CHANNELS] = {
+            &data_from_edge_1, &data_from_edge_2, &data_from_edge_3, &data_from_edge_4,
+            &data_from_edge_5, &data_from_edge_6, &data_from_edge_7, &data_from_edge_8
+        };
+        hls::stream<ap_axiu<512, 0, 0, 0>>* data_to_edge[MEM_CHANNELS] = {
+            &data_to_edge_1, &data_to_edge_2, &data_to_edge_3, &data_to_edge_4,
+            &data_to_edge_5, &data_to_edge_6, &data_to_edge_7, &data_to_edge_8
+        };
+        hls::stream<ap_axiu<512, 0, 0, 0>>* data_to_read[MEM_CHANNELS] = {
+            &data_to_read_1, &data_to_read_2, &data_to_read_3, &data_to_read_4,
+            &data_to_read_5, &data_to_read_6, &data_to_read_7, &data_to_read_8
+        };
+        hls::stream<VEC_INFO_STREAM>* vec_info_to_edge[MEM_CHANNELS] = {
+            &vec_info_to_edge_1, &vec_info_to_edge_2, &vec_info_to_edge_3, &vec_info_to_edge_4,
+            &vec_info_to_edge_5, &vec_info_to_edge_6, &vec_info_to_edge_7, &vec_info_to_edge_8
+        };
+        hls::stream<VEC_INFO_STREAM>* vec_info_to_read[MEM_CHANNELS] = {
+            &vec_info_to_read_1, &vec_info_to_read_2, &vec_info_to_read_3, &vec_info_to_read_4,
+            &vec_info_to_read_5, &vec_info_to_read_6, &vec_info_to_read_7, &vec_info_to_read_8
+        };
+
+        hls::stream<vec_info_access_command> vec_info_to_merger[MEM_CHANNELS];
+        #pragma HLS stream variable=vec_info_to_merger depth=32
+        hls::stream<VEC_INFO> vec_info_from_merger[MEM_CHANNELS];
+        #pragma HLS stream variable=vec_info_from_merger depth=32
         hls::stream<COMMAND> signal_to_worker[WORKER_NUM];
         #pragma HLS stream variable=signal_to_worker depth=2
 
         exit_handle(signal_stream, signal_to_worker);
 
-        process_req(
-            hbm_ptr_1,
-            vec_info_to_merger_1,
-            vec_info_from_merger_1,
-            req_from_vertex_1,
-            req_from_edge_1,
-            req_from_read_1,
-            data_from_vertex_1,
-            data_from_edge_1,
-            data_to_edge_1,
-            data_to_read_1,
-            vec_info_to_edge_1,
-            vec_info_to_read_1,
-            signal_to_worker[0]
-        );
-
-        process_req(
-            hbm_ptr_2,
-            vec_info_to_merger_2,
-            vec_info_from_merger_2,
-            req_from_vertex_2,
-            req_from_edge_2,
-            req_from_read_2,
-            data_from_vertex_2,
-            data_from_edge_2,
-            data_to_edge_2,
-            data_to_read_2,
-            vec_info_to_edge_2,
-            vec_info_to_read_2,
-            signal_to_worker[1]
-        );
+        for (int i = 0; i < MEM_CHANNELS; ++i)
+        {
+            #pragma HLS UNROLL
+            process_req(
+                hbm_ptrs[i],
+                vec_info_to_merger[i],
+                vec_info_from_merger[i],
+                *req_from_vertex[i],
+                *req_from_edge[i],
+                *req_from_read[i],
+                *data_from_vertex[i],
+                *data_from_edge[i],
+                *data_to_edge[i],
+                *data_to_read[i],
+                *vec_info_to_edge[i],
+                *vec_info_to_read[i],
+                signal_to_worker[i]
+            );
+        }
 
         vec_info_merger(
             pos_pma_addrs,
             neg_pma_addrs,
-            vec_info_to_merger_1,
-            vec_info_from_merger_1,
-            vec_info_to_merger_2,
-            vec_info_from_merger_2,
-            signal_to_worker[2]
+            vec_info_to_merger,
+            vec_info_from_merger,
+            signal_to_worker[MEM_CHANNELS]
         );
     }
 }

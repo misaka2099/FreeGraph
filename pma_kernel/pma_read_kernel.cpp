@@ -206,6 +206,89 @@ static bool load_pma_header(
     return true;
 }
 
+static bool load_pma_header_ch(
+    int ch,
+    int pma_idx,
+    ap_uint<1> direction,
+    hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch1,
+    hls::stream<VEC_INFO_STREAM> &vec_info_back_stream_ch1,
+    hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch1,
+    hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch2,
+    hls::stream<VEC_INFO_STREAM> &vec_info_back_stream_ch2,
+    hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch2,
+    hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch3,
+    hls::stream<VEC_INFO_STREAM> &vec_info_back_stream_ch3,
+    hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch3,
+    hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch4,
+    hls::stream<VEC_INFO_STREAM> &vec_info_back_stream_ch4,
+    hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch4,
+    hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch5,
+    hls::stream<VEC_INFO_STREAM> &vec_info_back_stream_ch5,
+    hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch5,
+    hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch6,
+    hls::stream<VEC_INFO_STREAM> &vec_info_back_stream_ch6,
+    hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch6,
+    hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch7,
+    hls::stream<VEC_INFO_STREAM> &vec_info_back_stream_ch7,
+    hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch7,
+    hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch8,
+    hls::stream<VEC_INFO_STREAM> &vec_info_back_stream_ch8,
+    hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch8,
+    PMA_HEADER &pma_header,
+    int &header_start)
+{
+    switch (ch)
+    {
+        case 0:  return load_pma_header(pma_idx, direction, req_to_mem_access_ch1, vec_info_back_stream_ch1, data_from_mem_access_ch1, pma_header, header_start);
+        case 1:  return load_pma_header(pma_idx, direction, req_to_mem_access_ch2, vec_info_back_stream_ch2, data_from_mem_access_ch2, pma_header, header_start);
+        case 2:  return load_pma_header(pma_idx, direction, req_to_mem_access_ch3, vec_info_back_stream_ch3, data_from_mem_access_ch3, pma_header, header_start);
+        case 3:  return load_pma_header(pma_idx, direction, req_to_mem_access_ch4, vec_info_back_stream_ch4, data_from_mem_access_ch4, pma_header, header_start);
+        case 4:  return load_pma_header(pma_idx, direction, req_to_mem_access_ch5, vec_info_back_stream_ch5, data_from_mem_access_ch5, pma_header, header_start);
+        case 5:  return load_pma_header(pma_idx, direction, req_to_mem_access_ch6, vec_info_back_stream_ch6, data_from_mem_access_ch6, pma_header, header_start);
+        case 6:  return load_pma_header(pma_idx, direction, req_to_mem_access_ch7, vec_info_back_stream_ch7, data_from_mem_access_ch7, pma_header, header_start);
+        default: return load_pma_header(pma_idx, direction, req_to_mem_access_ch8, vec_info_back_stream_ch8, data_from_mem_access_ch8, pma_header, header_start);
+    }
+}
+
+static int read_edge_ch(
+    int ch,
+    int src,
+    PMA_HEADER &pma_header,
+    int header_start,
+    hls::stream<ap_axiu<32,0,0,0>> &nei_stream,
+    hls::stream<ap_axiu<64,0,0,0>> &coo_stream,
+    hls::stream<ap_axiu<32,0,0,0>> &csr_col_stream,
+    hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch1,
+    hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch1,
+    hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch2,
+    hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch2,
+    hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch3,
+    hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch3,
+    hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch4,
+    hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch4,
+    hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch5,
+    hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch5,
+    hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch6,
+    hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch6,
+    hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch7,
+    hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch7,
+    hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch8,
+    hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch8,
+    int mode)
+{
+    switch (ch)
+    {
+        case 0:  return read_edge(src, pma_header, header_start, nei_stream, coo_stream, csr_col_stream, req_to_mem_access_ch1, data_from_mem_access_ch1, mode);
+        case 1:  return read_edge(src, pma_header, header_start, nei_stream, coo_stream, csr_col_stream, req_to_mem_access_ch2, data_from_mem_access_ch2, mode);
+        case 2:  return read_edge(src, pma_header, header_start, nei_stream, coo_stream, csr_col_stream, req_to_mem_access_ch3, data_from_mem_access_ch3, mode);
+        case 3:  return read_edge(src, pma_header, header_start, nei_stream, coo_stream, csr_col_stream, req_to_mem_access_ch4, data_from_mem_access_ch4, mode);
+        case 4:  return read_edge(src, pma_header, header_start, nei_stream, coo_stream, csr_col_stream, req_to_mem_access_ch5, data_from_mem_access_ch5, mode);
+        case 5:  return read_edge(src, pma_header, header_start, nei_stream, coo_stream, csr_col_stream, req_to_mem_access_ch6, data_from_mem_access_ch6, mode);
+        case 6:  return read_edge(src, pma_header, header_start, nei_stream, coo_stream, csr_col_stream, req_to_mem_access_ch7, data_from_mem_access_ch7, mode);
+        default: return read_edge(src, pma_header, header_start, nei_stream, coo_stream, csr_col_stream, req_to_mem_access_ch8, data_from_mem_access_ch8, mode);
+    }
+}
+
 void read_header(
     int start_addr,
     hls::stream<MEMORY_INFO_ACCESS_COMMAND> &memory_access_stream,
@@ -244,7 +327,25 @@ extern "C"
         hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch1,
         hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch2,
         hls::stream<VEC_INFO_STREAM> &vec_info_back_stream_ch2,
-        hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch2
+        hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch2,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch3,
+        hls::stream<VEC_INFO_STREAM> &vec_info_back_stream_ch3,
+        hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch3,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch4,
+        hls::stream<VEC_INFO_STREAM> &vec_info_back_stream_ch4,
+        hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch4,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch5,
+        hls::stream<VEC_INFO_STREAM> &vec_info_back_stream_ch5,
+        hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch5,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch6,
+        hls::stream<VEC_INFO_STREAM> &vec_info_back_stream_ch6,
+        hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch6,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch7,
+        hls::stream<VEC_INFO_STREAM> &vec_info_back_stream_ch7,
+        hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch7,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch8,
+        hls::stream<VEC_INFO_STREAM> &vec_info_back_stream_ch8,
+        hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch8
     )
     {
         #pragma HLS INTERFACE axis port=cmd_stream
@@ -258,6 +359,25 @@ extern "C"
         #pragma HLS INTERFACE axis port=req_to_mem_access_ch2
         #pragma HLS INTERFACE axis port=vec_info_back_stream_ch2
         #pragma HLS INTERFACE axis port=data_from_mem_access_ch2
+        #pragma HLS INTERFACE axis port=req_to_mem_access_ch3
+        #pragma HLS INTERFACE axis port=vec_info_back_stream_ch3
+        #pragma HLS INTERFACE axis port=data_from_mem_access_ch3
+        #pragma HLS INTERFACE axis port=req_to_mem_access_ch4
+        #pragma HLS INTERFACE axis port=vec_info_back_stream_ch4
+        #pragma HLS INTERFACE axis port=data_from_mem_access_ch4
+        #pragma HLS INTERFACE axis port=req_to_mem_access_ch5
+        #pragma HLS INTERFACE axis port=vec_info_back_stream_ch5
+        #pragma HLS INTERFACE axis port=data_from_mem_access_ch5
+        #pragma HLS INTERFACE axis port=req_to_mem_access_ch6
+        #pragma HLS INTERFACE axis port=vec_info_back_stream_ch6
+        #pragma HLS INTERFACE axis port=data_from_mem_access_ch6
+        #pragma HLS INTERFACE axis port=req_to_mem_access_ch7
+        #pragma HLS INTERFACE axis port=vec_info_back_stream_ch7
+        #pragma HLS INTERFACE axis port=data_from_mem_access_ch7
+        #pragma HLS INTERFACE axis port=req_to_mem_access_ch8
+        #pragma HLS INTERFACE axis port=vec_info_back_stream_ch8
+        #pragma HLS INTERFACE axis port=data_from_mem_access_ch8
+
         while (true)
         {
             READ_COMMAND_STREAM cmd = cmd_stream.read();
@@ -296,64 +416,73 @@ extern "C"
             {
                 int src = cmd.data.range(63,32);
                 int pma_idx = src / VERTEX_PER_PMA;
-                if ((pma_idx & 1) == 0)
+                int ch = pma_idx % 8;
+                PMA_HEADER pma_header;
+                int header_start = 0;
+                if (!load_pma_header_ch(
+                        ch, pma_idx, direction,
+                        req_to_mem_access_ch1, vec_info_back_stream_ch1, data_from_mem_access_ch1,
+                        req_to_mem_access_ch2, vec_info_back_stream_ch2, data_from_mem_access_ch2,
+                        req_to_mem_access_ch3, vec_info_back_stream_ch3, data_from_mem_access_ch3,
+                        req_to_mem_access_ch4, vec_info_back_stream_ch4, data_from_mem_access_ch4,
+                        req_to_mem_access_ch5, vec_info_back_stream_ch5, data_from_mem_access_ch5,
+                        req_to_mem_access_ch6, vec_info_back_stream_ch6, data_from_mem_access_ch6,
+                        req_to_mem_access_ch7, vec_info_back_stream_ch7, data_from_mem_access_ch7,
+                        req_to_mem_access_ch8, vec_info_back_stream_ch8, data_from_mem_access_ch8,
+                        pma_header, header_start))
                 {
-                    PMA_HEADER pma_header;
-                    int header_start = 0;
-                    if (!load_pma_header(pma_idx, direction, req_to_mem_access_ch1, vec_info_back_stream_ch1, data_from_mem_access_ch1, pma_header, header_start))
-                    {
-                        send_empty_neighbor(data_to_nei_query);
-                        continue;
-                    }
-                    read_edge(src, pma_header, header_start, data_to_nei_query, data_to_coo_stream, data_to_csr_col_stream,
-                        req_to_mem_access_ch1, data_from_mem_access_ch1, 0);
+                    send_empty_neighbor(data_to_nei_query);
+                    continue;
                 }
-                else
-                {
-                    PMA_HEADER pma_header;
-                    int header_start = 0;
-                    if (!load_pma_header(pma_idx, direction, req_to_mem_access_ch2, vec_info_back_stream_ch2, data_from_mem_access_ch2, pma_header, header_start))
-                    {
-                        send_empty_neighbor(data_to_nei_query);
-                        continue;
-                    }
-                    read_edge(src, pma_header, header_start, data_to_nei_query, data_to_coo_stream, data_to_csr_col_stream,
-                        req_to_mem_access_ch2, data_from_mem_access_ch2, 0);
-                }
+                read_edge_ch(
+                    ch, src, pma_header, header_start,
+                    data_to_nei_query, data_to_coo_stream, data_to_csr_col_stream,
+                    req_to_mem_access_ch1, data_from_mem_access_ch1,
+                    req_to_mem_access_ch2, data_from_mem_access_ch2,
+                    req_to_mem_access_ch3, data_from_mem_access_ch3,
+                    req_to_mem_access_ch4, data_from_mem_access_ch4,
+                    req_to_mem_access_ch5, data_from_mem_access_ch5,
+                    req_to_mem_access_ch6, data_from_mem_access_ch6,
+                    req_to_mem_access_ch7, data_from_mem_access_ch7,
+                    req_to_mem_access_ch8, data_from_mem_access_ch8,
+                    0);
             }
             else if (mode == 1)
             {
                 for (int pma_idx = 0; pma_idx < MAX_PMA_NUM; ++pma_idx)
                 {
-                    if ((pma_idx & 1) == 0)
+                    int ch = pma_idx % 8;
+                    PMA_HEADER pma_header;
+                    int header_start = 0;
+                    if (!load_pma_header_ch(
+                            ch, pma_idx, direction,
+                            req_to_mem_access_ch1, vec_info_back_stream_ch1, data_from_mem_access_ch1,
+                            req_to_mem_access_ch2, vec_info_back_stream_ch2, data_from_mem_access_ch2,
+                            req_to_mem_access_ch3, vec_info_back_stream_ch3, data_from_mem_access_ch3,
+                            req_to_mem_access_ch4, vec_info_back_stream_ch4, data_from_mem_access_ch4,
+                            req_to_mem_access_ch5, vec_info_back_stream_ch5, data_from_mem_access_ch5,
+                            req_to_mem_access_ch6, vec_info_back_stream_ch6, data_from_mem_access_ch6,
+                            req_to_mem_access_ch7, vec_info_back_stream_ch7, data_from_mem_access_ch7,
+                        req_to_mem_access_ch8, vec_info_back_stream_ch8, data_from_mem_access_ch8,
+                            pma_header, header_start))
                     {
-                        PMA_HEADER pma_header;
-                        int header_start = 0;
-                        if (!load_pma_header(pma_idx, direction, req_to_mem_access_ch1, vec_info_back_stream_ch1, data_from_mem_access_ch1, pma_header, header_start))
-                        {
-                            continue;
-                        }
-                        for (int local_v = 0; local_v < VERTEX_PER_PMA; ++local_v)
-                        {
-                            int src = pma_idx * VERTEX_PER_PMA + local_v;
-                            read_edge(src, pma_header, header_start, data_to_nei_query, data_to_coo_stream, data_to_csr_col_stream,
-                                req_to_mem_access_ch1, data_from_mem_access_ch1, 1);
-                        }
+                        continue;
                     }
-                    else
+                    for (int local_v = 0; local_v < VERTEX_PER_PMA; ++local_v)
                     {
-                        PMA_HEADER pma_header;
-                        int header_start = 0;
-                        if (!load_pma_header(pma_idx, direction, req_to_mem_access_ch2, vec_info_back_stream_ch2, data_from_mem_access_ch2, pma_header, header_start))
-                        {
-                            continue;
-                        }
-                        for (int local_v = 0; local_v < VERTEX_PER_PMA; ++local_v)
-                        {
-                            int src = pma_idx * VERTEX_PER_PMA + local_v;
-                            read_edge(src, pma_header, header_start, data_to_nei_query, data_to_coo_stream, data_to_csr_col_stream,
-                                req_to_mem_access_ch2, data_from_mem_access_ch2, 1);
-                        }
+                        int src = pma_idx * VERTEX_PER_PMA + local_v;
+                        read_edge_ch(
+                            ch, src, pma_header, header_start,
+                            data_to_nei_query, data_to_coo_stream, data_to_csr_col_stream,
+                            req_to_mem_access_ch1, data_from_mem_access_ch1,
+                            req_to_mem_access_ch2, data_from_mem_access_ch2,
+                            req_to_mem_access_ch3, data_from_mem_access_ch3,
+                            req_to_mem_access_ch4, data_from_mem_access_ch4,
+                            req_to_mem_access_ch5, data_from_mem_access_ch5,
+                            req_to_mem_access_ch6, data_from_mem_access_ch6,
+                            req_to_mem_access_ch7, data_from_mem_access_ch7,
+                            req_to_mem_access_ch8, data_from_mem_access_ch8,
+                            1);
                     }
                 }
 
@@ -369,49 +498,45 @@ extern "C"
                 ap_uint<32> csr_offset = 0;
                 for (int pma_idx = 0; pma_idx < MAX_PMA_NUM; ++pma_idx)
                 {
-                    if ((pma_idx & 1) == 0)
+                        int ch = pma_idx % 8;
+                    PMA_HEADER pma_header;
+                    int header_start = 0;
+                    if (!load_pma_header_ch(
+                            ch, pma_idx, direction,
+                            req_to_mem_access_ch1, vec_info_back_stream_ch1, data_from_mem_access_ch1,
+                            req_to_mem_access_ch2, vec_info_back_stream_ch2, data_from_mem_access_ch2,
+                            req_to_mem_access_ch3, vec_info_back_stream_ch3, data_from_mem_access_ch3,
+                            req_to_mem_access_ch4, vec_info_back_stream_ch4, data_from_mem_access_ch4,
+                            req_to_mem_access_ch5, vec_info_back_stream_ch5, data_from_mem_access_ch5,
+                            req_to_mem_access_ch6, vec_info_back_stream_ch6, data_from_mem_access_ch6,
+                            req_to_mem_access_ch7, vec_info_back_stream_ch7, data_from_mem_access_ch7,
+                            req_to_mem_access_ch8, vec_info_back_stream_ch8, data_from_mem_access_ch8,
+                            pma_header, header_start))
                     {
-                        PMA_HEADER pma_header;
-                        int header_start = 0;
-                        if (!load_pma_header(pma_idx, direction, req_to_mem_access_ch1, vec_info_back_stream_ch1, data_from_mem_access_ch1, pma_header, header_start))
-                        {
-                            continue;
-                        }
-                        for (int local_v = 0; local_v < VERTEX_PER_PMA; ++local_v)
-                        {
-                            int src = pma_idx * VERTEX_PER_PMA + local_v;
-                            ap_axiu<32,0,0,0> row_ptr_pkt = {};
-                            row_ptr_pkt.data = csr_offset;
-                            row_ptr_pkt.keep = (ap_uint<8>)0xFF;
-                            row_ptr_pkt.strb = (ap_uint<8>)0xFF;
-                            row_ptr_pkt.last = 0;
-                            data_to_csr_row_ptr_stream.write(row_ptr_pkt);
-                            int emitted = read_edge(src, pma_header, header_start, data_to_nei_query, data_to_coo_stream, data_to_csr_col_stream,
-                                req_to_mem_access_ch1, data_from_mem_access_ch1, 2);
-                            csr_offset += emitted;
-                        }
+                        continue;
                     }
-                    else
+                    for (int local_v = 0; local_v < VERTEX_PER_PMA; ++local_v)
                     {
-                        PMA_HEADER pma_header;
-                        int header_start = 0;
-                        if (!load_pma_header(pma_idx, direction, req_to_mem_access_ch2, vec_info_back_stream_ch2, data_from_mem_access_ch2, pma_header, header_start))
-                        {
-                            continue;
-                        }
-                        for (int local_v = 0; local_v < VERTEX_PER_PMA; ++local_v)
-                        {
-                            int src = pma_idx * VERTEX_PER_PMA + local_v;
-                            ap_axiu<32,0,0,0> row_ptr_pkt = {};
-                            row_ptr_pkt.data = csr_offset;
-                            row_ptr_pkt.keep = (ap_uint<8>)0xFF;
-                            row_ptr_pkt.strb = (ap_uint<8>)0xFF;
-                            row_ptr_pkt.last = 0;
-                            data_to_csr_row_ptr_stream.write(row_ptr_pkt);
-                            int emitted = read_edge(src, pma_header, header_start, data_to_nei_query, data_to_coo_stream, data_to_csr_col_stream,
-                                req_to_mem_access_ch2, data_from_mem_access_ch2, 2);
-                            csr_offset += emitted;
-                        }
+                        int src = pma_idx * VERTEX_PER_PMA + local_v;
+                        ap_axiu<32,0,0,0> row_ptr_pkt = {};
+                        row_ptr_pkt.data = csr_offset;
+                        row_ptr_pkt.keep = (ap_uint<8>)0xFF;
+                        row_ptr_pkt.strb = (ap_uint<8>)0xFF;
+                        row_ptr_pkt.last = 0;
+                        data_to_csr_row_ptr_stream.write(row_ptr_pkt);
+                        int emitted = read_edge_ch(
+                            ch, src, pma_header, header_start,
+                            data_to_nei_query, data_to_coo_stream, data_to_csr_col_stream,
+                            req_to_mem_access_ch1, data_from_mem_access_ch1,
+                            req_to_mem_access_ch2, data_from_mem_access_ch2,
+                            req_to_mem_access_ch3, data_from_mem_access_ch3,
+                            req_to_mem_access_ch4, data_from_mem_access_ch4,
+                            req_to_mem_access_ch5, data_from_mem_access_ch5,
+                            req_to_mem_access_ch6, data_from_mem_access_ch6,
+                            req_to_mem_access_ch7, data_from_mem_access_ch7,
+                            req_to_mem_access_ch8, data_from_mem_access_ch8,
+                            2);
+                        csr_offset += emitted;
                     }
                 }
 

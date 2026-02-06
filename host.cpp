@@ -29,7 +29,7 @@ void print_pma(
     PMA_HEADER header;
     memcpy(&header, storage + start, sizeof(PMA_HEADER));
     int *pma_data = (int*)(storage + sizeof(PMA_HEADER) + start);
-    for (int i = 0 ; i < 16 ; i++)
+    for (int i = 0 ; i < 8 ; i++)
     {
         int src = pma_idx * 16  + i;
         int edge_count = header.edge_count[i];
@@ -156,51 +156,91 @@ int main(int argc, char** argv)
 
     // auto allocate_kernel = xrt::kernel(device, uuid, "allocate_kernel");
     // auto free_kernel = xrt::kernel(device, uuid, "free_kernel");
-    auto alloc_free_kernel_1 = xrt::kernel(device, uuid, "alloc_free_kernel:{alloc_free_kernel_1}");
-    auto alloc_free_kernel_2 = xrt::kernel(device, uuid, "alloc_free_kernel:{alloc_free_kernel_2}");
+    std::vector<xrt::kernel> alloc_free_kernels;
+    alloc_free_kernels.reserve(8);
+    for (int i = 1; i <= 8; ++i)
+    {
+        alloc_free_kernels.emplace_back(device, uuid, "alloc_free_kernel:{alloc_free_kernel_" + std::to_string(i) + "}");
+    }
     auto mem_access_kernel_1 = xrt::kernel(device, uuid, "mem_access_kernel:{mem_access_kernel_1}");
     // auto app_mem_middle_ware_kernel = xrt::kernel(device, uuid, "app_mem_middle_ware");
-    auto merge_alloc_req_kernel_1 = xrt::kernel(device, uuid, "merge_alloc_req:{merge_alloc_req_1}");
-    auto merge_alloc_req_kernel_2 = xrt::kernel(device, uuid, "merge_alloc_req:{merge_alloc_req_2}");
+    std::vector<xrt::kernel> merge_alloc_req_kernels;
+    merge_alloc_req_kernels.reserve(8);
+    for (int i = 1; i <= 8; ++i)
+    {
+        merge_alloc_req_kernels.emplace_back(device, uuid, "merge_alloc_req:{merge_alloc_req_" + std::to_string(i) + "}");
+    }
     auto pma_read_kernel = xrt::kernel(device, uuid, "pma_read_kernel");
     auto update_message_generator_kernel = xrt::kernel(device, uuid, "update_message_generator");
     auto update_message_router_kernel = xrt::kernel(device, uuid, "update_message_router");
-    auto pma_insert_vertex_1 = xrt::kernel(device, uuid, "pma_insert_vertex:{pma_insert_vertex_1}");
-    auto pma_insert_vertex_2 = xrt::kernel(device, uuid, "pma_insert_vertex:{pma_insert_vertex_2}");
-    auto pma_insert_edge_1 = xrt::kernel(device, uuid, "pma_insert_edge:{pma_insert_edge_1}");
-    auto pma_insert_edge_2 = xrt::kernel(device, uuid, "pma_insert_edge:{pma_insert_edge_2}");
+    std::vector<xrt::kernel> pma_insert_vertex_kernels;
+    pma_insert_vertex_kernels.reserve(8);
+    for (int i = 1; i <= 8; ++i)
+    {
+        pma_insert_vertex_kernels.emplace_back(device, uuid, "pma_insert_vertex:{pma_insert_vertex_" + std::to_string(i) + "}");
+    }
+    std::vector<xrt::kernel> pma_insert_edge_kernels;
+    pma_insert_edge_kernels.reserve(8);
+    for (int i = 1; i <= 8; ++i)
+    {
+        pma_insert_edge_kernels.emplace_back(device, uuid, "pma_insert_edge:{pma_insert_edge_" + std::to_string(i) + "}");
+    }
     auto check_kernel = xrt::kernel(device, uuid, "check_kernel");
     auto signal_kernel = xrt::kernel(device, uuid, "signal_kernel:{signal_kernel_1}");
     std::cout << "Kernels loaded successfully." << std::endl;
     // auto run_allocate_kernel = xrt::run(allocate_kernel);
     // auto run_free_kernel = xrt::run(free_kernel);
-    auto run_alloc_free_kernel_1 = xrt::run(alloc_free_kernel_1);
-    auto run_alloc_free_kernel_2 = xrt::run(alloc_free_kernel_2);
+    std::vector<xrt::run> run_alloc_free_kernels;
+    run_alloc_free_kernels.reserve(8);
+    for (auto &k : alloc_free_kernels)
+    {
+        run_alloc_free_kernels.emplace_back(k);
+    }
     auto run_mem_access_kernel_1 = xrt::run(mem_access_kernel_1);
     // auto run_app_mem_middle_ware_kernel = xrt::run(app_mem_middle_ware_kernel);
-    auto run_merge_alloc_req_kernel_1 = xrt::run(merge_alloc_req_kernel_1);
-    auto run_merge_alloc_req_kernel_2 = xrt::run(merge_alloc_req_kernel_2);
+    std::vector<xrt::run> run_merge_alloc_req_kernels;
+    run_merge_alloc_req_kernels.reserve(8);
+    for (auto &k : merge_alloc_req_kernels)
+    {
+        run_merge_alloc_req_kernels.emplace_back(k);
+    }
     // auto run_memalloc_kernel = xrt::run(memalloc_kernel);
     auto run_pma_read_kernel = xrt::run(pma_read_kernel);
     auto run_update_message_generator_kernel = xrt::run(update_message_generator_kernel);
     auto run_update_message_router_kernel = xrt::run(update_message_router_kernel);
-    auto run_pma_insert_vertex_1 = xrt::run(pma_insert_vertex_1);
-    auto run_pma_insert_vertex_2 = xrt::run(pma_insert_vertex_2);
-    auto run_pma_insert_edge_1 = xrt::run(pma_insert_edge_1);
-    auto run_pma_insert_edge_2 = xrt::run(pma_insert_edge_2);
+    std::vector<xrt::run> run_pma_insert_vertex_kernels;
+    run_pma_insert_vertex_kernels.reserve(8);
+    for (auto &k : pma_insert_vertex_kernels)
+    {
+        run_pma_insert_vertex_kernels.emplace_back(k);
+    }
+    std::vector<xrt::run> run_pma_insert_edge_kernels;
+    run_pma_insert_edge_kernels.reserve(8);
+    for (auto &k : pma_insert_edge_kernels)
+    {
+        run_pma_insert_edge_kernels.emplace_back(k);
+    }
     auto run_check_kernel = xrt::run(check_kernel);
     auto run_signal_kernel = xrt::run(signal_kernel);
     std::cout << "Kernels are created..." << std::endl;
 
     auto start_buffer = std::chrono::high_resolution_clock::now();
 
-    auto bo_hbm_base_addr_1 = xrt::bo(device, sizeof(BYTE) * (size_t)CHANNEL_CAPACITY * (CHANNEL_NUM/2), mem_access_kernel_1.group_id(0));
-    auto bo_hbm_base_addr_2 = xrt::bo(device, sizeof(BYTE) * (size_t)CHANNEL_CAPACITY * (CHANNEL_NUM/2), mem_access_kernel_1.group_id(1));
+    std::vector<xrt::bo> bo_hbm_base_addr;
+    bo_hbm_base_addr.reserve(8);
+    for (int i = 0; i < 8; ++i)
+    {
+        bo_hbm_base_addr.emplace_back(device, sizeof(BYTE) * (size_t)CHANNEL_CAPACITY, mem_access_kernel_1.group_id(i));
+    }
     // auto bo_valid_array = xrt::bo(device, sizeof(BYTE) * ((size_t)CHANNEL_CAPACITY * CHANNEL_NUM / 8), allocate_kernel.group_id(0));
 
 
-    BYTE* hbm_base_address_1 = bo_hbm_base_addr_1.map<BYTE*>();
-    BYTE* hbm_base_address_2 = bo_hbm_base_addr_2.map<BYTE*>();
+    std::vector<BYTE*> hbm_base_addresses;
+    hbm_base_addresses.reserve(8);
+    for (auto &bo : bo_hbm_base_addr)
+    {
+        hbm_base_addresses.push_back(bo.map<BYTE*>());
+    }
     // BYTE* valid_array = bo_valid_array.map<BYTE*>();
 
     // 初始化 HBM 和有效性数组
@@ -208,8 +248,8 @@ int main(int argc, char** argv)
 
     // std::fill_n(valid_array, CHANNEL_CAPACITY / 8, 0);
 
-    auto bo_pos_vec_info = xrt::bo(device, sizeof(VEC_INFO) * MAX_PMA_NUM, mem_access_kernel_1.group_id(2));
-    auto bo_neg_vec_info = xrt::bo(device, sizeof(VEC_INFO) * MAX_PMA_NUM, mem_access_kernel_1.group_id(3));
+    auto bo_pos_vec_info = xrt::bo(device, sizeof(VEC_INFO) * MAX_PMA_NUM, mem_access_kernel_1.group_id(8));
+    auto bo_neg_vec_info = xrt::bo(device, sizeof(VEC_INFO) * MAX_PMA_NUM, mem_access_kernel_1.group_id(9));
     auto pos_vec_info_ptr = bo_pos_vec_info.map<VEC_INFO*>();
     auto neg_vec_info_ptr = bo_neg_vec_info.map<VEC_INFO*>();
     std::fill_n(pos_vec_info_ptr, MAX_PMA_NUM, 0);
@@ -237,13 +277,19 @@ int main(int argc, char** argv)
     auto bo_num_vertices = xrt::bo(device, sizeof(int), check_kernel.group_id(6));
     auto bo_num_edges = xrt::bo(device, sizeof(int), check_kernel.group_id(7));
 
-    auto bo_bitmap_1 = xrt::bo(device, sizeof(BYTE) * ((size_t)CHANNEL_CAPACITY * CHANNEL_NUM / INIT_VEC_LEN_IN_BYTE / 8), alloc_free_kernel_1.group_id(2));
-    auto bitmap_ptr_1 = bo_bitmap_1.map<BYTE*>();
-    std::fill_n(bitmap_ptr_1, (size_t)CHANNEL_CAPACITY * CHANNEL_NUM / 8 / INIT_VEC_LEN_IN_BYTE, 0);
-
-    auto bo_bitmap_2 = xrt::bo(device, sizeof(BYTE) * ((size_t)CHANNEL_CAPACITY * CHANNEL_NUM / INIT_VEC_LEN_IN_BYTE / 8), alloc_free_kernel_2.group_id(2));
-    auto bitmap_ptr_2 = bo_bitmap_2.map<BYTE*>();
-    std::fill_n(bitmap_ptr_2, (size_t)CHANNEL_CAPACITY * CHANNEL_NUM / 8 / INIT_VEC_LEN_IN_BYTE, 0);
+    std::vector<xrt::bo> bo_bitmap;
+    std::vector<BYTE*> bitmap_ptrs;
+    bo_bitmap.reserve(8);
+    bitmap_ptrs.reserve(8);
+    for (int i = 0; i < 8; ++i)
+    {
+        bo_bitmap.emplace_back(device,
+            sizeof(BYTE) * ((size_t)CHANNEL_CAPACITY * CHANNEL_NUM / INIT_VEC_LEN_IN_BYTE / 8),
+            alloc_free_kernels[i].group_id(2));
+        auto bitmap_ptr = bo_bitmap.back().map<BYTE*>();
+        bitmap_ptrs.push_back(bitmap_ptr);
+        std::fill_n(bitmap_ptr, (size_t)CHANNEL_CAPACITY * CHANNEL_NUM / 8 / INIT_VEC_LEN_IN_BYTE, 0);
+    }
 
     auto end_buffer = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed_buffer = end_buffer - start_buffer;
@@ -254,10 +300,12 @@ int main(int argc, char** argv)
     // run_allocate_kernel.set_arg(0, bo_valid_array);
     // run_free_kernel.set_arg(0, bo_valid_array);
     // Mem Access Kernel Args
-    run_mem_access_kernel_1.set_arg(0, bo_hbm_base_addr_1);
-    run_mem_access_kernel_1.set_arg(1, bo_hbm_base_addr_2);
-    run_mem_access_kernel_1.set_arg(2, bo_pos_vec_info);
-    run_mem_access_kernel_1.set_arg(3, bo_neg_vec_info);
+    for (int i = 0; i < 8; ++i)
+    {
+        run_mem_access_kernel_1.set_arg(i, bo_hbm_base_addr[i]);
+    }
+    run_mem_access_kernel_1.set_arg(8, bo_pos_vec_info);
+    run_mem_access_kernel_1.set_arg(9, bo_neg_vec_info);
     
     /* Removed args for insert kernels as they use streams now
     run_pma_insert_vertex_1.set_arg(0, bo_pos_vec_info);
@@ -276,8 +324,10 @@ int main(int argc, char** argv)
     run_pma_insert_edge_2.set_arg(2, bo_hbm_base_addr_2);
     */
 
-    run_alloc_free_kernel_1.set_arg(2, bo_bitmap_1);
-    run_alloc_free_kernel_2.set_arg(2, bo_bitmap_2);
+    for (int i = 0; i < 8; ++i)
+    {
+        run_alloc_free_kernels[i].set_arg(2, bo_bitmap[i]);
+    }
     // run_pma_insert_edge_2.set_arg(5, bo_hbm_base_addr);
     // run_pma_insert_edge_2.set_arg(6, bo_hbm_base_addr);
     // run_pma_insert_edge_2.set_arg(7, bo_hbm_base_addr);
@@ -381,15 +431,18 @@ int main(int argc, char** argv)
         for(auto& neighbors : adj_pos) std::sort(neighbors.begin(), neighbors.end());
         for(auto& neighbors : adj_neg) std::sort(neighbors.begin(), neighbors.end());
 
-        int current_addr_offset_1 = 0;
-        int current_addr_offset_2 = 0;
+        int current_addr_offset[8];
+        for (int i = 0; i < 8; ++i)
+        {
+            current_addr_offset[i] = 0;
+        }
         // std::ofstream debug_pma("debug_pma_content.txt");
 
         // 3. 构建 PMA 结构
         for (int pma_idx = 0; pma_idx < (vertex_num + VERTEX_PER_PMA - 1) / VERTEX_PER_PMA; ++pma_idx) 
         {
-            BYTE* current_base_addr = (pma_idx % 2 == 0) ? hbm_base_address_1 : hbm_base_address_2;
-            int* current_offset = (pma_idx % 2 == 0) ? &current_addr_offset_1 : &current_addr_offset_2;
+            BYTE* current_base_addr = hbm_base_addresses[pma_idx % 8];
+            int* current_offset = &current_addr_offset[pma_idx % 8];
             // POS Direction
             {
                 PMA_HEADER pos_header = {0};
@@ -563,26 +616,26 @@ int main(int argc, char** argv)
             }
         }
         // Update bitmap
-        int total_blocks_1 = (current_addr_offset_1 + INIT_VEC_LEN_IN_BYTE - 1) / INIT_VEC_LEN_IN_BYTE;
-        int full_bytes_1 = total_blocks_1 / 8;
-        int rem_bits_1 = total_blocks_1 % 8;
-
-        int total_blocks_2 = (current_addr_offset_2 + INIT_VEC_LEN_IN_BYTE - 1) / INIT_VEC_LEN_IN_BYTE;
-        int full_bytes_2 = total_blocks_2 / 8;
-        int rem_bits_2 = total_blocks_2 % 8;
-        
-        memset(bitmap_ptr_1, 0xFF, full_bytes_1); // Set for alloc 1
-        if (rem_bits_1 > 0) bitmap_ptr_1[full_bytes_1] = (BYTE)((1 << rem_bits_1) - 1);
-
-        memset(bitmap_ptr_2, 0xFF, full_bytes_2); // Set for alloc 2
-        if (rem_bits_2 > 0) bitmap_ptr_2[full_bytes_2] = (BYTE)((1 << rem_bits_2) - 1);
+        for (int ch = 0; ch < 8; ++ch)
+        {
+            int total_blocks = (current_addr_offset[ch] + INIT_VEC_LEN_IN_BYTE - 1) / INIT_VEC_LEN_IN_BYTE;
+            int full_bytes = total_blocks / 8;
+            int rem_bits = total_blocks % 8;
+            memset(bitmap_ptrs[ch], 0xFF, full_bytes);
+            if (rem_bits > 0)
+            {
+                bitmap_ptrs[ch][full_bytes] = (BYTE)((1 << rem_bits) - 1);
+            }
+        }
 
         auto end_cpu_preprocess = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> elapsed_cpu_preprocess = end_cpu_preprocess - start_cpu_preprocess;
         std::cout << "CPU preprocessing time in add_base_graph_to_hbm: " << elapsed_cpu_preprocess.count() << " s" << std::endl;
 
-        bo_bitmap_1.sync(XCL_BO_SYNC_BO_TO_DEVICE);
-        bo_bitmap_2.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        for (auto &bo : bo_bitmap)
+        {
+            bo.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        }
         std::cout << "base bitmap inserted to device." << std::endl;
         
         run_signal_kernel.set_arg(0, LOAD_BITMAP);
@@ -627,19 +680,27 @@ int main(int argc, char** argv)
 
         auto phase_start = std::chrono::high_resolution_clock::now();
 
-        run_pma_insert_vertex_1.start();
-        run_pma_insert_vertex_2.start();
-        run_pma_insert_edge_1.start();
-        run_pma_insert_edge_2.start();
+        for (auto &r : run_pma_insert_vertex_kernels)
+        {
+            r.start();
+        }
+        for (auto &r : run_pma_insert_edge_kernels)
+        {
+            r.start();
+        }
         run_update_message_router_kernel.start();
         run_update_message_generator_kernel.start();
 
         run_update_message_generator_kernel.wait();
         run_update_message_router_kernel.wait();
-        run_pma_insert_edge_1.wait();
-        run_pma_insert_edge_2.wait();
-        run_pma_insert_vertex_1.wait();
-        run_pma_insert_vertex_2.wait();
+        for (auto &r : run_pma_insert_edge_kernels)
+        {
+            r.wait();
+        }
+        for (auto &r : run_pma_insert_vertex_kernels)
+        {
+            r.wait();
+        }
 
         auto phase_end = std::chrono::high_resolution_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(phase_end - phase_start).count();
@@ -650,11 +711,15 @@ int main(int argc, char** argv)
 
 
     run_mem_access_kernel_1.start();
-    run_alloc_free_kernel_1.start();
-    run_alloc_free_kernel_2.start();
+    for (auto &r : run_alloc_free_kernels)
+    {
+        r.start();
+    }
     // run_app_mem_middle_ware_kernel.start();
-    run_merge_alloc_req_kernel_1.start();
-    run_merge_alloc_req_kernel_2.start();
+    for (auto &r : run_merge_alloc_req_kernels)
+    {
+        r.start();
+    }
     // run_memalloc_kernel.start();
     
     add_base_graph_to_hbm(static_max_vertex + 1, base_edges);
@@ -663,10 +728,14 @@ int main(int argc, char** argv)
     bo_neg_vec_info.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     bo_src.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     bo_dst.sync(XCL_BO_SYNC_BO_TO_DEVICE);
-    bo_hbm_base_addr_1.sync(XCL_BO_SYNC_BO_TO_DEVICE);
-    bo_hbm_base_addr_2.sync(XCL_BO_SYNC_BO_TO_DEVICE);
-    bo_bitmap_1.sync(XCL_BO_SYNC_BO_TO_DEVICE); // Sync bitmap 1
-    bo_bitmap_2.sync(XCL_BO_SYNC_BO_TO_DEVICE); // Sync bitmap 2
+    for (auto &bo : bo_hbm_base_addr)
+    {
+        bo.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+    }
+    for (auto &bo : bo_bitmap)
+    {
+        bo.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+    }
 
     // verify_graph(BaseGraph, static_max_vertex, "Base Graph");
 
@@ -689,11 +758,15 @@ int main(int argc, char** argv)
 
     // run_allocate_kernel.wait();
     // run_free_kernel.wait();
-    run_alloc_free_kernel_1.wait();
-    run_alloc_free_kernel_2.wait();
+    for (auto &r : run_alloc_free_kernels)
+    {
+        r.wait();
+    }
     // run_app_mem_middle_ware_kernel.wait();
-    run_merge_alloc_req_kernel_1.wait();
-    run_merge_alloc_req_kernel_2.wait();
+    for (auto &r : run_merge_alloc_req_kernels)
+    {
+        r.wait();
+    }
     // run_memalloc_kernel.wait();
     // bo_hbm_base_addr.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
     // bo_pos_vec_info.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
