@@ -128,7 +128,7 @@ void modify_range(int l, int r, int val)
         }
     }
 }
-void alloc(int len, int &start)
+void alloc(int &start, int len)
 {
     int cur_idx = 1;
     bool complete = false;
@@ -224,39 +224,75 @@ extern "C"
         init(TOTAL_PAGES);
         while (true)
         {
-            #pragma HLS PIPELINE II=1
-            auto command = cmd.read();
-            auto vec_info = vec_info_in.read();
-            if (command.last == 1)
-            {
-                break;
+            // 非阻塞获取 vec_info，拿到后再去阻塞读取 cmd，避免跨流死锁
+            VEC_INFO_STREAM pending_info;
+            bool has_info = false;
+
+            if (!has_info) {
+                VEC_INFO_STREAM tmp;
+                if (vec_info_in.read_nb(tmp)) {
+                    if (tmp.last == 1) {
+                        cmd.read();
+                        break;
+                    }
+                    // HERE
+                    pending_info = tmp;
+                    has_info = true;
+                } else {
+                    // 还没有 vec 信息，先继续尝试读取
+                    continue;
+                }
             }
-            VEC_INFO back_info;
+
+            // 到这里说明已有 vec_info，可安全阻塞读 cmd
+            COMMAND_STREAM command = cmd.read();
+
+            VEC_INFO back_info = 0;
             if (command.data == MEM_ALLOC)
             {
-                int req_bytes = vec_info.data.range(63,32);
+                int req_bytes = pending_info.data.range(63,32);
                 int len_segs = (req_bytes + INIT_VEC_LEN_IN_BYTE - 1) / INIT_VEC_LEN_IN_BYTE;
                 int start_seg;
-                alloc(len_segs, start_seg);
-                int start_bytes = (start_seg < 0) ? 0xFFFFFFFF : start_seg * INIT_VEC_LEN_IN_BYTE;
+                // HERE
+                alloc(start_seg, len_segs);
+                // HERE
+                // 返回按字节的起始地址与长度（失败时返回 0xFFFFFFFF 作为哨兵）
+                // if (start_seg == -1)
+                // {
+                //     perror("ERROR INSUFFICIENT MEMORY POOL\n");
+                // }
+                int start_bytes;
+                // if (start_seg < 0) {
+                //     start_bytes = 0xFFFFFFFF;
+                // } else {
+                    start_bytes = start_seg * INIT_VEC_LEN_IN_BYTE;
+                // }
                 back_info.range(31,0) = start_bytes;
                 back_info.range(63,32) = req_bytes;
             }
             else if (command.data == MEM_FREE)
             {
-                int start_bytes = vec_info.data.range(31,0);
-                int len_bytes = vec_info.data.range(63,32);
-                int start_seg = (start_bytes == 0xFFFFFFFF) ? -1 : start_bytes / INIT_VEC_LEN_IN_BYTE;
+                int start_bytes = pending_info.data.range(31,0);
+                int len_bytes = pending_info.data.range(63,32);
+                int start_seg = start_bytes / INIT_VEC_LEN_IN_BYTE;
                 int len_segs  = (len_bytes + INIT_VEC_LEN_IN_BYTE - 1) / INIT_VEC_LEN_IN_BYTE;
-                if (start_seg >= 0 && len_segs > 0 && (start_seg + len_segs) <= TOTAL_PAGES) {
-                    dealloc(start_seg, len_segs);
-                }
+                // 边界保护，避免越界
+                // const int TOTAL_SEGS = CHANNEL_CAPACITY * CHANNEL_NUM / INIT_VEC_LEN_IN_BYTE;
+                // if (start_bytes != 0xFFFFFFFF && start_seg >= 0 && len_segs > 0 && (start_seg + len_segs - 1) < TOTAL_SEGS) {
+                // HERE
+                dealloc(start_seg, len_segs);
+                // HERE
+                // } else {
+                //     printf("WARNING: skip free: start_bytes=%d len_bytes=%d (start_seg=%d len_segs=%d TOTAL_SEGS=%d)\n",
+                //            start_bytes, len_bytes, start_seg, len_segs, TOTAL_SEGS);
+                // }
                 back_info = 0;
             }
-            VEC_INFO_STREAM out;
-            out.data = back_info;
-            out.last = 0;
+            VEC_INFO_STREAM out; out.data = back_info; out.last = 0;
             vec_info_back.write(out);
+            // HERE
+            // 清空本次缓存，处理下一对
+            has_info = false;
         }
     }
 }
