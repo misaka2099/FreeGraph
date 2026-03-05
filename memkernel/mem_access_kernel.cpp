@@ -16,13 +16,13 @@ enum vec_info_access_type
 struct vec_info_access_command 
 {
     int pma_idx;
-    ap_uint<1> direction; // 0: out, 1: in
+    // ap_uint<1> direction; // 0: out, 1: in
     VEC_INFO vec_info;
     vec_info_access_type command_type;
 };
 void vec_info_merger(
     VEC_INFO* pos_pma_addrs,
-    VEC_INFO* neg_pma_addrs,
+    // VEC_INFO* neg_pma_addrs,
     hls::stream<vec_info_access_command> vec_info_to_merger[MEM_CHANNELS],
     hls::stream<VEC_INFO> vec_info_from_merger[MEM_CHANNELS],
     hls::stream<COMMAND> &stop_signal
@@ -62,26 +62,12 @@ void vec_info_merger(
                 handled = true;
                 if (cmd.command_type == WRITE)
                 {
-                    if (cmd.direction == OUT_DIRECTION)
-                    {
-                        pos_pma_addrs[cmd.pma_idx] = cmd.vec_info;
-                    }
-                    else
-                    {
-                        neg_pma_addrs[cmd.pma_idx] = cmd.vec_info;
-                    }
+                    // Direction is ignored; always use positive (OUT) table
+                    pos_pma_addrs[cmd.pma_idx] = cmd.vec_info;
                 }
                 else
                 {
-                    VEC_INFO vec_info;
-                    if (cmd.direction == OUT_DIRECTION)
-                    {
-                        vec_info = pos_pma_addrs[cmd.pma_idx];
-                    }
-                    else
-                    {
-                        vec_info = neg_pma_addrs[cmd.pma_idx];
-                    }
+                    VEC_INFO vec_info = pos_pma_addrs[cmd.pma_idx];
                     vec_info_from_merger[i].write(vec_info);
                 }
                 break;
@@ -145,10 +131,10 @@ void process_req(
                     ap_axiu<512, 0, 0, 0> pkt;
                     if (turn == 0)
                         pkt = data_from_vertex.read();
-                    else if (turn == 1)
-                        pkt = data_from_edge.read();
                     else
                         pkt = data_from_edge.read();
+                    // else
+                    //     pkt = data_from_edge.read();
                     hbm_ptr[(start / 64) + i] = pkt.data;
                 }
                 break;
@@ -171,12 +157,12 @@ void process_req(
                 }
                 break;
             }
-            case POS_VEC_INFO_WRITE:
+            case VEC_INFO_WRITE:
             {
                 vec_info_access_command to_write;
                 int pma_idx = cmd.pma_idx;
                 to_write.pma_idx = pma_idx;
-                to_write.direction = OUT_DIRECTION;
+                // to_write.direction = OUT_DIRECTION;
                 to_write.command_type = WRITE;
                 VEC_INFO vec;
                 vec.range(31,0) = cmd.start;
@@ -185,43 +171,12 @@ void process_req(
                 vec_info_to_merger.write(to_write);
                 break;
             }
-            case NEG_VEC_INFO_WRITE:
-            {
-                vec_info_access_command to_write;
-                int pma_idx = cmd.pma_idx;
-                to_write.pma_idx = pma_idx;
-                to_write.direction = IN_DIRECTION;
-                to_write.command_type = WRITE;
-                VEC_INFO vec;
-                vec.range(31,0) = cmd.start;
-                vec.range(63,32) = cmd.len;
-                to_write.vec_info = vec;
-                vec_info_to_merger.write(to_write);
-                break;
-            }
-            case POS_VEC_INFO_READ:
+            case VEC_INFO_READ:
             {
                 vec_info_access_command to_read;
                 int pma_idx = cmd.pma_idx;
                 to_read.pma_idx = pma_idx;
-                to_read.direction = OUT_DIRECTION;
-                to_read.command_type = READ;
-                vec_info_to_merger.write(to_read);
-                #pragma HLS protocol fixed
-                ap_wait();
-                VEC_INFO vec_info_pkt = vec_info_from_merger.read();
-                if (turn == 1)
-                    vec_info_to_edge.write({.data = vec_info_pkt});
-                else if (turn == 2)
-                    vec_info_to_read.write({.data = vec_info_pkt});
-                break;
-            }
-            case NEG_VEC_INFO_READ:
-            {
-                vec_info_access_command to_read;
-                int pma_idx = cmd.pma_idx;
-                to_read.pma_idx = pma_idx;
-                to_read.direction = IN_DIRECTION;
+                // to_read.direction = OUT_DIRECTION;
                 to_read.command_type = READ;
                 vec_info_to_merger.write(to_read);
                 #pragma HLS protocol fixed
@@ -271,7 +226,7 @@ extern "C"
         ap_uint<512>* hbm_ptr_7,
         ap_uint<512>* hbm_ptr_8,
         VEC_INFO* pos_pma_addrs,
-        VEC_INFO* neg_pma_addrs,
+        // VEC_INFO* neg_pma_addrs,
         hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_vertex_1,
         hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_vertex_2,
         hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_vertex_3,
@@ -356,7 +311,7 @@ extern "C"
         #pragma HLS INTERFACE m_axi port=hbm_ptr_7 offset=slave bundle=gmem7
         #pragma HLS INTERFACE m_axi port=hbm_ptr_8 offset=slave bundle=gmem8
         #pragma HLS INTERFACE m_axi port=pos_pma_addrs offset=slave bundle=gmem17
-        #pragma HLS INTERFACE m_axi port=neg_pma_addrs offset=slave bundle=gmem17
+        // #pragma HLS INTERFACE m_axi port=neg_pma_addrs offset=slave bundle=gmem17
         
         #pragma HLS INTERFACE s_axilite port=hbm_ptr_1 bundle=control
         #pragma HLS INTERFACE s_axilite port=hbm_ptr_2 bundle=control
@@ -367,7 +322,7 @@ extern "C"
         #pragma HLS INTERFACE s_axilite port=hbm_ptr_7 bundle=control
         #pragma HLS INTERFACE s_axilite port=hbm_ptr_8 bundle=control
         #pragma HLS INTERFACE s_axilite port=pos_pma_addrs bundle=control
-        #pragma HLS INTERFACE s_axilite port=neg_pma_addrs bundle=control
+        // #pragma HLS INTERFACE s_axilite port=neg_pma_addrs bundle=control
         #pragma HLS INTERFACE s_axilite port=return bundle=control
 
         #pragma HLS INTERFACE axis port=req_from_vertex_1
@@ -516,7 +471,7 @@ extern "C"
 
         vec_info_merger(
             pos_pma_addrs,
-            neg_pma_addrs,
+            // neg_pma_addrs,
             vec_info_to_merger,
             vec_info_from_merger,
             signal_to_worker[MEM_CHANNELS]

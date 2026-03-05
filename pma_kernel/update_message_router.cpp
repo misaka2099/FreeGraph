@@ -448,11 +448,50 @@ extern "C"
                             break;
                         }
                         int src = msg.data.range(31,0);  
+                        int opcode = msg.data.range(127,96);
                         int pma_idx = src / VERTEX_PER_PMA;
-                        int hash = pma_idx % (MAX_COMMAND_BUFFER_NUM / 2);
-                        if (msg.data.range(98,98) == OUT_DIRECTION)
+                        int hash = pma_idx % (MAX_COMMAND_BUFFER_NUM);
+                        // if (msg.data.range(98,98) == OUT_DIRECTION)
+                        // {
+                        //     hash += MAX_COMMAND_BUFFER_NUM / 2;
+                        // }
+                        if (opcode == PMA_DELETE_VERTEX)
                         {
-                            hash += MAX_COMMAND_BUFFER_NUM / 2;
+                            // Drop any buffered commands for this hash because they occurred before delete-vertex
+                            count[hash] = 0;
+
+                            // Wait until we can send immediately (no conflict and inflight not full)
+                            while (check_inflight(in_flight, pma_idx) || in_flight_count >= MAX_INFLIGHT_NUM)
+                            {
+                                check_ack_back(
+                                    in_flight,
+                                    in_flight_count,
+                                    ack_from_insert_edge_1,
+                                    ack_from_insert_edge_2,
+                                    ack_from_insert_edge_3,
+                                    ack_from_insert_edge_4,
+                                    ack_from_insert_edge_5,
+                                    ack_from_insert_edge_6,
+                                    ack_from_insert_edge_7,
+                                    ack_from_insert_edge_8
+                                );
+                            }
+
+                            int worker = pma_idx % ROUTER_WORKERS;
+                            switch (worker)
+                            {
+                                case 0: cmd_to_insert_edge_1.write(msg); break;
+                                case 1: cmd_to_insert_edge_2.write(msg); break;
+                                case 2: cmd_to_insert_edge_3.write(msg); break;
+                                case 3: cmd_to_insert_edge_4.write(msg); break;
+                                case 4: cmd_to_insert_edge_5.write(msg); break;
+                                case 5: cmd_to_insert_edge_6.write(msg); break;
+                                case 6: cmd_to_insert_edge_7.write(msg); break;
+                                case 7: cmd_to_insert_edge_8.write(msg); break;
+                                default: break;
+                            }
+                            add_inflight(in_flight, in_flight_count, pma_idx);
+                            break;
                         }
                         if (count[hash] == 0)
                         {

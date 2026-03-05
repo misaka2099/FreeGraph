@@ -7,8 +7,11 @@ extern "C"
     void update_message_generator(
         int add_vertex_num,
         int add_edge_num,
+        int delete_vertex_num,
+        int delete_edge_num,
         int *src,
         int *dst,
+        int *opcode,
         // int *src_to_change,
         // double *attr_to_change,
         // int src_attr_change_num,
@@ -57,12 +60,11 @@ extern "C"
         for (int i = start_pma_idx ; i < end_pma_idx  ; i++)
         {
             #pragma HLS PIPELINE II=1
-            PMA_UPDATE_MESSAGE msg;
+            PMA_UPDATE_MESSAGE msg{};
+            msg.data = 0;
             msg.data.range(31,0) = i * VERTEX_PER_PMA;
             msg.data.range(63,32) = 0;
-            msg.data.range(97,96) = PMA_INSERT_VERTEX;
-            msg.data.range(98,98) = OUT_DIRECTION; //default in direction
-            msg.data[127] = 1;
+            msg.data.range(127,96) = PMA_INSERT_VERTEX; // opcode stored in high 32 bits
             msg.last = last;
             cmd_to_router.write(msg);
         }
@@ -91,12 +93,11 @@ extern "C"
         for (int i = 0 ; i < add_edge_num ; i++)
         {
             #pragma HLS PIPELINE II=1
-            PMA_UPDATE_MESSAGE msg;
+            PMA_UPDATE_MESSAGE msg{};
+            msg.data = 0;
             msg.data.range(31,0) = src[i];
             msg.data.range(63,32) = dst[i];
-            msg.data.range(97,96) = PMA_INSERT_EDGE;
-            msg.data.range(98,98) = OUT_DIRECTION; //default in direction
-            msg.data[127] = 1;
+            msg.data.range(127,96) = opcode[i]; // opcode stored in high 32 bits
             msg.last = last;
             cmd_to_router.write(msg);
         }

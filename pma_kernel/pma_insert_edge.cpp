@@ -49,7 +49,7 @@ struct INTRA_COMMAND_STREAM
 struct VEC_INFO_ACCESS 
 {
     memory_access_type command_type;
-    ap_uint<1> direction;
+    // ap_uint<1> direction;
     int pma_idx;
 };
 void read_seg(
@@ -296,15 +296,15 @@ void process_cmd(
                 continue;
             }
             cmd_batch[i] = cmd.data;
-            cmd_batch[i][127] = 1;
             cmd_count++;
             if (cmd.last == 1) {
                 break;
             }
         }
         pma_idx_info info;
-        info.direction = cmd_batch[0].range(98,98);
+        // info.direction = cmd_batch[0].range(98,98);
         info.pma_idx = cmd_batch[0].range(31,0) / VERTEX_PER_PMA;
+        info.last = 0;
         
         for (int i = 0 ; i < MAX_PMA_IDX_INFO_REQUEST ; i++)
         {
@@ -322,7 +322,7 @@ void process_cmd(
 void sort_cu(
     hls::stream<int>& cmd_count_stream,
     hls::stream<ap_uint<128>>& cmd_batch_stream,
-    hls::stream<ap_uint<64>>& edge_info_stream,
+    hls::stream<ap_uint<128>>& edge_info_stream,
     hls::stream<int> &edge_count,
     hls::stream<pma_idx_info> &for_exit_signal 
 )
@@ -336,7 +336,7 @@ void sort_cu(
             break;
         }
         int cmd_count = cmd_count_stream.read();
-        ap_uint<64> edge_info[MAX_CMD_NUM];
+        ap_uint<128> edge_info[MAX_CMD_NUM];
         #pragma HLS ARRAY_PARTITION variable=edge_info complete
 
         // 收集边信息
@@ -347,8 +347,15 @@ void sort_cu(
             // {
             //     return;
             // }
-            edge_info[i].range(63,32) = cmd.range(31,0); // src
-            edge_info[i].range(31,0)  = cmd.range(63,32); // dst
+            // edge_info format:
+            // 127-96: src
+            // 95-64: dst
+            // 63-32: opcode (extended)
+            // 31-0: reserved/padding
+            edge_info[i] = 0;
+            edge_info[i].range(127,96) = cmd.range(31,0);  // src
+            edge_info[i].range(95,64)  = cmd.range(63,32); // dst
+            edge_info[i].range(63,32)  = cmd.range(127,96); // Include opcode region
         }
         // for (int i = cmd_count ; i < MAX_CMD_NUM ; i++)
         // {
@@ -371,7 +378,7 @@ void sort_cu(
         //     }
         // }
         for (int i = 1; i < cmd_count; i++) {
-            ap_uint<64> key = edge_info[i];
+            ap_uint<128> key = edge_info[i];
             int j = i - 1;
             while (j >= 0 && edge_info[j] > key) {
                 edge_info[j + 1] = edge_info[j];
@@ -423,11 +430,11 @@ void head_read(
             break;
         }
         int pma_idx = info.pma_idx;
-        int direction = info.direction;
+        // int direction = OUT_DIRECTION;
         VEC_INFO vec;
         VEC_INFO_ACCESS access_command;
         access_command.command_type = READ;
-        access_command.direction = direction;
+        // access_command.direction = OUT_DIRECTION;
         access_command.pma_idx = pma_idx;
         vec_info_access_command.write(access_command);
         #pragma HLS protocol fixed
@@ -483,7 +490,7 @@ void binary_search_and_insert_cu(
     hls::stream<PMA_HEADER> &pma_header_in,
     hls::stream<PMA_HEADER> &pma_header_out,
     hls::stream<VEC_INFO> &pma_addr,
-    hls::stream<ap_uint<64>> &edge_info_stream,
+    hls::stream<ap_uint<128>> &edge_info_stream,
     hls::stream<int> &edge_count,
     hls::stream<pma_idx_info> &pma_idx,
     hls::stream<inserted_seg>& inserted_pos,
@@ -533,8 +540,9 @@ void binary_search_and_insert_cu(
         for (int i = 0 ; i < count ; i++)
         {
             auto edge_info = edge_info_stream.read();
-            int src = edge_info.range(63,32);
-            int dst = edge_info.range(31,0);
+            int src = edge_info.range(127,96);
+            int dst = edge_info.range(95,64);
+            int opcode = edge_info.range(63,32);
             int local_src = src % VERTEX_PER_PMA;
 
             int low_seg = local_src == 0 ? 0 : header.vertex_range[local_src - 1];
@@ -548,6 +556,47 @@ void binary_search_and_insert_cu(
             int out_idx = low_seg * SEGMENT_SIZE - 1;
             int out_val = -1;
             bool find = false;
+            int found_idx_for_del = -1; 
+            int found_seg_for_del = -1;
+
+            if (opcode == PMA_DELETE_VERTEX)
+            {
+                if (current_cached_id != -1 && is_dirty) {
+                   write_seg(memory_access_stream, data_to_mem, data_from_mem, storage, pma_data_base_addr, current_cached_id);
+                   is_dirty = false;
+                   current_cached_id = -1;  // Invalidate cache after flushing
+                }
+                
+                // Prepare empty buffer
+                for(int k=0; k<SEGMENT_SIZE; k++) storage[k] = UNUSED_ICON;
+
+                // Iterate through segments
+                for (int s = low_seg; s <= high_seg; s++)
+                {
+                    // Write to mem
+                    write_seg(memory_access_stream, data_to_mem, data_from_mem, storage, pma_data_base_addr, s);
+                }
+                
+                // Update header state
+                header.edge_count[local_src] = 0;
+                last_found_seg = -1;
+                
+                // Since we just cleared everything, logic:
+                // If we accessed any segment, storage now holds UNUSED_ICONs which matches that segment.
+                // We can set current_cached_id to the last segment we wrote to efficiently resume if needed,
+                // BUT only if we actually wrote something (high_seg >= low_seg).
+                if (high_seg >= low_seg) {
+                   current_cached_id = high_seg;
+                   // storage already has UNUSED_ICONs, so it matches high_seg content
+                } else {
+                   // No segments exist for this vertex possibly?
+                   current_cached_id = -1;
+                }
+                is_dirty = false;
+                
+                continue;
+            }
+
             BINARY_SEARCH:
             while (low_seg <= high_seg)
             {
@@ -581,6 +630,8 @@ void binary_search_and_insert_cu(
                             out_idx = mid * SEGMENT_SIZE + j;
                             out_val = dst;
                             match_perfect = true;
+                            found_idx_for_del = j;
+                            found_seg_for_del = mid;
                             break;
                             // already exists
                         }
@@ -616,7 +667,33 @@ void binary_search_and_insert_cu(
                 if (find) break;
             }
             
-            if (out_val != dst)
+            if (opcode == PMA_DELETE_EDGE)
+            {
+                if (found_seg_for_del != -1)
+                {
+                     if (current_cached_id != found_seg_for_del) {
+                        if (is_dirty) {
+                            write_seg(memory_access_stream, data_to_mem, data_from_mem, storage, pma_data_base_addr, current_cached_id);
+                            is_dirty = false;
+                        }
+                        read_seg(memory_access_stream, data_from_mem, storage, pma_data_base_addr, found_seg_for_del);
+                        current_cached_id = found_seg_for_del;
+                     }
+
+                     int offset = found_idx_for_del;
+                     for (int k = offset; k < SEGMENT_SIZE - 1; k++)
+                     {
+                         #pragma HLS UNROLL
+                         storage[k] = storage[k+1];
+                     }
+                     storage[SEGMENT_SIZE - 1] = UNUSED_ICON;
+                     is_dirty = true;
+
+                     header.edge_count[local_src]--;
+                     last_found_seg = found_seg_for_del;
+                }
+            }
+            else if (out_val != dst)
             {
                 int target_idx = out_idx + 1;
                 int target_seg = target_idx / SEGMENT_SIZE;
@@ -970,7 +1047,6 @@ void move_and_change_header(
         }
         auto header = header_stream.read();
         auto old_header = header;
-        int direction = pma_info.direction;
         int pma_index = pma_info.pma_idx;
         int enlarge_segs[16];
         for (int i = 0 ; i < 16 ; i++)
@@ -1008,7 +1084,7 @@ void move_and_change_header(
 
             VEC_INFO_ACCESS access_command;
             access_command.command_type = WRITE;
-            access_command.direction = direction;
+            // access_command.direction = direction;
             access_command.pma_idx = pma_index;
             vec_info_access_command.write(access_command);
             vec_info_to_accesser.write(new_addr);
@@ -1174,10 +1250,11 @@ void mem_adapter(
 
                     if (vec_cmd.command_type == READ)
                     {
-                        if (vec_cmd.direction == OUT_DIRECTION)
-                            cmd.command_type = POS_VEC_INFO_READ;
-                        else
-                            cmd.command_type = NEG_VEC_INFO_READ;
+                        // if (vec_cmd.direction == OUT_DIRECTION)
+                        //     cmd.command_type = POS_VEC_INFO_READ;
+                        // else
+                        //     cmd.command_type = NEG_VEC_INFO_READ;
+                        cmd.command_type = VEC_INFO_READ;
                         
                         cmd.start = 0;
                         cmd.len = 0;
@@ -1194,10 +1271,11 @@ void mem_adapter(
                     else // WRITE
                     {
                         VEC_INFO vec_info = vec_info_from_app.read();
-                        if (vec_cmd.direction == OUT_DIRECTION)
-                            cmd.command_type = POS_VEC_INFO_WRITE;
-                        else
-                            cmd.command_type = NEG_VEC_INFO_WRITE;
+                        // if (vec_cmd.direction == OUT_DIRECTION)
+                        //     cmd.command_type = POS_VEC_INFO_WRITE;
+                        // else
+                        //     cmd.command_type = NEG_VEC_INFO_WRITE;
+                        cmd.command_type = VEC_INFO_WRITE;
                         
                         cmd.start = vec_info.range(31,0); 
                         cmd.len = vec_info.range(63,32);
@@ -1245,7 +1323,7 @@ extern "C"
         hls::stream<int> cmd_count_stream ;
         hls::stream<ap_uint<128>> cmd_batch_stream ;
 
-        hls::stream<ap_uint<64>> edge_info_stream ;
+        hls::stream<ap_uint<128>> edge_info_stream ;
         hls::stream<int> edge_count_stream ;
 
         hls::stream<PMA_HEADER> header_from_insert ;

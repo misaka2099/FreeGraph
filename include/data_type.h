@@ -5,7 +5,8 @@
 #include "ap_int.h"
 #include "ap_axi_sdata.h"
 // typedef  ap_uint<8> BYTE_STREAM;
-#define CHANNEL_CAPACITY (64*1024*1024)
+#define CHANNEL_CAPACITY (1*1024*1024)
+// #define CHANNEL_CAPACITY (64*1024*1024)
 #define CHANNEL_NUM 8
 typedef ap_axiu<8,0,0,0> BYTE_STREAM ;
 typedef ap_axiu<32,3,0,0> COMMAND_STREAM;
@@ -15,6 +16,8 @@ typedef ap_uint<8> BYTE;
 #define PMA_STOP 0
 #define PMA_INSERT_EDGE 1 
 #define PMA_INSERT_VERTEX 2 
+#define PMA_DELETE_EDGE 3
+#define PMA_DELETE_VERTEX 4
 #define PMA_GET_OUT_EDGE 3
 #define PMA_GET_IN_EDGE 4 
 #define PMA_GET_ATTR 5 
@@ -51,8 +54,8 @@ typedef ap_axiu<72, 0, 0, 0> TAG_STREAM; // 64 VECINFO + 8tag
 typedef ap_axiu<128, 0, 0, 0> PMA_UPDATE_MESSAGE; 
 #define MAX_PMA_NUM 1000000
 
-#define OUT_DIRECTION 0
-#define IN_DIRECTION 1
+// #define OUT_DIRECTION 0
+// #define IN_DIRECTION 1
 typedef ap_axiu<64,0,0,0> READ_COMMAND_STREAM; 
 typedef  ap_axiu<8,0,0,0> CLEAR_ICON;
 
@@ -97,7 +100,7 @@ struct INTRA_PMA_UPDATE_MESSAGE
 struct pma_idx_info
 {
     int pma_idx;
-    int direction;
+    // int direction;
     int last;
 };
 //range(31,0) start
@@ -111,10 +114,8 @@ enum MEMORY_INFO_ACCESS_TYPE
 {
     MEMORY_READ = 0,
     MEMORY_WRITE = 1,
-    POS_VEC_INFO_READ = 2,
-    POS_VEC_INFO_WRITE = 3,
-    NEG_VEC_INFO_READ = 4,
-    NEG_VEC_INFO_WRITE = 5
+    VEC_INFO_READ = 2,
+    VEC_INFO_WRITE = 3
 };
 
 struct MEMORY_INFO_ACCESS_COMMAND

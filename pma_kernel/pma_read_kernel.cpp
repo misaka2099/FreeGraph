@@ -18,7 +18,6 @@ struct internal_axis {
 struct READ_COMMAND 
 {
     int src_idx;
-    int direction;
     int last;
     int mode;
 };
@@ -48,7 +47,7 @@ static void distributor(
         
         if (cmd.data == PMA_STOP && cmd.last == 1)
         {
-            READ_COMMAND stop_cmd = {0, 0, 1, 0};
+            READ_COMMAND stop_cmd = {0, 1, 0};
             worker_0_cmd.write(stop_cmd);
             worker_1_cmd.write(stop_cmd);
             worker_2_cmd.write(stop_cmd);
@@ -62,12 +61,7 @@ static void distributor(
         }
 
         ap_uint<32> opcode = cmd.data.range(31,0);
-        ap_uint<1> direction = OUT_DIRECTION;
         int mode = -1;
-        if (opcode == PMA_GET_ALL_IN_EDGE_COO || opcode == PMA_GET_IN_EDGE || opcode == PMA_GET_ALL_IN_EDGE_CSR)
-        {
-            direction = IN_DIRECTION;
-        }
 
         if (opcode == PMA_GET_IN_EDGE || opcode == PMA_GET_OUT_EDGE) mode = 0;
         else if (opcode == PMA_GET_ALL_IN_EDGE_COO || opcode == PMA_GET_ALL_OUT_EDGE_COO) mode = 1;
@@ -78,7 +72,7 @@ static void distributor(
         {
             int src = cmd.data.range(63,32);
             int pma_idx = src / VERTEX_PER_PMA;
-            READ_COMMAND rc = {src, (int)direction, 0, mode};
+            READ_COMMAND rc = {src, 0, mode};
             
             switch (pma_idx % 8)
             {
@@ -97,13 +91,13 @@ static void distributor(
         else // Scan All
         {
             // Send global command to merger first
-            READ_COMMAND global_rc = {0, (int)direction, 0, mode};
+            READ_COMMAND global_rc = {0, 0, mode};
             merger_cmd.write(global_rc);
 
             for (int pma_idx = 0; pma_idx < MAX_PMA_NUM; pma_idx++)
             {
                 int src = pma_idx * VERTEX_PER_PMA; // Base src for PMA
-                READ_COMMAND worker_rc = {src, (int)direction, 0, mode};
+                READ_COMMAND worker_rc = {src, 0, mode};
                 switch (pma_idx % 8)
                 {
                     case 0: worker_0_cmd.write(worker_rc); break;
@@ -254,11 +248,10 @@ static void merger_unified(
 static VEC_INFO fetch_vec_info(
     hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_stream,
     hls::stream<VEC_INFO_STREAM> &vec_stream,
-    ap_uint<1> direction,
     int pma_idx)
 {
     MEMORY_INFO_ACCESS_COMMAND cmd = {};
-    cmd.command_type = (direction == OUT_DIRECTION) ? POS_VEC_INFO_READ : NEG_VEC_INFO_READ;
+    cmd.command_type = VEC_INFO_READ; // single direction
     cmd.pma_idx = pma_idx;
     cmd.start = 0;
     cmd.len = 0;
@@ -395,7 +388,7 @@ static void read_worker(
         pkt_end.data=0; pkt_end.keep=0; pkt_end.strb=0; pkt_end.last=1;
 
         int pma_idx = cmd.src_idx / VERTEX_PER_PMA;
-        VEC_INFO vec_info = fetch_vec_info(req_to_mem_access_ch, vec_info_back_stream_ch, cmd.direction, pma_idx);
+        VEC_INFO vec_info = fetch_vec_info(req_to_mem_access_ch, vec_info_back_stream_ch, pma_idx);
         
         if (vec_info == 0) 
         {
