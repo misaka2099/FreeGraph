@@ -128,16 +128,15 @@ void write_hbm(
         VEC_INFO vec_info = vec_info_back_stream.read().data;
         PMA_HEADER header = header_in.read();
         int pma_idx = cmd.data.range(31,0) / VERTEX_PER_PMA;
-        int direction = cmd.data.range(98,98);
         // printf("PROCESSING PMA IDX %d START %d, LEN %d \n",pma_idx, int(vec_info.range(31,0)), int(vec_info.range(63,32)));
        
         // 1. Update VEC_INFO
         MEMORY_INFO_ACCESS_COMMAND vec_cmd;
-        if (direction == OUT_DIRECTION)
-            vec_cmd.command_type = POS_VEC_INFO_WRITE;
-        else 
-            vec_cmd.command_type = NEG_VEC_INFO_WRITE;
-            
+        // if (direction == OUT_DIRECTION)
+        //     vec_cmd.command_type = POS_VEC_INFO_WRITE;
+        // else 
+        //     vec_cmd.command_type = NEG_VEC_INFO_WRITE;
+        vec_cmd.command_type = VEC_INFO_WRITE; // single direction
         vec_cmd.pma_idx = pma_idx;
         vec_cmd.start = vec_info.range(31,0);
         vec_cmd.len = vec_info.range(63,32);
@@ -214,7 +213,7 @@ extern "C"
     void pma_insert_vertex(
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_stream,
         //mem operation
-        hls::stream<MEMORY_ALLOC_FREE_REQUEST> &req_to_mem_stream,
+        hls::stream<MEMORY_ALLOC_FREE_REQUEST> &req_to_mem_alloc,
         hls::stream<VEC_INFO_STREAM> &vec_info_back_stream,
         hls::stream<COMMAND_STREAM> &ack_back_to_router,
         hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access,
@@ -222,7 +221,7 @@ extern "C"
     )
     {
         #pragma HLS INTERFACE axis port=cmd_stream
-        #pragma HLS INTERFACE axis port=req_to_mem_stream
+        #pragma HLS INTERFACE axis port=req_to_mem_alloc
         #pragma HLS INTERFACE axis port=vec_info_back_stream
         #pragma HLS INTERFACE axis port=ack_back_to_router
         #pragma HLS INTERFACE axis port=req_to_mem_access
@@ -244,7 +243,7 @@ extern "C"
         read_cmd(cmd_stream, cmd_to_alloc, cmd_to_header, cmd_to_writer);
         
         // 2. 并行处理
-        send_alloc_request(req_to_mem_stream, cmd_to_alloc);
+        send_alloc_request(req_to_mem_alloc, cmd_to_alloc);
         process_header(cmd_to_header, header_to_writer);
         
         // 3. 唯一的接收者和最终写入

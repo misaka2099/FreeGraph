@@ -22,22 +22,18 @@ struct READ_COMMAND
     int mode;
 };
 
-static void read_header(
-    int start_addr,
-    hls::stream<MEMORY_INFO_ACCESS_COMMAND> &memory_access_stream,
-    hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access,
-    PMA_HEADER &pma_header);
+static const int READ_WORKERS = 2;
+
+// static void read_header(
+//     int start_addr,
+//     hls::stream<MEMORY_INFO_ACCESS_COMMAND> &memory_access_stream,
+//     hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access,
+//     PMA_HEADER &pma_header);
 
 static void distributor(
     hls::stream<READ_COMMAND_STREAM> &cmd_in,
     hls::stream<READ_COMMAND> &worker_0_cmd,
     hls::stream<READ_COMMAND> &worker_1_cmd,
-    hls::stream<READ_COMMAND> &worker_2_cmd,
-    hls::stream<READ_COMMAND> &worker_3_cmd,
-    hls::stream<READ_COMMAND> &worker_4_cmd,
-    hls::stream<READ_COMMAND> &worker_5_cmd,
-    hls::stream<READ_COMMAND> &worker_6_cmd,
-    hls::stream<READ_COMMAND> &worker_7_cmd,
     hls::stream<READ_COMMAND> &merger_cmd
 )
 {
@@ -50,12 +46,6 @@ static void distributor(
             READ_COMMAND stop_cmd = {0, 1, 0};
             worker_0_cmd.write(stop_cmd);
             worker_1_cmd.write(stop_cmd);
-            worker_2_cmd.write(stop_cmd);
-            worker_3_cmd.write(stop_cmd);
-            worker_4_cmd.write(stop_cmd);
-            worker_5_cmd.write(stop_cmd);
-            worker_6_cmd.write(stop_cmd);
-            worker_7_cmd.write(stop_cmd);
             merger_cmd.write(stop_cmd);
             break;
         }
@@ -74,16 +64,10 @@ static void distributor(
             int pma_idx = src / VERTEX_PER_PMA;
             READ_COMMAND rc = {src, 0, mode};
             
-            switch (pma_idx % 8)
+            switch (pma_idx % READ_WORKERS)
             {
                 case 0: worker_0_cmd.write(rc); break;
                 case 1: worker_1_cmd.write(rc); break;
-                case 2: worker_2_cmd.write(rc); break;
-                case 3: worker_3_cmd.write(rc); break;
-                case 4: worker_4_cmd.write(rc); break;
-                case 5: worker_5_cmd.write(rc); break;
-                case 6: worker_6_cmd.write(rc); break;
-                case 7: worker_7_cmd.write(rc); break;
             }
             
             merger_cmd.write(rc);
@@ -98,42 +82,13 @@ static void distributor(
             {
                 int src = pma_idx * VERTEX_PER_PMA; // Base src for PMA
                 READ_COMMAND worker_rc = {src, 0, mode};
-                switch (pma_idx % 8)
+                switch (pma_idx % READ_WORKERS)
                 {
                     case 0: worker_0_cmd.write(worker_rc); break;
                     case 1: worker_1_cmd.write(worker_rc); break;
-                    case 2: worker_2_cmd.write(worker_rc); break;
-                    case 3: worker_3_cmd.write(worker_rc); break;
-                    case 4: worker_4_cmd.write(worker_rc); break;
-                    case 5: worker_5_cmd.write(worker_rc); break;
-                    case 6: worker_6_cmd.write(worker_rc); break;
-                    case 7: worker_7_cmd.write(worker_rc); break;
                 }
             }
         }
-    }
-}
-
-template<int W>
-static void consume_one_packet(
-    hls::stream<internal_axis<W>> &in_stream, 
-    hls::stream<ap_axiu<W,0,0,0>> &out_stream)
-{
-    #pragma HLS INLINE
-    while(true)
-    {
-        #pragma HLS PIPELINE II=1
-        internal_axis<W> pkt = in_stream.read();
-        ap_axiu<W,0,0,0> out_pkt;
-        out_pkt.data = pkt.data;
-        out_pkt.keep = pkt.keep;
-        out_pkt.strb = pkt.strb;
-        out_pkt.last = pkt.last;
-        out_pkt.user = 0;
-        out_pkt.id = 0;
-        out_pkt.dest = 0;
-        out_stream.write(out_pkt);
-        if (pkt.last) break;
     }
 }
 
@@ -141,12 +96,6 @@ static void merger_unified(
     hls::stream<READ_COMMAND> &cmd_in,
     hls::stream<internal_axis<64>> &in0,
     hls::stream<internal_axis<64>> &in1,
-    hls::stream<internal_axis<64>> &in2,
-    hls::stream<internal_axis<64>> &in3,
-    hls::stream<internal_axis<64>> &in4,
-    hls::stream<internal_axis<64>> &in5,
-    hls::stream<internal_axis<64>> &in6,
-    hls::stream<internal_axis<64>> &in7,
     hls::stream<ap_axiu<32,0,0,0>> &out_nei,
     hls::stream<ap_axiu<64,0,0,0>> &out_coo,
     hls::stream<ap_axiu<32,0,0,0>> &out_csr_col,
@@ -169,8 +118,8 @@ static void merger_unified(
         for (int i = 0; i < iterations; i++)
         {
             int worker_idx;
-            if (cmd.mode == 0) worker_idx = (cmd.src_idx / VERTEX_PER_PMA) % 8;
-            else worker_idx = i % 8;
+            if (cmd.mode == 0) worker_idx = (cmd.src_idx / VERTEX_PER_PMA) % READ_WORKERS;
+            else worker_idx = i % READ_WORKERS;
 
             while(true)
             {
@@ -180,12 +129,6 @@ static void merger_unified(
                 {
                     case 0: pkt = in0.read(); break;
                     case 1: pkt = in1.read(); break;
-                    case 2: pkt = in2.read(); break;
-                    case 3: pkt = in3.read(); break;
-                    case 4: pkt = in4.read(); break;
-                    case 5: pkt = in5.read(); break;
-                    case 6: pkt = in6.read(); break;
-                    case 7: pkt = in7.read(); break;
                 }
 
                 // If this is a control "last" packet, and we are in loop, we break loop
@@ -460,25 +403,7 @@ extern "C"
         hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch1,
         hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch2,
         hls::stream<VEC_INFO_STREAM> &vec_info_back_stream_ch2,
-        hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch2,
-        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch3,
-        hls::stream<VEC_INFO_STREAM> &vec_info_back_stream_ch3,
-        hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch3,
-        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch4,
-        hls::stream<VEC_INFO_STREAM> &vec_info_back_stream_ch4,
-        hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch4,
-        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch5,
-        hls::stream<VEC_INFO_STREAM> &vec_info_back_stream_ch5,
-        hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch5,
-        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch6,
-        hls::stream<VEC_INFO_STREAM> &vec_info_back_stream_ch6,
-        hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch6,
-        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch7,
-        hls::stream<VEC_INFO_STREAM> &vec_info_back_stream_ch7,
-        hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch7,
-        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch8,
-        hls::stream<VEC_INFO_STREAM> &vec_info_back_stream_ch8,
-        hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch8)
+        hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch2)
     {
         #pragma HLS INTERFACE axis port=cmd_stream
         #pragma HLS INTERFACE axis port=data_to_nei_query
@@ -491,42 +416,11 @@ extern "C"
         #pragma HLS INTERFACE axis port=req_to_mem_access_ch2
         #pragma HLS INTERFACE axis port=vec_info_back_stream_ch2
         #pragma HLS INTERFACE axis port=data_from_mem_access_ch2
-        #pragma HLS INTERFACE axis port=req_to_mem_access_ch3
-        #pragma HLS INTERFACE axis port=vec_info_back_stream_ch3
-        #pragma HLS INTERFACE axis port=data_from_mem_access_ch3
-        #pragma HLS INTERFACE axis port=req_to_mem_access_ch4
-        #pragma HLS INTERFACE axis port=vec_info_back_stream_ch4
-        #pragma HLS INTERFACE axis port=data_from_mem_access_ch4
-        #pragma HLS INTERFACE axis port=req_to_mem_access_ch5
-        #pragma HLS INTERFACE axis port=vec_info_back_stream_ch5
-        #pragma HLS INTERFACE axis port=data_from_mem_access_ch5
-        #pragma HLS INTERFACE axis port=req_to_mem_access_ch6
-        #pragma HLS INTERFACE axis port=vec_info_back_stream_ch6
-        #pragma HLS INTERFACE axis port=data_from_mem_access_ch6
-        #pragma HLS INTERFACE axis port=req_to_mem_access_ch7
-        #pragma HLS INTERFACE axis port=vec_info_back_stream_ch7
-        #pragma HLS INTERFACE axis port=data_from_mem_access_ch7
-        #pragma HLS INTERFACE axis port=req_to_mem_access_ch8
-        #pragma HLS INTERFACE axis port=vec_info_back_stream_ch8
-        #pragma HLS INTERFACE axis port=data_from_mem_access_ch8
-
         hls::stream<READ_COMMAND> worker_cmd_0;
         hls::stream<READ_COMMAND> worker_cmd_1;
-        hls::stream<READ_COMMAND> worker_cmd_2;
-        hls::stream<READ_COMMAND> worker_cmd_3;
-        hls::stream<READ_COMMAND> worker_cmd_4;
-        hls::stream<READ_COMMAND> worker_cmd_5;
-        hls::stream<READ_COMMAND> worker_cmd_6;
-        hls::stream<READ_COMMAND> worker_cmd_7;
         
         #pragma HLS STREAM variable=worker_cmd_0 depth=16
         #pragma HLS STREAM variable=worker_cmd_1 depth=16
-        #pragma HLS STREAM variable=worker_cmd_2 depth=16
-        #pragma HLS STREAM variable=worker_cmd_3 depth=16
-        #pragma HLS STREAM variable=worker_cmd_4 depth=16
-        #pragma HLS STREAM variable=worker_cmd_5 depth=16
-        #pragma HLS STREAM variable=worker_cmd_6 depth=16
-        #pragma HLS STREAM variable=worker_cmd_7 depth=16
         
         hls::stream<READ_COMMAND> merger_cmd;
         #pragma HLS STREAM variable=merger_cmd depth=64
@@ -534,40 +428,20 @@ extern "C"
         // Unified 64-bit internal streams
         hls::stream<internal_axis<64>> u_stream_0;
         hls::stream<internal_axis<64>> u_stream_1;
-        hls::stream<internal_axis<64>> u_stream_2;
-        hls::stream<internal_axis<64>> u_stream_3;
-        hls::stream<internal_axis<64>> u_stream_4;
-        hls::stream<internal_axis<64>> u_stream_5;
-        hls::stream<internal_axis<64>> u_stream_6;
-        hls::stream<internal_axis<64>> u_stream_7;
         
         #pragma HLS STREAM variable=u_stream_0 depth=128
         #pragma HLS STREAM variable=u_stream_1 depth=128
-        #pragma HLS STREAM variable=u_stream_2 depth=128
-        #pragma HLS STREAM variable=u_stream_3 depth=128
-        #pragma HLS STREAM variable=u_stream_4 depth=128
-        #pragma HLS STREAM variable=u_stream_5 depth=128
-        #pragma HLS STREAM variable=u_stream_6 depth=128
-        #pragma HLS STREAM variable=u_stream_7 depth=128
 
         #pragma HLS DATAFLOW
         distributor(cmd_stream, 
-            worker_cmd_0, worker_cmd_1, worker_cmd_2, worker_cmd_3,
-            worker_cmd_4, worker_cmd_5, worker_cmd_6, worker_cmd_7, 
+            worker_cmd_0, worker_cmd_1,
             merger_cmd);
             
         read_worker(worker_cmd_0, u_stream_0, req_to_mem_access_ch1, vec_info_back_stream_ch1, data_from_mem_access_ch1);
         read_worker(worker_cmd_1, u_stream_1, req_to_mem_access_ch2, vec_info_back_stream_ch2, data_from_mem_access_ch2);
-        read_worker(worker_cmd_2, u_stream_2, req_to_mem_access_ch3, vec_info_back_stream_ch3, data_from_mem_access_ch3);
-        read_worker(worker_cmd_3, u_stream_3, req_to_mem_access_ch4, vec_info_back_stream_ch4, data_from_mem_access_ch4);
-        read_worker(worker_cmd_4, u_stream_4, req_to_mem_access_ch5, vec_info_back_stream_ch5, data_from_mem_access_ch5);
-        read_worker(worker_cmd_5, u_stream_5, req_to_mem_access_ch6, vec_info_back_stream_ch6, data_from_mem_access_ch6);
-        read_worker(worker_cmd_6, u_stream_6, req_to_mem_access_ch7, vec_info_back_stream_ch7, data_from_mem_access_ch7);
-        read_worker(worker_cmd_7, u_stream_7, req_to_mem_access_ch8, vec_info_back_stream_ch8, data_from_mem_access_ch8);
         
         merger_unified(merger_cmd, 
-            u_stream_0, u_stream_1, u_stream_2, u_stream_3,
-            u_stream_4, u_stream_5, u_stream_6, u_stream_7, 
+            u_stream_0, u_stream_1,
             data_to_nei_query,
             data_to_coo_stream,
             data_to_csr_col_stream,

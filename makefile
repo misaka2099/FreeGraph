@@ -5,10 +5,11 @@ INCLUDES := -I /home/sail/lyf/pma_demo/stream/include
 TARGET ?= sw_emu
 MEMKERNEL_DIR := ./memkernel
 PMA_KERNEL_DIR := ./pma_kernel
-MEM_XO_FILES := $(addprefix $(MEMKERNEL_DIR)/, alloc_free_kernel.xo   merge_alloc_req.xo mem_access_kernel.xo)
+MEM_XO_FILES := $(addprefix $(MEMKERNEL_DIR)/, alloc_access_kernel.xo mem_access_kernel.xo)
 PMA_XO_FILES := $(addprefix $(PMA_KERNEL_DIR)/, update_message_generator.xo update_message_router.xo pma_insert_vertex.xo pma_insert_edge.xo pma_read_kernel.xo check_kernel.xo signal_kernel.xo)
 
 XCLBIN_FILE := $(TARGET)_test_all.xclbin
+CONFIG_FILES := system.cfg profile.cfg
 all: subdirs $(XCLBIN_FILE)
 
 subdirs:
@@ -31,3 +32,4 @@ clean:
 	$(MAKE) -C memkernel clean
 	$(MAKE) -C pma_kernel clean
 	rm -f $(XCLBIN_FILE) host
+	rm -rf _x/link

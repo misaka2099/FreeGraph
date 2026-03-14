@@ -7,7 +7,7 @@
 // typedef  ap_uint<8> BYTE_STREAM;
 #define CHANNEL_CAPACITY (1*1024*1024)
 // #define CHANNEL_CAPACITY (64*1024*1024)
-#define CHANNEL_NUM 8
+#define CHANNEL_NUM 2
 typedef ap_axiu<8,0,0,0> BYTE_STREAM ;
 typedef ap_axiu<32,3,0,0> COMMAND_STREAM;
 typedef ap_uint<32> COMMAND;
@@ -40,6 +40,7 @@ typedef ap_uint<8> BYTE;
 //32-63 length
 typedef ap_uint<64> VEC_INFO;
 typedef ap_axiu<64, 3, 0, 0> VEC_INFO_STREAM;
+typedef ap_axiu<256, 0, 0, 0> SEARCH_RESULT_STREAM;
 //0-31: start position
 //32-63: length
 // typedef ap_uint<64> ACCESS_POS ;
@@ -116,19 +117,45 @@ enum MEMORY_INFO_ACCESS_TYPE
     MEMORY_WRITE = 1,
     VEC_INFO_READ = 2,
     VEC_INFO_WRITE = 3
+    // HEADER_WRITE = 4,
+    // HEADER_READ = 5,
+    // SEG_WRITE = 6,
+    // SEG_READ = 7
 };
 
 struct MEMORY_INFO_ACCESS_COMMAND
 {
     MEMORY_INFO_ACCESS_TYPE command_type;
+    // int src;
+    
     int pma_idx;
     int start;
     int len;
     int last;
 };
+
+// enum memory_access_type
+// {
+//     READ,
+//     WRITE,
+//     FINISH
+// };
+
+// struct memory_access_command
+// {
+//     int pma_idx;
+//     int start;
+//     int len;
+//     MEMORY_INFO_ACCESS_TYPE command_type;
+//     memory_access_type type;
+// };
 #define REQ_TYPE_ALLOC 0
 #define REQ_TYPE_FREE 1
 #define REQ_TYPE_FINISH 2
 #define REQ_TYPE_LOAD_BITMAP 3
 #define NUM_MEM_PARTITIONS 4
 #define CHANNELS_PER_PARTITION 1
+
+// SEARCH_RESULT_STREAM flags
+#define SEARCH_FLAG_EXISTS 1
+#define SEARCH_FLAG_FOUND 2
