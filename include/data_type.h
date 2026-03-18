@@ -29,9 +29,10 @@ typedef ap_uint<8> BYTE;
 #define MEM_FREE 11
 #define MEM_COPY 12
 #define PMA_GET_ALL_OUT_EDGE_COO 17
-#define PMA_GET_ALL_IN_EDGE_COO 18
+// #define PMA_GET_ALL_IN_EDGE_COO 18
 #define PMA_GET_ALL_OUT_EDGE_CSR 19
-#define PMA_GET_ALL_IN_EDGE_CSR 20
+// #define PMA_GET_ALL_IN_EDGE_CSR 20
+#define PMA_GET_EDGE_COUNT_RANGE 21
 #define INIT_VEC_LEN_IN_BYTE 1024
 //64 elements
 #define SEGMENT_SIZE 64 
@@ -57,7 +58,7 @@ typedef ap_axiu<128, 0, 0, 0> PMA_UPDATE_MESSAGE;
 
 // #define OUT_DIRECTION 0
 // #define IN_DIRECTION 1
-typedef ap_axiu<64,0,0,0> READ_COMMAND_STREAM; 
+typedef ap_axiu<96,0,0,0> READ_COMMAND_STREAM; 
 typedef  ap_axiu<8,0,0,0> CLEAR_ICON;
 
 
