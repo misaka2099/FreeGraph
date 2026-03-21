@@ -1,0 +1,276 @@
+<ENTRY>
+{
+ "thisFile": "/home/hpk/cloud_back_up/ReGraph/xokernels/kernelApply.xo.compile_summary",
+ "connectId": "",
+ "serverToken": "",
+ "timestamp": "0"
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_CmdStep",
+ "dateTimestamp": "Sat Mar 21 14:06:43 2026",
+ "timestampMillis": "1774073203410",
+ "buildStep": {
+  "cmdId": "c06e792a-54bc-4602-953a-b578e9eac991",
+  "name": "v++",
+  "logFile": "/home/hpk/cloud_back_up/ReGraph/_x/kernelApply/kernelApply.steps.log",
+  "commandLine": "/home/tools/Vitis/2022.2/bin/unwrapped/lnx64.o/v++  --vivado.prop \"run.__KERNEL__.{STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS}={-directive sdx_optimization_effort_high}\" --advanced.misc \"report=type report_timing_summary name impl_report_timing_summary_route_design_summary steps {route_design} runs {impl_1} options {-max_paths 10}\" --advanced.misc \"report=type report_timing_summary name impl_report_timing_summary_post_route_phys_opt_design_summary steps {post_route_phys_opt_design} runs {impl_1} options {-max_paths 10}\" -c -g -D LITTLE_KERNEL_DST_BUFFER_SIZE=65536 -D BIG_KERNEL_DST_BUFFER_SIZE=524288 -D PARTITION_SIZE=65536 -D SRC_BUFFER_SIZE=4096 -D LOG2_SRC_BUFFER_SIZE=12 -D VERTEX_REORDER_ENABLE=1 -D BIG_KERNEL_NUM=1 -D LITTLE_KERNEL_NUM=1 -t hw_emu -I /home/sail/lyf/pma_demo/stream/include -I /home/hpk/cloud_back_up/ReGraph/acc_template -I /home/hpk/cloud_back_up/ReGraph/acc_template/common -I /home/hpk/cloud_back_up/ReGraph/acc_template/edge_reader -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_apply -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_hbm_wrapper -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_big_gs -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_little_gs -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_big_gs_merger -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_little_gs_merger -I /home/hpk/cloud_back_up/ReGraph/acc_udfs -I /home/hpk/cloud_back_up/ReGraph/acc_udfs/bfs --platform /opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm -k kernelApply -o xokernels/kernelApply.xo acc_template/kernel_apply/kernel_apply.cpp ",
+  "args": [
+   "-c",
+   "-g",
+   "-D",
+   "LITTLE_KERNEL_DST_BUFFER_SIZE=65536",
+   "-D",
+   "BIG_KERNEL_DST_BUFFER_SIZE=524288",
+   "-D",
+   "PARTITION_SIZE=65536",
+   "-D",
+   "SRC_BUFFER_SIZE=4096",
+   "-D",
+   "LOG2_SRC_BUFFER_SIZE=12",
+   "-D",
+   "VERTEX_REORDER_ENABLE=1",
+   "-D",
+   "BIG_KERNEL_NUM=1",
+   "-D",
+   "LITTLE_KERNEL_NUM=1",
+   "-t",
+   "hw_emu",
+   "-I",
+   "/home/sail/lyf/pma_demo/stream/include",
+   "-I",
+   "/home/hpk/cloud_back_up/ReGraph/acc_template",
+   "-I",
+   "/home/hpk/cloud_back_up/ReGraph/acc_template/common",
+   "-I",
+   "/home/hpk/cloud_back_up/ReGraph/acc_template/edge_reader",
+   "-I",
+   "/home/hpk/cloud_back_up/ReGraph/acc_template/kernel_apply",
+   "-I",
+   "/home/hpk/cloud_back_up/ReGraph/acc_template/kernel_hbm_wrapper",
+   "-I",
+   "/home/hpk/cloud_back_up/ReGraph/acc_template/kernel_big_gs",
+   "-I",
+   "/home/hpk/cloud_back_up/ReGraph/acc_template/kernel_little_gs",
+   "-I",
+   "/home/hpk/cloud_back_up/ReGraph/acc_template/kernel_big_gs_merger",
+   "-I",
+   "/home/hpk/cloud_back_up/ReGraph/acc_template/kernel_little_gs_merger",
+   "-I",
+   "/home/hpk/cloud_back_up/ReGraph/acc_udfs",
+   "-I",
+   "/home/hpk/cloud_back_up/ReGraph/acc_udfs/bfs",
+   "--platform",
+   "/opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm",
+   "-k",
+   "kernelApply",
+   "-o",
+   "xokernels/kernelApply.xo",
+   "acc_template/kernel_apply/kernel_apply.cpp"
+  ],
+  "iniFiles": [],
+  "cwd": "/home/hpk/cloud_back_up/ReGraph"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Sat Mar 21 14:06:43 2026",
+ "timestampMillis": "1774073203410",
+ "status": {
+  "cmdId": "c06e792a-54bc-4602-953a-b578e9eac991",
+  "state": "CS_RUNNING"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_FlowMetaData",
+ "dateTimestamp": "Sat Mar 21 14:06:47 2026",
+ "timestampMillis": "1774073207840",
+ "buildSummary": {
+  "hardwarePlatform": "xilinx_u280_gen3x16_xdma_1_202211_1.xpfm",
+  "hardwareDsa": "",
+  "platformDirectory": "/opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1",
+  "runtime": "OpenCL",
+  "systemConfig": "Linux",
+  "flow": "BF_COMPILE",
+  "target": "TT_HW_EMU",
+  "kernels": [
+   {
+    "base": {
+     "type": "KERNEL",
+     "name": "kernelApply",
+     "file": "/home/hpk/cloud_back_up/ReGraph/xokernels/kernelApply.xo",
+     "reports": [],
+     "uuid": ""
+    },
+    "sources": [
+     "/home/hpk/cloud_back_up/ReGraph/acc_template/kernel_apply/kernel_apply.cpp"
+    ],
+    "psSources": [],
+    "cuNames": [],
+    "type": "HLS",
+    "frequency": 0,
+    "freqUnits": ""
+   }
+  ],
+  "toolVersion": "Vitis V++ Compiler Release 2022.2. SW Build 3671529 on 2022-10-13-17:52:11"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_SubCmdStep",
+ "dateTimestamp": "Sat Mar 21 14:06:47 2026",
+ "timestampMillis": "1774073207843",
+ "buildStep": {
+  "cmdId": "076376ab-6d59-4c35-9cf5-3df5b8f1d0a9",
+  "name": "vitis_hls",
+  "logFile": "/home/hpk/cloud_back_up/ReGraph/_x/kernelApply/kernelApply/vitis_hls.log",
+  "commandLine": "vitis_hls -f /home/hpk/cloud_back_up/ReGraph/_x/kernelApply/kernelApply/kernelApply.tcl -messageDb vitis_hls.pb",
+  "args": [
+   "vitis_hls",
+   "-f",
+   "/home/hpk/cloud_back_up/ReGraph/_x/kernelApply/kernelApply/kernelApply.tcl",
+   "-messageDb",
+   "vitis_hls.pb"
+  ],
+  "iniFiles": [],
+  "cwd": "/home/hpk/cloud_back_up/ReGraph"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Sat Mar 21 14:06:47 2026",
+ "timestampMillis": "1774073207843",
+ "status": {
+  "cmdId": "076376ab-6d59-4c35-9cf5-3df5b8f1d0a9",
+  "state": "CS_RUNNING"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Sat Mar 21 14:07:16 2026",
+ "timestampMillis": "1774073236778",
+ "status": {
+  "cmdId": "076376ab-6d59-4c35-9cf5-3df5b8f1d0a9",
+  "state": "CS_PASSED"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Report",
+ "dateTimestamp": "Sat Mar 21 14:07:16 2026",
+ "timestampMillis": "1774073236790",
+ "report": {
+  "path": "/home/hpk/cloud_back_up/ReGraph/_x/kernelApply/kernelApply/kernelApply/solution/.autopilot/db/kernelApply.design.xml",
+  "name": "kernelApply",
+  "fileType": "XML",
+  "reportType": "KERNEL_HLS_REPORT",
+  "cmdId": ""
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Report",
+ "dateTimestamp": "Sat Mar 21 14:07:16 2026",
+ "timestampMillis": "1774073236791",
+ "report": {
+  "path": "/home/hpk/cloud_back_up/ReGraph/_x/kernelApply/kernelApply/kernelApply/solution/.autopilot/db/.message_syn.xml",
+  "name": "kernelApply",
+  "fileType": "XML",
+  "reportType": "KERNEL_HLS_DRC_SYNTHESIS",
+  "cmdId": ""
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Report",
+ "dateTimestamp": "Sat Mar 21 14:07:16 2026",
+ "timestampMillis": "1774073236792",
+ "report": {
+  "path": "/home/hpk/cloud_back_up/ReGraph/_x/reports/kernelApply/hls_reports/kernelApply_csynth.rpt",
+  "name": "kernelApply",
+  "fileType": "TEXT",
+  "reportType": "KERNEL_HLS_CSYNTH",
+  "cmdId": ""
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Report",
+ "dateTimestamp": "Sat Mar 21 14:07:16 2026",
+ "timestampMillis": "1774073236792",
+ "report": {
+  "path": "/home/hpk/cloud_back_up/ReGraph/_x/kernelApply/kernelApply/kernelApply/solution/syn/report/kernelApply_csynth.xml",
+  "name": "kernelApply",
+  "fileType": "XML",
+  "reportType": "KERNEL_HLS_CSYNTH",
+  "cmdId": ""
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Report",
+ "dateTimestamp": "Sat Mar 21 14:07:16 2026",
+ "timestampMillis": "1774073236797",
+ "report": {
+  "path": "/home/hpk/cloud_back_up/ReGraph/_x/reports/kernelApply/system_estimate_kernelApply.xtxt",
+  "name": "",
+  "fileType": "TEXT",
+  "reportType": "GLOBAL_SYSTEM_ESTIMATE",
+  "cmdId": ""
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Sat Mar 21 14:07:16 2026",
+ "timestampMillis": "1774073236882",
+ "status": {
+  "cmdId": "c06e792a-54bc-4602-953a-b578e9eac991",
+  "state": "CS_PASSED"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Report",
+ "dateTimestamp": "Sat Mar 21 14:07:16 2026",
+ "timestampMillis": "1774073236998",
+ "report": {
+  "path": "/home/hpk/cloud_back_up/ReGraph/_x/reports/kernelApply/v++_compile_kernelApply_guidance.html",
+  "name": "",
+  "fileType": "HTML",
+  "reportType": "GLOBAL_RULECHECK_GUIDANCE",
+  "cmdId": ""
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Report",
+ "dateTimestamp": "Sat Mar 21 14:07:16 2026",
+ "timestampMillis": "1774073236999",
+ "report": {
+  "path": "/home/hpk/cloud_back_up/ReGraph/_x/v++_compile_kernelApply_guidance.pb3",
+  "name": "",
+  "fileType": "BINARY_PROTOBUF",
+  "reportType": "GLOBAL_RULECHECK_GUIDANCE",
+  "cmdId": ""
+ }
+}
+</ENTRY>

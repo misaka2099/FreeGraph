@@ -8,10 +8,11 @@ PMA_KERNEL_DIR := ./pma_kernel
 REGRAPH_KERNEL_DIR := ./ReGraph/xokernels
 MEM_XO_FILES := $(addprefix $(MEMKERNEL_DIR)/, alloc_access_kernel.xo mem_access_kernel.xo)
 PMA_XO_FILES := $(addprefix $(PMA_KERNEL_DIR)/, update_message_generator.xo update_message_router.xo pma_insert_vertex.xo pma_insert_edge.xo pma_read_kernel.xo check_kernel.xo signal_kernel.xo)
+PMA_XO_FILES_WHOLE := $(addprefix $(PMA_KERNEL_DIR)/, update_message_generator.xo update_message_router.xo pma_insert_vertex.xo pma_insert_edge.xo pma_read_kernel.xo signal_kernel.xo)
 REGRAPH_XO_FILES := $(wildcard $(REGRAPH_KERNEL_DIR)/*.xo)
 XCLBIN_FILE := $(TARGET)_test_all.xclbin
 WHOLE_SYSTEM_XCLBIN := $(TARGET)_whole_system.xclbin
-WHOLE_SYSTEM_XO_FILE := $(MEM_XO_FILES) $(PMA_XO_FILES) $(REGRAPH_XO_FILES)
+WHOLE_SYSTEM_XO_FILE := $(MEM_XO_FILES) $(PMA_XO_FILES_WHOLE) $(REGRAPH_XO_FILES)
 CONFIG_FILES := system.cfg profile.cfg
 all: subdirs $(XCLBIN_FILE)
 
@@ -47,5 +48,5 @@ test_host: test_host.cpp
 clean:
 	$(MAKE) -C memkernel clean
 	$(MAKE) -C pma_kernel clean
-	rm -f $(XCLBIN_FILE) host
+	rm -f $(XCLBIN_FILE) $(WHOLE_SYSTEM_XCLBIN) host real_host test_host
 	rm -rf _x/link

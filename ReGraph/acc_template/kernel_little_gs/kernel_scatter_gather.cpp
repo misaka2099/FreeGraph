@@ -6,8 +6,8 @@
 #include "l1_api.h"
 #include "acc_config.h"
 
-#include "acc_scatter.h"
-#include "acc_gather.h"
+#include "kernel_little_gs/acc_scatter.h"
+#include "kernel_little_gs/acc_gather.h"
 
 extern "C" {
     void  littleKernelScatterGather(

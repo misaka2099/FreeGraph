@@ -1,0 +1,131 @@
+INFO: [v++ 60-1306] Additional information associated with this v++ link can be found at:
+	Reports: /home/hpk/cloud_back_up/_x/reports/link
+	Log files: /home/hpk/cloud_back_up/_x/logs/link
+INFO: [v++ 60-1548] Creating build summary session with primary output /home/hpk/cloud_back_up/sw_emu_whole_system.xclbin.link_summary, at Sat Mar 21 13:48:29 2026
+INFO: [v++ 60-1315] Creating rulecheck session with output '/home/hpk/cloud_back_up/_x/reports/link/v++_link_sw_emu_whole_system_guidance.html', at Sat Mar 21 13:48:29 2026
+INFO: [v++ 60-895]   Target platform: /opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm
+INFO: [v++ 60-1578]   This platform contains Xilinx Shell Archive '/opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/hw/hw.xsa'
+INFO: [v++ 74-78] Compiler Version string: 2022.2
+INFO: [v++ 60-629] Linking for software emulation target
+INFO: [v++ 60-423]   Target device: xilinx_u280_gen3x16_xdma_1_202211_1
+INFO: [v++ 60-645] kernel flags are '-g -D LITTLE_KERNEL_DST_BUFFER_SIZE=65536 -D BIG_KERNEL_DST_BUFFER_SIZE=524288 -D PARTITION_SIZE=65536 -D SRC_BUFFER_SIZE=4096 -D LOG2_SRC_BUFFER_SIZE=12 -D VERTEX_REORDER_ENABLE=1 -D BIG_KERNEL_NUM=1 -D LITTLE_KERNEL_NUM=1 -I /home/sail/lyf/pma_demo/stream/include -I /home/hpk/cloud_back_up/ReGraph/acc_template -I /home/hpk/cloud_back_up/ReGraph/acc_template/common -I /home/hpk/cloud_back_up/ReGraph/acc_template/edge_reader -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_apply -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_hbm_wrapper -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_big_gs -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_little_gs -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_big_gs_merger -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_little_gs_merger -I /home/hpk/cloud_back_up/ReGraph/acc_udfs -I /home/hpk/cloud_back_up/ReGraph/acc_udfs/bfs -g'
+INFO: [v++ 60-645] kernel flags are '-g -D LITTLE_KERNEL_DST_BUFFER_SIZE=65536 -D BIG_KERNEL_DST_BUFFER_SIZE=524288 -D PARTITION_SIZE=65536 -D SRC_BUFFER_SIZE=4096 -D LOG2_SRC_BUFFER_SIZE=12 -D VERTEX_REORDER_ENABLE=1 -D BIG_KERNEL_NUM=1 -D LITTLE_KERNEL_NUM=1 -I /home/sail/lyf/pma_demo/stream/include -I /home/hpk/cloud_back_up/ReGraph/acc_template -I /home/hpk/cloud_back_up/ReGraph/acc_template/common -I /home/hpk/cloud_back_up/ReGraph/acc_template/edge_reader -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_apply -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_hbm_wrapper -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_big_gs -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_little_gs -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_big_gs_merger -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_little_gs_merger -I /home/hpk/cloud_back_up/ReGraph/acc_udfs -I /home/hpk/cloud_back_up/ReGraph/acc_udfs/bfs -g'
+INFO: [v++ 60-645] kernel flags are '-g -I /home/sail/lyf/pma_demo/stream/include -g'
+INFO: [v++ 60-645] kernel flags are '-g -D LITTLE_KERNEL_DST_BUFFER_SIZE=65536 -D BIG_KERNEL_DST_BUFFER_SIZE=524288 -D PARTITION_SIZE=65536 -D SRC_BUFFER_SIZE=4096 -D LOG2_SRC_BUFFER_SIZE=12 -D VERTEX_REORDER_ENABLE=1 -D BIG_KERNEL_NUM=1 -D LITTLE_KERNEL_NUM=1 -I /home/sail/lyf/pma_demo/stream/include -I /home/hpk/cloud_back_up/ReGraph/acc_template -I /home/hpk/cloud_back_up/ReGraph/acc_template/common -I /home/hpk/cloud_back_up/ReGraph/acc_template/edge_reader -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_apply -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_hbm_wrapper -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_big_gs -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_little_gs -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_big_gs_merger -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_little_gs_merger -I /home/hpk/cloud_back_up/ReGraph/acc_udfs -I /home/hpk/cloud_back_up/ReGraph/acc_udfs/bfs -g'
+INFO: [v++ 60-645] kernel flags are '-g -I /home/sail/lyf/pma_demo/stream/include -g'
+INFO: [v++ 60-645] kernel flags are '-g -I /home/sail/lyf/pma_demo/stream/include -g'
+INFO: [v++ 60-645] kernel flags are '-g -D LITTLE_KERNEL_DST_BUFFER_SIZE=65536 -D BIG_KERNEL_DST_BUFFER_SIZE=524288 -D PARTITION_SIZE=65536 -D SRC_BUFFER_SIZE=4096 -D LOG2_SRC_BUFFER_SIZE=12 -D VERTEX_REORDER_ENABLE=1 -D BIG_KERNEL_NUM=1 -D LITTLE_KERNEL_NUM=1 -I /home/sail/lyf/pma_demo/stream/include -I /home/hpk/cloud_back_up/ReGraph/acc_template -I /home/hpk/cloud_back_up/ReGraph/acc_template/common -I /home/hpk/cloud_back_up/ReGraph/acc_template/edge_reader -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_apply -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_hbm_wrapper -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_big_gs -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_little_gs -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_big_gs_merger -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_little_gs_merger -I /home/hpk/cloud_back_up/ReGraph/acc_udfs -I /home/hpk/cloud_back_up/ReGraph/acc_udfs/bfs -g'
+INFO: [v++ 60-645] kernel flags are '-g -I /home/sail/lyf/pma_demo/stream/include -g'
+INFO: [v++ 60-645] kernel flags are '-g -D LITTLE_KERNEL_DST_BUFFER_SIZE=65536 -D BIG_KERNEL_DST_BUFFER_SIZE=524288 -D PARTITION_SIZE=65536 -D SRC_BUFFER_SIZE=4096 -D LOG2_SRC_BUFFER_SIZE=12 -D VERTEX_REORDER_ENABLE=1 -D BIG_KERNEL_NUM=1 -D LITTLE_KERNEL_NUM=1 -I /home/sail/lyf/pma_demo/stream/include -I /home/hpk/cloud_back_up/ReGraph/acc_template -I /home/hpk/cloud_back_up/ReGraph/acc_template/common -I /home/hpk/cloud_back_up/ReGraph/acc_template/edge_reader -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_apply -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_hbm_wrapper -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_big_gs -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_little_gs -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_big_gs_merger -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_little_gs_merger -I /home/hpk/cloud_back_up/ReGraph/acc_udfs -I /home/hpk/cloud_back_up/ReGraph/acc_udfs/bfs -g'
+INFO: [v++ 60-645] kernel flags are '-g -I /home/sail/lyf/pma_demo/stream/include -g'
+INFO: [v++ 60-645] kernel flags are '-g -I /home/sail/lyf/pma_demo/stream/include -g'
+INFO: [v++ 60-645] kernel flags are '-g -I /home/sail/lyf/pma_demo/stream/include -g'
+INFO: [v++ 60-645] kernel flags are '-g -D LITTLE_KERNEL_DST_BUFFER_SIZE=65536 -D BIG_KERNEL_DST_BUFFER_SIZE=524288 -D PARTITION_SIZE=65536 -D SRC_BUFFER_SIZE=4096 -D LOG2_SRC_BUFFER_SIZE=12 -D VERTEX_REORDER_ENABLE=1 -D BIG_KERNEL_NUM=1 -D LITTLE_KERNEL_NUM=1 -I /home/sail/lyf/pma_demo/stream/include -I /home/hpk/cloud_back_up/ReGraph/acc_template -I /home/hpk/cloud_back_up/ReGraph/acc_template/common -I /home/hpk/cloud_back_up/ReGraph/acc_template/edge_reader -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_apply -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_hbm_wrapper -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_big_gs -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_little_gs -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_big_gs_merger -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_little_gs_merger -I /home/hpk/cloud_back_up/ReGraph/acc_udfs -I /home/hpk/cloud_back_up/ReGraph/acc_udfs/bfs -g'
+INFO: [v++ 60-645] kernel flags are '-g -I /home/sail/lyf/pma_demo/stream/include -g'
+INFO: [v++ 60-645] kernel flags are '-g -D LITTLE_KERNEL_DST_BUFFER_SIZE=65536 -D BIG_KERNEL_DST_BUFFER_SIZE=524288 -D PARTITION_SIZE=65536 -D SRC_BUFFER_SIZE=4096 -D LOG2_SRC_BUFFER_SIZE=12 -D VERTEX_REORDER_ENABLE=1 -D BIG_KERNEL_NUM=1 -D LITTLE_KERNEL_NUM=1 -I /home/sail/lyf/pma_demo/stream/include -I /home/hpk/cloud_back_up/ReGraph/acc_template -I /home/hpk/cloud_back_up/ReGraph/acc_template/common -I /home/hpk/cloud_back_up/ReGraph/acc_template/edge_reader -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_apply -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_hbm_wrapper -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_big_gs -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_little_gs -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_big_gs_merger -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_little_gs_merger -I /home/hpk/cloud_back_up/ReGraph/acc_udfs -I /home/hpk/cloud_back_up/ReGraph/acc_udfs/bfs -g'
+INFO: [v++ 60-645] kernel flags are '-g -I /home/sail/lyf/pma_demo/stream/include -g'
+ERROR: [v++ 17-1309] Gcc: xcl_top.cpp:299:‘EdgeReadBurst’ does not name a type; did you mean ‘edgeReader’?
+ERROR: [v++ 17-1309] Gcc: xcl_top.cpp:300:‘__xlnx_cl_struct_type_0’ does not name a type
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:89:‘packetType’ was not declared in this scope
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:89:template argument 1 is invalid
+ERROR: [v++ 17-1309] Gcc: xcl_top.cpp:300:‘__xlnx_cl_struct_type_0’ does not name a type
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:96:‘packetType’ was not declared in this scope
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:96:template argument 1 is invalid
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:96:expected primary-expression before ‘)’ token
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:96:expected ‘)’ before ‘_sPtr’
+WARNING: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:97:no return statement in function returning non-void [-Wreturn-type]
+ERROR: [v++ 17-1309] Gcc: xcl_top.cpp:300:‘__xlnx_cl_struct_type_0’ does not name a type
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:21:‘packetType’ was not declared in this scope
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:21:template argument 1 is invalid
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:21:type/value mismatch at argument 1 in template parameter list for ‘template<class __STREAM_T__, int DEPTH> class hls::stream’
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:21:expected ‘>’ before ‘*’ token
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:21:expected ‘(’ before ‘*’ token
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:21:expected primary-expression before ‘>’ token
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:21:expected ‘)’ before ‘;’ token
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:30:expected ‘;’ before ‘packet’
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:31:‘packet’ was not declared in this scope
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:39:request for member ‘write’ in ‘* wStream’, which is of non-class type ‘int’
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:43:expected ‘;’ before ‘packet’
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:47:‘packet’ was not declared in this scope
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:50:request for member ‘write’ in ‘* wStream’, which is of non-class type ‘int’
+ERROR: [v++ 17-1309] Gcc: xcl_top.cpp:300:‘__xlnx_cl_struct_type_0’ does not name a type
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:61:‘packetType’ was not declared in this scope
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:61:template argument 1 is invalid
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:61:type/value mismatch at argument 1 in template parameter list for ‘template<class __STREAM_T__, int DEPTH> class hls::stream’
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:61:expected ‘>’ before ‘*’ token
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:61:expected ‘(’ before ‘*’ token
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:61:expected primary-expression before ‘>’ token
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:61:expected ‘)’ before ‘;’ token
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:67:request for member ‘empty’ in ‘* rStream’, which is of non-class type ‘int’
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:71:expected ‘;’ before ‘packet’
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:72:‘packet’ was not declared in this scope
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:73:request for member ‘empty’ in ‘* rStream’, which is of non-class type ‘int’
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:74:request for member ‘read’ in ‘* rStream’, which is of non-class type ‘int’
+ERROR: [v++ 17-1309] Gcc: xcl_top.cpp:302:‘EdgeReadBurst’ does not name a type; did you mean ‘edgeReader’?
+ERROR: [v++ 17-1309] Gcc: xcl_top.cpp:303:‘__xlnx_cl_struct_type_1’ does not name a type
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:89:‘packetType’ was not declared in this scope
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:89:template argument 1 is invalid
+ERROR: [v++ 17-1309] Gcc: xcl_top.cpp:303:‘__xlnx_cl_struct_type_1’ does not name a type
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:96:‘packetType’ was not declared in this scope
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:96:template argument 1 is invalid
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:96:expected primary-expression before ‘)’ token
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:96:expected ‘)’ before ‘_sPtr’
+WARNING: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:97:no return statement in function returning non-void [-Wreturn-type]
+ERROR: [v++ 17-1309] Gcc: xcl_top.cpp:303:‘__xlnx_cl_struct_type_1’ does not name a type
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:21:‘packetType’ was not declared in this scope
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:21:template argument 1 is invalid
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:21:type/value mismatch at argument 1 in template parameter list for ‘template<class __STREAM_T__, int DEPTH> class hls::stream’
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:21:expected ‘>’ before ‘*’ token
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:21:expected ‘(’ before ‘*’ token
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:21:expected primary-expression before ‘>’ token
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:21:expected ‘)’ before ‘;’ token
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:30:expected ‘;’ before ‘packet’
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:31:‘packet’ was not declared in this scope
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:39:request for member ‘write’ in ‘* wStream’, which is of non-class type ‘int’
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:43:expected ‘;’ before ‘packet’
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:47:‘packet’ was not declared in this scope
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:50:request for member ‘write’ in ‘* wStream’, which is of non-class type ‘int’
+ERROR: [v++ 17-1309] Gcc: xcl_top.cpp:303:‘__xlnx_cl_struct_type_1’ does not name a type
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:61:‘packetType’ was not declared in this scope
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:61:template argument 1 is invalid
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:61:type/value mismatch at argument 1 in template parameter list for ‘template<class __STREAM_T__, int DEPTH> class hls::stream’
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:61:expected ‘>’ before ‘*’ token
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:61:expected ‘(’ before ‘*’ token
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:61:expected primary-expression before ‘>’ token
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:61:expected ‘)’ before ‘;’ token
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:67:request for member ‘empty’ in ‘* rStream’, which is of non-class type ‘int’
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:71:expected ‘;’ before ‘packet’
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:72:‘packet’ was not declared in this scope
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:73:request for member ‘empty’ in ‘* rStream’, which is of non-class type ‘int’
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:74:request for member ‘read’ in ‘* rStream’, which is of non-class type ‘int’
+ERROR: [v++ 17-1309] Gcc: xcl_top.cpp:305:‘EdgeReadBurst’ does not name a type; did you mean ‘edgeReader’?
+ERROR: [v++ 17-1309] Gcc: xcl_top.cpp:306:‘__xlnx_cl_struct_type_2’ does not name a type
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:89:‘packetType’ was not declared in this scope
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:89:template argument 1 is invalid
+ERROR: [v++ 17-1309] Gcc: xcl_top.cpp:306:‘__xlnx_cl_struct_type_2’ does not name a type
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:96:‘packetType’ was not declared in this scope
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:96:template argument 1 is invalid
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:96:expected primary-expression before ‘)’ token
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:96:expected ‘)’ before ‘_sPtr’
+WARNING: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:97:no return statement in function returning non-void [-Wreturn-type]
+ERROR: [v++ 17-1309] Gcc: xcl_top.cpp:306:‘__xlnx_cl_struct_type_2’ does not name a type
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:21:‘packetType’ was not declared in this scope
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:21:template argument 1 is invalid
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:21:type/value mismatch at argument 1 in template parameter list for ‘template<class __STREAM_T__, int DEPTH> class hls::stream’
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:21:expected ‘>’ before ‘*’ token
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:21:expected ‘(’ before ‘*’ token
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:21:expected primary-expression before ‘>’ token
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:21:expected ‘)’ before ‘;’ token
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:30:expected ‘;’ before ‘packet’
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:31:‘packet’ was not declared in this scope
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:39:request for member ‘write’ in ‘* wStream’, which is of non-class type ‘int’
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:43:expected ‘;’ before ‘packet’
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:47:‘packet’ was not declared in this scope
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:50:request for member ‘write’ in ‘* wStream’, which is of non-class type ‘int’
+ERROR: [v++ 17-1309] Gcc: xcl_top.cpp:306:‘__xlnx_cl_struct_type_2’ does not name a type
+ERROR: [v++ 17-1309] Gcc: /home/tools/Vitis/2022.2/bin/../data/emulation/include/xcl_top_defines.h:61:‘packetType’ was not declared in this scope
+INFO: [v++ 17-14] Message 'v++ 17-1309' appears 100 times and further instances of the messages will be disabled.
+ERROR: [v++ 60-398] g++ failed
+ERROR: [v++ 60-626] Kernel link failed to complete
+ERROR: [v++ 60-703] Failed to finish linking
+INFO: [v++ 60-1653] Closing dispatch client.

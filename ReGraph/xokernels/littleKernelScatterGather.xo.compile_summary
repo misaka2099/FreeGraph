@@ -1,0 +1,276 @@
+<ENTRY>
+{
+ "thisFile": "/home/hpk/cloud_back_up/ReGraph/xokernels/littleKernelScatterGather.xo.compile_summary",
+ "connectId": "",
+ "serverToken": "",
+ "timestamp": "0"
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_CmdStep",
+ "dateTimestamp": "Sat Mar 21 14:13:46 2026",
+ "timestampMillis": "1774073626187",
+ "buildStep": {
+  "cmdId": "256ccb24-931c-47a0-9041-6d15d73b6a91",
+  "name": "v++",
+  "logFile": "/home/hpk/cloud_back_up/ReGraph/_x/littleKernelScatterGather/littleKernelScatterGather.steps.log",
+  "commandLine": "/home/tools/Vitis/2022.2/bin/unwrapped/lnx64.o/v++  --vivado.prop \"run.__KERNEL__.{STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS}={-directive sdx_optimization_effort_high}\" --advanced.misc \"report=type report_timing_summary name impl_report_timing_summary_route_design_summary steps {route_design} runs {impl_1} options {-max_paths 10}\" --advanced.misc \"report=type report_timing_summary name impl_report_timing_summary_post_route_phys_opt_design_summary steps {post_route_phys_opt_design} runs {impl_1} options {-max_paths 10}\" -c -g -D LITTLE_KERNEL_DST_BUFFER_SIZE=65536 -D BIG_KERNEL_DST_BUFFER_SIZE=524288 -D PARTITION_SIZE=65536 -D SRC_BUFFER_SIZE=4096 -D LOG2_SRC_BUFFER_SIZE=12 -D VERTEX_REORDER_ENABLE=1 -D BIG_KERNEL_NUM=1 -D LITTLE_KERNEL_NUM=1 -t hw_emu -I /home/sail/lyf/pma_demo/stream/include -I /home/hpk/cloud_back_up/ReGraph/acc_template -I /home/hpk/cloud_back_up/ReGraph/acc_template/common -I /home/hpk/cloud_back_up/ReGraph/acc_template/edge_reader -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_apply -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_hbm_wrapper -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_big_gs -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_little_gs -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_big_gs_merger -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_little_gs_merger -I /home/hpk/cloud_back_up/ReGraph/acc_udfs -I /home/hpk/cloud_back_up/ReGraph/acc_udfs/bfs --platform /opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm -k littleKernelScatterGather -o xokernels/littleKernelScatterGather.xo acc_template/kernel_little_gs/kernel_scatter_gather.cpp ",
+  "args": [
+   "-c",
+   "-g",
+   "-D",
+   "LITTLE_KERNEL_DST_BUFFER_SIZE=65536",
+   "-D",
+   "BIG_KERNEL_DST_BUFFER_SIZE=524288",
+   "-D",
+   "PARTITION_SIZE=65536",
+   "-D",
+   "SRC_BUFFER_SIZE=4096",
+   "-D",
+   "LOG2_SRC_BUFFER_SIZE=12",
+   "-D",
+   "VERTEX_REORDER_ENABLE=1",
+   "-D",
+   "BIG_KERNEL_NUM=1",
+   "-D",
+   "LITTLE_KERNEL_NUM=1",
+   "-t",
+   "hw_emu",
+   "-I",
+   "/home/sail/lyf/pma_demo/stream/include",
+   "-I",
+   "/home/hpk/cloud_back_up/ReGraph/acc_template",
+   "-I",
+   "/home/hpk/cloud_back_up/ReGraph/acc_template/common",
+   "-I",
+   "/home/hpk/cloud_back_up/ReGraph/acc_template/edge_reader",
+   "-I",
+   "/home/hpk/cloud_back_up/ReGraph/acc_template/kernel_apply",
+   "-I",
+   "/home/hpk/cloud_back_up/ReGraph/acc_template/kernel_hbm_wrapper",
+   "-I",
+   "/home/hpk/cloud_back_up/ReGraph/acc_template/kernel_big_gs",
+   "-I",
+   "/home/hpk/cloud_back_up/ReGraph/acc_template/kernel_little_gs",
+   "-I",
+   "/home/hpk/cloud_back_up/ReGraph/acc_template/kernel_big_gs_merger",
+   "-I",
+   "/home/hpk/cloud_back_up/ReGraph/acc_template/kernel_little_gs_merger",
+   "-I",
+   "/home/hpk/cloud_back_up/ReGraph/acc_udfs",
+   "-I",
+   "/home/hpk/cloud_back_up/ReGraph/acc_udfs/bfs",
+   "--platform",
+   "/opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm",
+   "-k",
+   "littleKernelScatterGather",
+   "-o",
+   "xokernels/littleKernelScatterGather.xo",
+   "acc_template/kernel_little_gs/kernel_scatter_gather.cpp"
+  ],
+  "iniFiles": [],
+  "cwd": "/home/hpk/cloud_back_up/ReGraph"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Sat Mar 21 14:13:46 2026",
+ "timestampMillis": "1774073626187",
+ "status": {
+  "cmdId": "256ccb24-931c-47a0-9041-6d15d73b6a91",
+  "state": "CS_RUNNING"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_FlowMetaData",
+ "dateTimestamp": "Sat Mar 21 14:13:55 2026",
+ "timestampMillis": "1774073635785",
+ "buildSummary": {
+  "hardwarePlatform": "xilinx_u280_gen3x16_xdma_1_202211_1.xpfm",
+  "hardwareDsa": "",
+  "platformDirectory": "/opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1",
+  "runtime": "OpenCL",
+  "systemConfig": "Linux",
+  "flow": "BF_COMPILE",
+  "target": "TT_HW_EMU",
+  "kernels": [
+   {
+    "base": {
+     "type": "KERNEL",
+     "name": "littleKernelScatterGather",
+     "file": "/home/hpk/cloud_back_up/ReGraph/xokernels/littleKernelScatterGather.xo",
+     "reports": [],
+     "uuid": ""
+    },
+    "sources": [
+     "/home/hpk/cloud_back_up/ReGraph/acc_template/kernel_little_gs/kernel_scatter_gather.cpp"
+    ],
+    "psSources": [],
+    "cuNames": [],
+    "type": "HLS",
+    "frequency": 0,
+    "freqUnits": ""
+   }
+  ],
+  "toolVersion": "Vitis V++ Compiler Release 2022.2. SW Build 3671529 on 2022-10-13-17:52:11"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_SubCmdStep",
+ "dateTimestamp": "Sat Mar 21 14:13:55 2026",
+ "timestampMillis": "1774073635788",
+ "buildStep": {
+  "cmdId": "e5d4af4d-6fd5-4559-b4fa-b67c038d49ec",
+  "name": "vitis_hls",
+  "logFile": "/home/hpk/cloud_back_up/ReGraph/_x/littleKernelScatterGather/littleKernelScatterGather/vitis_hls.log",
+  "commandLine": "vitis_hls -f /home/hpk/cloud_back_up/ReGraph/_x/littleKernelScatterGather/littleKernelScatterGather/littleKernelScatterGather.tcl -messageDb vitis_hls.pb",
+  "args": [
+   "vitis_hls",
+   "-f",
+   "/home/hpk/cloud_back_up/ReGraph/_x/littleKernelScatterGather/littleKernelScatterGather/littleKernelScatterGather.tcl",
+   "-messageDb",
+   "vitis_hls.pb"
+  ],
+  "iniFiles": [],
+  "cwd": "/home/hpk/cloud_back_up/ReGraph"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Sat Mar 21 14:13:55 2026",
+ "timestampMillis": "1774073635789",
+ "status": {
+  "cmdId": "e5d4af4d-6fd5-4559-b4fa-b67c038d49ec",
+  "state": "CS_RUNNING"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Sat Mar 21 14:15:25 2026",
+ "timestampMillis": "1774073725037",
+ "status": {
+  "cmdId": "e5d4af4d-6fd5-4559-b4fa-b67c038d49ec",
+  "state": "CS_PASSED"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Report",
+ "dateTimestamp": "Sat Mar 21 14:15:25 2026",
+ "timestampMillis": "1774073725091",
+ "report": {
+  "path": "/home/hpk/cloud_back_up/ReGraph/_x/littleKernelScatterGather/littleKernelScatterGather/littleKernelScatterGather/solution/.autopilot/db/littleKernelScatterGather.design.xml",
+  "name": "littleKernelScatterGather",
+  "fileType": "XML",
+  "reportType": "KERNEL_HLS_REPORT",
+  "cmdId": ""
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Report",
+ "dateTimestamp": "Sat Mar 21 14:15:25 2026",
+ "timestampMillis": "1774073725091",
+ "report": {
+  "path": "/home/hpk/cloud_back_up/ReGraph/_x/littleKernelScatterGather/littleKernelScatterGather/littleKernelScatterGather/solution/.autopilot/db/.message_syn.xml",
+  "name": "littleKernelScatterGather",
+  "fileType": "XML",
+  "reportType": "KERNEL_HLS_DRC_SYNTHESIS",
+  "cmdId": ""
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Report",
+ "dateTimestamp": "Sat Mar 21 14:15:25 2026",
+ "timestampMillis": "1774073725092",
+ "report": {
+  "path": "/home/hpk/cloud_back_up/ReGraph/_x/reports/littleKernelScatterGather/hls_reports/littleKernelScatterGather_csynth.rpt",
+  "name": "littleKernelScatterGather",
+  "fileType": "TEXT",
+  "reportType": "KERNEL_HLS_CSYNTH",
+  "cmdId": ""
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Report",
+ "dateTimestamp": "Sat Mar 21 14:15:25 2026",
+ "timestampMillis": "1774073725093",
+ "report": {
+  "path": "/home/hpk/cloud_back_up/ReGraph/_x/littleKernelScatterGather/littleKernelScatterGather/littleKernelScatterGather/solution/syn/report/littleKernelScatterGather_csynth.xml",
+  "name": "littleKernelScatterGather",
+  "fileType": "XML",
+  "reportType": "KERNEL_HLS_CSYNTH",
+  "cmdId": ""
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Report",
+ "dateTimestamp": "Sat Mar 21 14:15:25 2026",
+ "timestampMillis": "1774073725112",
+ "report": {
+  "path": "/home/hpk/cloud_back_up/ReGraph/_x/reports/littleKernelScatterGather/system_estimate_littleKernelScatterGather.xtxt",
+  "name": "",
+  "fileType": "TEXT",
+  "reportType": "GLOBAL_SYSTEM_ESTIMATE",
+  "cmdId": ""
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Sat Mar 21 14:15:25 2026",
+ "timestampMillis": "1774073725467",
+ "status": {
+  "cmdId": "256ccb24-931c-47a0-9041-6d15d73b6a91",
+  "state": "CS_PASSED"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Report",
+ "dateTimestamp": "Sat Mar 21 14:15:25 2026",
+ "timestampMillis": "1774073725586",
+ "report": {
+  "path": "/home/hpk/cloud_back_up/ReGraph/_x/reports/littleKernelScatterGather/v++_compile_littleKernelScatterGather_guidance.html",
+  "name": "",
+  "fileType": "HTML",
+  "reportType": "GLOBAL_RULECHECK_GUIDANCE",
+  "cmdId": ""
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Report",
+ "dateTimestamp": "Sat Mar 21 14:15:25 2026",
+ "timestampMillis": "1774073725586",
+ "report": {
+  "path": "/home/hpk/cloud_back_up/ReGraph/_x/v++_compile_littleKernelScatterGather_guidance.pb3",
+  "name": "",
+  "fileType": "BINARY_PROTOBUF",
+  "reportType": "GLOBAL_RULECHECK_GUIDANCE",
+  "cmdId": ""
+ }
+}
+</ENTRY>

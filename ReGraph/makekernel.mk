@@ -1,8 +1,20 @@
 VPP ?= v++
 
 PLATFORM ?= /xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm
-INCLUDES := -I /home/sail/lyf/pma_demo/stream/include -I $(CURDIR)/acc_template -I $(CURDIR)/acc_template/common \
-			-I $(CURDIR)/acc_udfs -I $(CURDIR)/acc_udfs/bfs
+# INCLUDES := -I /home/sail/lyf/pma_demo/stream/include -I $(CURDIR)/acc_template -I $(CURDIR)/acc_template/common \
+# 			-I $(CURDIR)/acc_udfs -I $(CURDIR)/acc_udfs/bfs
+INCLUDES := -I /home/sail/lyf/pma_demo/stream/include \
+			-I $(CURDIR)/acc_template \
+			-I $(CURDIR)/acc_template/common \
+			-I $(CURDIR)/acc_template/edge_reader \
+			-I $(CURDIR)/acc_template/kernel_apply \
+			-I $(CURDIR)/acc_template/kernel_hbm_wrapper \
+			-I $(CURDIR)/acc_template/kernel_big_gs \
+			-I $(CURDIR)/acc_template/kernel_little_gs \
+			-I $(CURDIR)/acc_template/kernel_big_gs_merger \
+			-I $(CURDIR)/acc_template/kernel_little_gs_merger \
+			-I $(CURDIR)/acc_udfs \
+			-I $(CURDIR)/acc_udfs/bfs
 TARGET ?= sw_emu
 
 # load global parameters (LITTLE/BIG buffer sizes etc.)
@@ -19,10 +31,11 @@ DEFINES := -D LITTLE_KERNEL_DST_BUFFER_SIZE=$(LITTLE_KERNEL_DST_BUFFER_SIZE) \
 		   -D LITTLE_KERNEL_NUM=$(LITTLE_KERNEL_NUM)
 
 # List of kernel symbols (extern "C" function names)
-KERNELS := kernelApply kernelHBMWrapper kernelBigGSMerger kernelLittleGSMerger \
+KERNELS := edgeReader kernelApply kernelHBMWrapper kernelBigGSMerger kernelLittleGSMerger \
            bigKernelScatterGather littleKernelScatterGather
 
 # Map kernel symbol to source file path
+edgeReader_SRC := acc_template/edge_reader/edge_reader.cpp
 kernelApply_SRC := acc_template/kernel_apply/kernel_apply.cpp
 kernelHBMWrapper_SRC := acc_template/kernel_hbm_wrapper/kernel_hbm_wrapper.cpp
 kernelBigGSMerger_SRC := acc_template/kernel_big_gs_merger/kernel_big_gs_merger.cpp
@@ -34,6 +47,12 @@ XO_FILES := $(patsubst %,xokernels/%.xo,$(KERNELS))
 
 .PHONY: all clean
 all: $(XO_FILES)
+
+xokernels/edgeReader.xo: $(edgeReader_SRC)
+	@mkdir -p xokernels
+	@echo "---- Building kernel edgeReader -> $@ (target=$(TARGET)) ----"
+	$(VPP) -c -g $(DEFINES) -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) -k edgeReader -o $@ $<
+	@echo "---- done: $@ ----"
 
 xokernels/kernelApply.xo: $(kernelApply_SRC)
 	@mkdir -p xokernels
@@ -76,6 +95,6 @@ clean:
 	@echo "Cleaning .xo and build artifacts in ReGraph..."
 	@rm -f xokernels/*.xo
 	@rm -rf _x
-	@rm v++_*
-	@rm *_summary
+	@rm -rf v++_*
+	@rm -f *_summary
 	@echo "done."

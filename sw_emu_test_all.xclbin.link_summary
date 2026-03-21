@@ -1,0 +1,1468 @@
+<ENTRY>
+{
+ "thisFile": "/home/hpk/cloud_back_up/sw_emu_test_all.xclbin.link_summary",
+ "connectId": "",
+ "serverToken": "",
+ "timestamp": "0"
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_CmdStep",
+ "dateTimestamp": "Fri Mar 20 20:47:29 2026",
+ "timestampMillis": "1774010849605",
+ "buildStep": {
+  "cmdId": "2589eca8-2bda-4aa0-85ec-6c2b5d24a667",
+  "name": "v++",
+  "logFile": "/home/hpk/cloud_back_up/_x/link/link.steps.log",
+  "commandLine": "/home/tools/Vitis/2022.2/bin/unwrapped/lnx64.o/v++  --vivado.prop \"run.__KERNEL__.{STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS}={-directive sdx_optimization_effort_high}\" --advanced.misc \"report=type report_timing_summary name impl_report_timing_summary_route_design_summary steps {route_design} runs {impl_1} options {-max_paths 10}\" --advanced.misc \"report=type report_timing_summary name impl_report_timing_summary_post_route_phys_opt_design_summary steps {post_route_phys_opt_design} runs {impl_1} options {-max_paths 10}\" -l -g -t sw_emu -I/home/sail/lyf/pma_demo/stream/include --platform /opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm --config system.cfg --config profile.cfg -o sw_emu_test_all.xclbin memkernel/alloc_access_kernel.xo memkernel/mem_access_kernel.xo pma_kernel/update_message_generator.xo pma_kernel/update_message_router.xo pma_kernel/pma_insert_vertex.xo pma_kernel/pma_insert_edge.xo pma_kernel/pma_read_kernel.xo pma_kernel/check_kernel.xo pma_kernel/signal_kernel.xo ",
+  "args": [
+   "-l",
+   "-g",
+   "-t",
+   "sw_emu",
+   "-I/home/sail/lyf/pma_demo/stream/include",
+   "--platform",
+   "/opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm",
+   "--config",
+   "system.cfg",
+   "--config",
+   "profile.cfg",
+   "-o",
+   "sw_emu_test_all.xclbin",
+   "memkernel/alloc_access_kernel.xo",
+   "memkernel/mem_access_kernel.xo",
+   "pma_kernel/update_message_generator.xo",
+   "pma_kernel/update_message_router.xo",
+   "pma_kernel/pma_insert_vertex.xo",
+   "pma_kernel/pma_insert_edge.xo",
+   "pma_kernel/pma_read_kernel.xo",
+   "pma_kernel/check_kernel.xo",
+   "pma_kernel/signal_kernel.xo"
+  ],
+  "iniFiles": [
+   {
+    "path": "/home/hpk/cloud_back_up/system.cfg",
+    "content": "[connectivity]\n# Kernel Declarations from all files\nnk=alloc_access_kernel:1:alloc_access_kernel_1\nnk=pma_insert_vertex:2:pma_insert_vertex_1,pma_insert_vertex_2\nnk=pma_insert_edge:2:pma_insert_edge_1,pma_insert_edge_2\nnk=update_message_generator:1:update_message_generator_1\nnk=update_message_router:1:update_message_router_1\nnk=pma_read_kernel:1:pma_read_kernel_1\nnk=check_kernel:1:check_kernel_1\nnk=signal_kernel:1:signal_kernel_1\nnk=mem_access_kernel:1:mem_access_kernel_1\n# Kernel Instance to SLR Assignments\n# SLR0 (Closest to HBM)\nslr=mem_access_kernel_1:SLR0\nslr=alloc_access_kernel_1:SLR0\nslr=update_message_generator_1:SLR0\nslr=pma_read_kernel_1:SLR0\nslr=check_kernel_1:SLR0\n\n# SLR1 (Middle)\nslr=signal_kernel_1:SLR1\nslr=update_message_router_1:SLR1\nslr=pma_insert_vertex_1:SLR1\nslr=pma_insert_vertex_2:SLR1\n\n# SLR2 (Top)\nslr=pma_insert_edge_1:SLR2\nslr=pma_insert_edge_2:SLR2\n\n# sp=pma_update_kernel_1.hbm_ptr:HBM[0:15]\n# sp=pma_update_kernel_2.hbm_ptr:HBM[0:15]\nsp=mem_access_kernel_1.hbm_ptr_1:HBM[0]\nsp=mem_access_kernel_1.hbm_ptr_2:HBM[1]\nsp=mem_access_kernel_1.pos_pma_addrs:HBM[29]\n\nsp=alloc_access_kernel_1.bm_in_hbm_1:HBM[20]\nsp=alloc_access_kernel_1.bm_in_hbm_2:HBM[21]\n# sp=pma_insert_edge_1.pos_pma_addrs_write:HBM[29]\n# sp=pma_insert_edge_1.neg_pma_addrs_write:HBM[28]\n# sp=pma_insert_edge_2.pos_pma_addrs_write:HBM[29]\n# sp=pma_insert_edge_2.neg_pma_addrs_write:HBM[28]\n\n\nsp=update_message_generator_1.src:HBM[30]\nsp=update_message_generator_1.dst:HBM[31]\n# sp=update_message_generator_1.src_to_change:HBM[27]\n# sp=update_message_generator_1.attr_to_change:HBM[26]\n# sp=pma_update_kernel_1.pos_pma_addrs:HBM[29]\n# sp=pma_update_kernel_1.neg_pma_addrs:HBM[28]\n# sp=pma_update_kernel_2.pos_pma_addrs:HBM[29]\n# sp=pma_update_kernel_2.neg_pma_addrs:HBM[28]\nsp=check_kernel_1.src:HBM[25]\nsp=check_kernel_1.dst:HBM[25]\nsp=check_kernel_1.coo_src:HBM[21]\nsp=check_kernel_1.coo_dst:HBM[22]\nsp=check_kernel_1.row_ptr:HBM[16]\nsp=check_kernel_1.col_idx:HBM[17]\nsp=check_kernel_1.num_vertices:HBM[18]\nsp=check_kernel_1.num_edges:HBM[19]\n\n# Stream Connections from memkernel/connectivity.cfg\n\nstream_connect=pma_insert_vertex_1.req_to_mem_alloc:alloc_access_kernel_1.req_from_vertex_1:16\nstream_connect=alloc_access_kernel_1.vec_info_to_vertex_1:pma_insert_vertex_1.vec_info_back_stream:16\nstream_connect=pma_insert_vertex_2.req_to_mem_alloc:alloc_access_kernel_1.req_from_vertex_2:16\nstream_connect=alloc_access_kernel_1.vec_info_to_vertex_2:pma_insert_vertex_2.vec_info_back_stream:16\n\nstream_connect=pma_insert_edge_1.req_to_mem_alloc:alloc_access_kernel_1.req_from_edge_1:16\nstream_connect=alloc_access_kernel_1.vec_info_to_edge_1:pma_insert_edge_1.vec_info_back_stream:16\nstream_connect=pma_insert_edge_2.req_to_mem_alloc:alloc_access_kernel_1.req_from_edge_2:16\nstream_connect=alloc_access_kernel_1.vec_info_to_edge_2:pma_insert_edge_2.vec_info_back_stream:16\n\n# Mem Access Kernel Connections\nstream_connect=pma_insert_vertex_1.req_to_mem_access:mem_access_kernel_1.req_from_vertex_1:16\nstream_connect=pma_insert_vertex_1.data_to_mem_access:mem_access_kernel_1.data_from_vertex_1:16\nstream_connect=pma_insert_vertex_2.req_to_mem_access:mem_access_kernel_1.req_from_vertex_2:16\nstream_connect=pma_insert_vertex_2.data_to_mem_access:mem_access_kernel_1.data_from_vertex_2:16\n\nstream_connect=pma_insert_edge_1.req_to_mem_access:mem_access_kernel_1.req_from_edge_1:16\nstream_connect=pma_insert_edge_1.data_to_mem_access:mem_access_kernel_1.data_from_edge_1:16\nstream_connect=mem_access_kernel_1.data_to_edge_1:pma_insert_edge_1.data_from_mem_access:16\nstream_connect=mem_access_kernel_1.vec_info_to_edge_1:pma_insert_edge_1.vec_info_from_mem_access:16\nstream_connect=pma_insert_edge_2.req_to_mem_access:mem_access_kernel_1.req_from_edge_2:16\nstream_connect=pma_insert_edge_2.data_to_mem_access:mem_access_kernel_1.data_from_edge_2:16\nstream_connect=mem_access_kernel_1.data_to_edge_2:pma_insert_edge_2.data_from_mem_access:16\nstream_connect=mem_access_kernel_1.vec_info_to_edge_2:pma_insert_edge_2.vec_info_from_mem_access:16\nstream_connect=pma_read_kernel_1.req_to_mem_access_ch1:mem_access_kernel_1.req_from_read_1:16\nstream_connect=pma_read_kernel_1.req_to_mem_access_ch2:mem_access_kernel_1.req_from_read_2:16\nstream_connect=mem_access_kernel_1.data_to_read_1:pma_read_kernel_1.data_from_mem_access_ch1:16\nstream_connect=mem_access_kernel_1.data_to_read_2:pma_read_kernel_1.data_from_mem_access_ch2:16\nstream_connect=mem_access_kernel_1.vec_info_to_read_1:pma_read_kernel_1.vec_info_back_stream_ch1:16\nstream_connect=mem_access_kernel_1.vec_info_to_read_2:pma_read_kernel_1.vec_info_back_stream_ch2:16\nstream_connect=signal_kernel_1.signal_to_mem_access:mem_access_kernel_1.signal_stream:16\n\n\nstream_connect=update_message_router_1.cmd_to_insert_vertex_1:pma_insert_vertex_1.cmd_stream:16\nstream_connect=update_message_router_1.cmd_to_insert_vertex_2:pma_insert_vertex_2.cmd_stream:16\nstream_connect=pma_insert_vertex_1.ack_back_to_router:update_message_router_1.ack_from_insert_vertex_1:16\nstream_connect=pma_insert_vertex_2.ack_back_to_router:update_message_router_1.ack_from_insert_vertex_2:16\n\nstream_connect=update_message_router_1.cmd_to_insert_edge_1:pma_insert_edge_1.cmd_stream:16\nstream_connect=update_message_router_1.cmd_to_insert_edge_2:pma_insert_edge_2.cmd_stream:16\nstream_connect=pma_insert_edge_1.ack_back_to_router:update_message_router_1.ack_from_insert_edge_1:16\nstream_connect=pma_insert_edge_2.ack_back_to_router:update_message_router_1.ack_from_insert_edge_2:16\n\n\nstream_connect=signal_kernel_1.signal_to_alloc_free:alloc_access_kernel_1.signal_stream:16\n# alloc_access_kernel broadcasts control internally; only one signal stream is connected.\n\n\n\n\nstream_connect=update_message_generator_1.cmd_to_router:update_message_router_1.cmd_from_generator:64  \nstream_connect=update_message_router_1.ack_to_generator:update_message_generator_1.ack_from_router:16\n# stream_connect=update_message_router_1.cmd_to_pma_1:pma_update_kernel_1.cmd_stream:16  \n# stream_connect=update_message_router_1.cmd_to_pma_2:pma_update_kernel_2.cmd_stream:16\n\nstream_connect=check_kernel_1.cmd_to_read:pma_read_kernel_1.cmd_stream:16  \n# stream_connect=pma_read_kernel_1.data_to_nei_query:check_kernel_1.data_to_check:16  \nstream_connect=pma_read_kernel_1.data_to_coo_stream:check_kernel_1.data_to_coo_stream:16  \nstream_connect=pma_read_kernel_1.coo_edge_count_stream:check_kernel_1.edge_count_stream:16\n# stream_connect=pma_read_kernel_1.data_to_csr_row_ptr_stream:check_kernel_1.data_to_csr_row_ptr_stream:16  \n# stream_connect=pma_read_kernel_1.data_to_csr_col_stream:check_kernel_1.data_to_csr_col_stream:16\n# Stream Connections from system_connect.cfg\n\n[vivado]\nprop=fileset.sim_1.xsim.elaborate.debug_level=all"
+   },
+   {
+    "path": "/home/hpk/cloud_back_up/profile.cfg",
+    "content": "[profile]\n# data=all:all:all\n# exec=all:all\n# stall=all:all\n# # memory=all"
+   }
+  ],
+  "cwd": "/home/hpk/cloud_back_up"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:29 2026",
+ "timestampMillis": "1774010849605",
+ "status": {
+  "cmdId": "2589eca8-2bda-4aa0-85ec-6c2b5d24a667",
+  "state": "CS_RUNNING"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_FlowMetaData",
+ "dateTimestamp": "Fri Mar 20 20:47:32 2026",
+ "timestampMillis": "1774010852919",
+ "buildSummary": {
+  "hardwarePlatform": "xilinx_u280_gen3x16_xdma_1_202211_1.xpfm",
+  "hardwareDsa": "",
+  "platformDirectory": "/opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1",
+  "runtime": "OpenCL",
+  "systemConfig": "Linux",
+  "flow": "BF_LINK",
+  "target": "TT_SW_EMU",
+  "binaryContainer": {
+   "base": {
+    "type": "BT_UKNOWN",
+    "name": "sw_emu_test_all",
+    "file": "/home/hpk/cloud_back_up/sw_emu_test_all.xclbin",
+    "reports": [],
+    "uuid": ""
+   },
+   "kernels": []
+  },
+  "kernels": [
+   {
+    "base": {
+     "type": "KERNEL",
+     "name": "alloc_access_kernel",
+     "file": "/home/hpk/cloud_back_up/memkernel/alloc_access_kernel.xo",
+     "reports": [],
+     "uuid": ""
+    },
+    "sources": [
+     "/home/hpk/cloud_back_up/_x/link/int/xo/alloc_access_kernel/alloc_access_kernel/cpu_sources/alloc_access_kernel.cpp"
+    ],
+    "psSources": [],
+    "cuNames": [
+     "alloc_access_kernel_1"
+    ],
+    "type": "HLS",
+    "frequency": 0,
+    "freqUnits": ""
+   },
+   {
+    "base": {
+     "type": "KERNEL",
+     "name": "mem_access_kernel",
+     "file": "/home/hpk/cloud_back_up/memkernel/mem_access_kernel.xo",
+     "reports": [],
+     "uuid": ""
+    },
+    "sources": [
+     "/home/hpk/cloud_back_up/_x/link/int/xo/mem_access_kernel/mem_access_kernel/cpu_sources/mem_access_kernel.cpp"
+    ],
+    "psSources": [],
+    "cuNames": [
+     "mem_access_kernel_1"
+    ],
+    "type": "HLS",
+    "frequency": 0,
+    "freqUnits": ""
+   },
+   {
+    "base": {
+     "type": "KERNEL",
+     "name": "update_message_generator",
+     "file": "/home/hpk/cloud_back_up/pma_kernel/update_message_generator.xo",
+     "reports": [],
+     "uuid": ""
+    },
+    "sources": [
+     "/home/hpk/cloud_back_up/_x/link/int/xo/update_message_generator/update_message_generator/cpu_sources/update_message_generator.cpp"
+    ],
+    "psSources": [],
+    "cuNames": [
+     "update_message_generator_1"
+    ],
+    "type": "HLS",
+    "frequency": 0,
+    "freqUnits": ""
+   },
+   {
+    "base": {
+     "type": "KERNEL",
+     "name": "update_message_router",
+     "file": "/home/hpk/cloud_back_up/pma_kernel/update_message_router.xo",
+     "reports": [],
+     "uuid": ""
+    },
+    "sources": [
+     "/home/hpk/cloud_back_up/_x/link/int/xo/update_message_router/update_message_router/cpu_sources/update_message_router.cpp"
+    ],
+    "psSources": [],
+    "cuNames": [
+     "update_message_router_1"
+    ],
+    "type": "HLS",
+    "frequency": 0,
+    "freqUnits": ""
+   },
+   {
+    "base": {
+     "type": "KERNEL",
+     "name": "pma_insert_vertex",
+     "file": "/home/hpk/cloud_back_up/pma_kernel/pma_insert_vertex.xo",
+     "reports": [],
+     "uuid": ""
+    },
+    "sources": [
+     "/home/hpk/cloud_back_up/_x/link/int/xo/pma_insert_vertex/pma_insert_vertex/cpu_sources/pma_insert_vertex.cpp"
+    ],
+    "psSources": [],
+    "cuNames": [
+     "pma_insert_vertex_1",
+     "pma_insert_vertex_2"
+    ],
+    "type": "HLS",
+    "frequency": 0,
+    "freqUnits": ""
+   },
+   {
+    "base": {
+     "type": "KERNEL",
+     "name": "pma_insert_edge",
+     "file": "/home/hpk/cloud_back_up/pma_kernel/pma_insert_edge.xo",
+     "reports": [],
+     "uuid": ""
+    },
+    "sources": [
+     "/home/hpk/cloud_back_up/_x/link/int/xo/pma_insert_edge/pma_insert_edge/cpu_sources/pma_insert_edge.cpp"
+    ],
+    "psSources": [],
+    "cuNames": [
+     "pma_insert_edge_1",
+     "pma_insert_edge_2"
+    ],
+    "type": "HLS",
+    "frequency": 0,
+    "freqUnits": ""
+   },
+   {
+    "base": {
+     "type": "KERNEL",
+     "name": "pma_read_kernel",
+     "file": "/home/hpk/cloud_back_up/pma_kernel/pma_read_kernel.xo",
+     "reports": [],
+     "uuid": ""
+    },
+    "sources": [
+     "/home/hpk/cloud_back_up/_x/link/int/xo/pma_read_kernel/pma_read_kernel/cpu_sources/pma_read_kernel.cpp"
+    ],
+    "psSources": [],
+    "cuNames": [
+     "pma_read_kernel_1"
+    ],
+    "type": "HLS",
+    "frequency": 0,
+    "freqUnits": ""
+   },
+   {
+    "base": {
+     "type": "KERNEL",
+     "name": "check_kernel",
+     "file": "/home/hpk/cloud_back_up/pma_kernel/check_kernel.xo",
+     "reports": [],
+     "uuid": ""
+    },
+    "sources": [
+     "/home/hpk/cloud_back_up/_x/link/int/xo/check_kernel/check_kernel/cpu_sources/check_kernel.cpp"
+    ],
+    "psSources": [],
+    "cuNames": [
+     "check_kernel_1"
+    ],
+    "type": "HLS",
+    "frequency": 0,
+    "freqUnits": ""
+   },
+   {
+    "base": {
+     "type": "KERNEL",
+     "name": "signal_kernel",
+     "file": "/home/hpk/cloud_back_up/pma_kernel/signal_kernel.xo",
+     "reports": [],
+     "uuid": ""
+    },
+    "sources": [
+     "/home/hpk/cloud_back_up/_x/link/int/xo/signal_kernel/signal_kernel/cpu_sources/signal_kernel.cpp"
+    ],
+    "psSources": [],
+    "cuNames": [
+     "signal_kernel_1"
+    ],
+    "type": "HLS",
+    "frequency": 0,
+    "freqUnits": ""
+   }
+  ],
+  "toolVersion": "Vitis V++ Compiler Release 2022.2. SW Build 3671529 on 2022-10-13-17:52:11"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Report",
+ "dateTimestamp": "Fri Mar 20 20:47:33 2026",
+ "timestampMillis": "1774010853205",
+ "report": {
+  "path": "/home/hpk/cloud_back_up/_x/link/int/systemDiagramModel.json",
+  "name": "",
+  "fileType": "JSON",
+  "reportType": "SYSTEM_DIAGRAM",
+  "cmdId": ""
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_SubCmdStep",
+ "dateTimestamp": "Fri Mar 20 20:47:33 2026",
+ "timestampMillis": "1774010853206",
+ "buildStep": {
+  "cmdId": "c2b6bdfc-a71f-48d9-9e36-63259ae2d984",
+  "name": "regiongen",
+  "logFile": "/home/hpk/cloud_back_up/_x/link/int/sw_emu_test_all_regiongen.log",
+  "commandLine": "/home/tools/Vitis/2022.2/bin/../runtime/bin/regiongen_new -v -n -m /home/hpk/cloud_back_up/_x/link/int/sw_emu_test_all.xml -r /home/hpk/cloud_back_up/_x/link/int/sw_emu_test_all.rtd -t alg -o xcl_top",
+  "args": [
+   "-v",
+   "-n",
+   "-m",
+   "/home/hpk/cloud_back_up/_x/link/int/sw_emu_test_all.xml",
+   "-r",
+   "/home/hpk/cloud_back_up/_x/link/int/sw_emu_test_all.rtd",
+   "-t",
+   "alg",
+   "-o",
+   "xcl_top"
+  ],
+  "iniFiles": [],
+  "cwd": "/home/hpk/cloud_back_up"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:33 2026",
+ "timestampMillis": "1774010853206",
+ "status": {
+  "cmdId": "c2b6bdfc-a71f-48d9-9e36-63259ae2d984",
+  "state": "CS_RUNNING"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:34 2026",
+ "timestampMillis": "1774010854460",
+ "status": {
+  "cmdId": "c2b6bdfc-a71f-48d9-9e36-63259ae2d984",
+  "state": "CS_PASSED"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_SubCmdStep",
+ "dateTimestamp": "Fri Mar 20 20:47:34 2026",
+ "timestampMillis": "1774010854463",
+ "buildStep": {
+  "cmdId": "6e21e4a7-986c-4e6d-a71c-4abdee334608",
+  "name": "gcc",
+  "logFile": "/home/hpk/cloud_back_up/_x/link/int/signal_kernel/signal_kernel_kernel_gcc.log",
+  "commandLine": "/home/tools/Vivado/2022.2/tps/lnx64/gcc-8.3.0/bin/gcc -I . -I /home/tools/Vitis_HLS/2022.2/bin/../include -I /home/tools/Vitis_HLS/2022.2/bin/../lnx64/tools/auto_cc/include -I /home/tools/Vitis_HLS/2022.2/bin/../common/technology/autopilot/opencl -I /home/tools/Vitis/2022.2/bin/../common/technology/autopilot/opencl -I /home/tools/Vitis/2022.2/bin/../data/emulation/include -I /usr/include/x86_64-linux-gnu -std=c++14 -g -I /home/sail/lyf/pma_demo/stream/include -g -fPIC -g -c -DHLS_STREAM_THREAD_SAFE -MD -MT obj/signal_kernel.o -MP -MF obj/signal_kernel.Cd /home/hpk/cloud_back_up/_x/link/int/xo/signal_kernel/signal_kernel/cpu_sources/signal_kernel.cpp -o obj/signal_kernel.o",
+  "args": [
+   "-I",
+   ".",
+   "-I",
+   "/home/tools/Vitis_HLS/2022.2/bin/../include",
+   "-I",
+   "/home/tools/Vitis_HLS/2022.2/bin/../lnx64/tools/auto_cc/include",
+   "-I",
+   "/home/tools/Vitis_HLS/2022.2/bin/../common/technology/autopilot/opencl",
+   "-I",
+   "/home/tools/Vitis/2022.2/bin/../common/technology/autopilot/opencl",
+   "-I",
+   "/home/tools/Vitis/2022.2/bin/../data/emulation/include",
+   "-I",
+   "/usr/include/x86_64-linux-gnu",
+   "-std=c++14",
+   "-g",
+   "-I",
+   "/home/sail/lyf/pma_demo/stream/include",
+   "-g",
+   "-fPIC",
+   "-g",
+   "-c",
+   "-DHLS_STREAM_THREAD_SAFE",
+   "-MD",
+   "-MT",
+   "obj/signal_kernel.o",
+   "-MP",
+   "-MF",
+   "obj/signal_kernel.Cd",
+   "/home/hpk/cloud_back_up/_x/link/int/xo/signal_kernel/signal_kernel/cpu_sources/signal_kernel.cpp",
+   "-o",
+   "obj/signal_kernel.o"
+  ],
+  "iniFiles": [],
+  "cwd": "/home/hpk/cloud_back_up"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:34 2026",
+ "timestampMillis": "1774010854464",
+ "status": {
+  "cmdId": "6e21e4a7-986c-4e6d-a71c-4abdee334608",
+  "state": "CS_RUNNING"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:36 2026",
+ "timestampMillis": "1774010856886",
+ "status": {
+  "cmdId": "6e21e4a7-986c-4e6d-a71c-4abdee334608",
+  "state": "CS_PASSED"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_SubCmdStep",
+ "dateTimestamp": "Fri Mar 20 20:47:36 2026",
+ "timestampMillis": "1774010856887",
+ "buildStep": {
+  "cmdId": "9c50fcae-ba1c-43a1-a755-de5a101fbe1b",
+  "name": "ar",
+  "logFile": "/home/hpk/cloud_back_up/_x/link/int/signal_kernel/signal_kernel_ar.log",
+  "commandLine": "/home/tools/Vivado/2022.2/tps/lnx64/binutils-2.26/bin/ar -cr /home/hpk/cloud_back_up/_x/link/int/signal_kernel/signal_kernel.csim_cu.a /home/hpk/cloud_back_up/_x/link/int/signal_kernel/obj/signal_kernel.o",
+  "args": [
+   "-cr",
+   "/home/hpk/cloud_back_up/_x/link/int/signal_kernel/signal_kernel.csim_cu.a",
+   "/home/hpk/cloud_back_up/_x/link/int/signal_kernel/obj/signal_kernel.o"
+  ],
+  "iniFiles": [],
+  "cwd": "/home/hpk/cloud_back_up"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:36 2026",
+ "timestampMillis": "1774010856888",
+ "status": {
+  "cmdId": "9c50fcae-ba1c-43a1-a755-de5a101fbe1b",
+  "state": "CS_RUNNING"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:36 2026",
+ "timestampMillis": "1774010856922",
+ "status": {
+  "cmdId": "9c50fcae-ba1c-43a1-a755-de5a101fbe1b",
+  "state": "CS_PASSED"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_SubCmdStep",
+ "dateTimestamp": "Fri Mar 20 20:47:36 2026",
+ "timestampMillis": "1774010856925",
+ "buildStep": {
+  "cmdId": "52b6f9a7-527a-453f-ad58-03f244bfd272",
+  "name": "gcc",
+  "logFile": "/home/hpk/cloud_back_up/_x/link/int/update_message_generator/update_message_generator_kernel_gcc.log",
+  "commandLine": "/home/tools/Vivado/2022.2/tps/lnx64/gcc-8.3.0/bin/gcc -I . -I /home/tools/Vitis_HLS/2022.2/bin/../include -I /home/tools/Vitis_HLS/2022.2/bin/../lnx64/tools/auto_cc/include -I /home/tools/Vitis_HLS/2022.2/bin/../common/technology/autopilot/opencl -I /home/tools/Vitis/2022.2/bin/../common/technology/autopilot/opencl -I /home/tools/Vitis/2022.2/bin/../data/emulation/include -I /usr/include/x86_64-linux-gnu -std=c++14 -g -I /home/sail/lyf/pma_demo/stream/include -g -fPIC -g -c -DHLS_STREAM_THREAD_SAFE -MD -MT obj/update_message_generator.o -MP -MF obj/update_message_generator.Cd /home/hpk/cloud_back_up/_x/link/int/xo/update_message_generator/update_message_generator/cpu_sources/update_message_generator.cpp -o obj/update_message_generator.o",
+  "args": [
+   "-I",
+   ".",
+   "-I",
+   "/home/tools/Vitis_HLS/2022.2/bin/../include",
+   "-I",
+   "/home/tools/Vitis_HLS/2022.2/bin/../lnx64/tools/auto_cc/include",
+   "-I",
+   "/home/tools/Vitis_HLS/2022.2/bin/../common/technology/autopilot/opencl",
+   "-I",
+   "/home/tools/Vitis/2022.2/bin/../common/technology/autopilot/opencl",
+   "-I",
+   "/home/tools/Vitis/2022.2/bin/../data/emulation/include",
+   "-I",
+   "/usr/include/x86_64-linux-gnu",
+   "-std=c++14",
+   "-g",
+   "-I",
+   "/home/sail/lyf/pma_demo/stream/include",
+   "-g",
+   "-fPIC",
+   "-g",
+   "-c",
+   "-DHLS_STREAM_THREAD_SAFE",
+   "-MD",
+   "-MT",
+   "obj/update_message_generator.o",
+   "-MP",
+   "-MF",
+   "obj/update_message_generator.Cd",
+   "/home/hpk/cloud_back_up/_x/link/int/xo/update_message_generator/update_message_generator/cpu_sources/update_message_generator.cpp",
+   "-o",
+   "obj/update_message_generator.o"
+  ],
+  "iniFiles": [],
+  "cwd": "/home/hpk/cloud_back_up"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:36 2026",
+ "timestampMillis": "1774010856926",
+ "status": {
+  "cmdId": "52b6f9a7-527a-453f-ad58-03f244bfd272",
+  "state": "CS_RUNNING"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:38 2026",
+ "timestampMillis": "1774010858388",
+ "status": {
+  "cmdId": "52b6f9a7-527a-453f-ad58-03f244bfd272",
+  "state": "CS_PASSED"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_SubCmdStep",
+ "dateTimestamp": "Fri Mar 20 20:47:38 2026",
+ "timestampMillis": "1774010858390",
+ "buildStep": {
+  "cmdId": "692447ef-c113-4101-8d0c-af3181a2031c",
+  "name": "ar",
+  "logFile": "/home/hpk/cloud_back_up/_x/link/int/update_message_generator/update_message_generator_ar.log",
+  "commandLine": "/home/tools/Vivado/2022.2/tps/lnx64/binutils-2.26/bin/ar -cr /home/hpk/cloud_back_up/_x/link/int/update_message_generator/update_message_generator.csim_cu.a /home/hpk/cloud_back_up/_x/link/int/update_message_generator/obj/update_message_generator.o",
+  "args": [
+   "-cr",
+   "/home/hpk/cloud_back_up/_x/link/int/update_message_generator/update_message_generator.csim_cu.a",
+   "/home/hpk/cloud_back_up/_x/link/int/update_message_generator/obj/update_message_generator.o"
+  ],
+  "iniFiles": [],
+  "cwd": "/home/hpk/cloud_back_up"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:38 2026",
+ "timestampMillis": "1774010858390",
+ "status": {
+  "cmdId": "692447ef-c113-4101-8d0c-af3181a2031c",
+  "state": "CS_RUNNING"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:38 2026",
+ "timestampMillis": "1774010858407",
+ "status": {
+  "cmdId": "692447ef-c113-4101-8d0c-af3181a2031c",
+  "state": "CS_PASSED"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_SubCmdStep",
+ "dateTimestamp": "Fri Mar 20 20:47:38 2026",
+ "timestampMillis": "1774010858410",
+ "buildStep": {
+  "cmdId": "a7c737b1-d920-4931-bad2-b63c904c4341",
+  "name": "gcc",
+  "logFile": "/home/hpk/cloud_back_up/_x/link/int/mem_access_kernel/mem_access_kernel_kernel_gcc.log",
+  "commandLine": "/home/tools/Vivado/2022.2/tps/lnx64/gcc-8.3.0/bin/gcc -I . -I /home/tools/Vitis_HLS/2022.2/bin/../include -I /home/tools/Vitis_HLS/2022.2/bin/../lnx64/tools/auto_cc/include -I /home/tools/Vitis_HLS/2022.2/bin/../common/technology/autopilot/opencl -I /home/tools/Vitis/2022.2/bin/../common/technology/autopilot/opencl -I /home/tools/Vitis/2022.2/bin/../data/emulation/include -I /usr/include/x86_64-linux-gnu -std=c++14 -g -I /home/sail/lyf/pma_demo/stream/include -g -fPIC -g -c -DHLS_STREAM_THREAD_SAFE -MD -MT obj/mem_access_kernel.o -MP -MF obj/mem_access_kernel.Cd /home/hpk/cloud_back_up/_x/link/int/xo/mem_access_kernel/mem_access_kernel/cpu_sources/mem_access_kernel.cpp -o obj/mem_access_kernel.o",
+  "args": [
+   "-I",
+   ".",
+   "-I",
+   "/home/tools/Vitis_HLS/2022.2/bin/../include",
+   "-I",
+   "/home/tools/Vitis_HLS/2022.2/bin/../lnx64/tools/auto_cc/include",
+   "-I",
+   "/home/tools/Vitis_HLS/2022.2/bin/../common/technology/autopilot/opencl",
+   "-I",
+   "/home/tools/Vitis/2022.2/bin/../common/technology/autopilot/opencl",
+   "-I",
+   "/home/tools/Vitis/2022.2/bin/../data/emulation/include",
+   "-I",
+   "/usr/include/x86_64-linux-gnu",
+   "-std=c++14",
+   "-g",
+   "-I",
+   "/home/sail/lyf/pma_demo/stream/include",
+   "-g",
+   "-fPIC",
+   "-g",
+   "-c",
+   "-DHLS_STREAM_THREAD_SAFE",
+   "-MD",
+   "-MT",
+   "obj/mem_access_kernel.o",
+   "-MP",
+   "-MF",
+   "obj/mem_access_kernel.Cd",
+   "/home/hpk/cloud_back_up/_x/link/int/xo/mem_access_kernel/mem_access_kernel/cpu_sources/mem_access_kernel.cpp",
+   "-o",
+   "obj/mem_access_kernel.o"
+  ],
+  "iniFiles": [],
+  "cwd": "/home/hpk/cloud_back_up"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:38 2026",
+ "timestampMillis": "1774010858411",
+ "status": {
+  "cmdId": "a7c737b1-d920-4931-bad2-b63c904c4341",
+  "state": "CS_RUNNING"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:40 2026",
+ "timestampMillis": "1774010860319",
+ "status": {
+  "cmdId": "a7c737b1-d920-4931-bad2-b63c904c4341",
+  "state": "CS_PASSED"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_SubCmdStep",
+ "dateTimestamp": "Fri Mar 20 20:47:40 2026",
+ "timestampMillis": "1774010860321",
+ "buildStep": {
+  "cmdId": "1575a2ef-0c8d-4960-b5bd-298ec1fa0b8e",
+  "name": "ar",
+  "logFile": "/home/hpk/cloud_back_up/_x/link/int/mem_access_kernel/mem_access_kernel_ar.log",
+  "commandLine": "/home/tools/Vivado/2022.2/tps/lnx64/binutils-2.26/bin/ar -cr /home/hpk/cloud_back_up/_x/link/int/mem_access_kernel/mem_access_kernel.csim_cu.a /home/hpk/cloud_back_up/_x/link/int/mem_access_kernel/obj/mem_access_kernel.o",
+  "args": [
+   "-cr",
+   "/home/hpk/cloud_back_up/_x/link/int/mem_access_kernel/mem_access_kernel.csim_cu.a",
+   "/home/hpk/cloud_back_up/_x/link/int/mem_access_kernel/obj/mem_access_kernel.o"
+  ],
+  "iniFiles": [],
+  "cwd": "/home/hpk/cloud_back_up"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:40 2026",
+ "timestampMillis": "1774010860321",
+ "status": {
+  "cmdId": "1575a2ef-0c8d-4960-b5bd-298ec1fa0b8e",
+  "state": "CS_RUNNING"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:40 2026",
+ "timestampMillis": "1774010860342",
+ "status": {
+  "cmdId": "1575a2ef-0c8d-4960-b5bd-298ec1fa0b8e",
+  "state": "CS_PASSED"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_SubCmdStep",
+ "dateTimestamp": "Fri Mar 20 20:47:40 2026",
+ "timestampMillis": "1774010860345",
+ "buildStep": {
+  "cmdId": "39e11dc9-3cba-4772-a4e3-98c98e32d0b1",
+  "name": "gcc",
+  "logFile": "/home/hpk/cloud_back_up/_x/link/int/pma_insert_vertex/pma_insert_vertex_kernel_gcc.log",
+  "commandLine": "/home/tools/Vivado/2022.2/tps/lnx64/gcc-8.3.0/bin/gcc -I . -I /home/tools/Vitis_HLS/2022.2/bin/../include -I /home/tools/Vitis_HLS/2022.2/bin/../lnx64/tools/auto_cc/include -I /home/tools/Vitis_HLS/2022.2/bin/../common/technology/autopilot/opencl -I /home/tools/Vitis/2022.2/bin/../common/technology/autopilot/opencl -I /home/tools/Vitis/2022.2/bin/../data/emulation/include -I /usr/include/x86_64-linux-gnu -std=c++14 -g -I /home/sail/lyf/pma_demo/stream/include -g -fPIC -g -c -DHLS_STREAM_THREAD_SAFE -MD -MT obj/pma_insert_vertex.o -MP -MF obj/pma_insert_vertex.Cd /home/hpk/cloud_back_up/_x/link/int/xo/pma_insert_vertex/pma_insert_vertex/cpu_sources/pma_insert_vertex.cpp -o obj/pma_insert_vertex.o",
+  "args": [
+   "-I",
+   ".",
+   "-I",
+   "/home/tools/Vitis_HLS/2022.2/bin/../include",
+   "-I",
+   "/home/tools/Vitis_HLS/2022.2/bin/../lnx64/tools/auto_cc/include",
+   "-I",
+   "/home/tools/Vitis_HLS/2022.2/bin/../common/technology/autopilot/opencl",
+   "-I",
+   "/home/tools/Vitis/2022.2/bin/../common/technology/autopilot/opencl",
+   "-I",
+   "/home/tools/Vitis/2022.2/bin/../data/emulation/include",
+   "-I",
+   "/usr/include/x86_64-linux-gnu",
+   "-std=c++14",
+   "-g",
+   "-I",
+   "/home/sail/lyf/pma_demo/stream/include",
+   "-g",
+   "-fPIC",
+   "-g",
+   "-c",
+   "-DHLS_STREAM_THREAD_SAFE",
+   "-MD",
+   "-MT",
+   "obj/pma_insert_vertex.o",
+   "-MP",
+   "-MF",
+   "obj/pma_insert_vertex.Cd",
+   "/home/hpk/cloud_back_up/_x/link/int/xo/pma_insert_vertex/pma_insert_vertex/cpu_sources/pma_insert_vertex.cpp",
+   "-o",
+   "obj/pma_insert_vertex.o"
+  ],
+  "iniFiles": [],
+  "cwd": "/home/hpk/cloud_back_up"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:40 2026",
+ "timestampMillis": "1774010860346",
+ "status": {
+  "cmdId": "39e11dc9-3cba-4772-a4e3-98c98e32d0b1",
+  "state": "CS_RUNNING"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:42 2026",
+ "timestampMillis": "1774010862475",
+ "status": {
+  "cmdId": "39e11dc9-3cba-4772-a4e3-98c98e32d0b1",
+  "state": "CS_PASSED"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_SubCmdStep",
+ "dateTimestamp": "Fri Mar 20 20:47:42 2026",
+ "timestampMillis": "1774010862476",
+ "buildStep": {
+  "cmdId": "ec892f45-c1ca-407a-8031-57bcd2d1a3ee",
+  "name": "ar",
+  "logFile": "/home/hpk/cloud_back_up/_x/link/int/pma_insert_vertex/pma_insert_vertex_ar.log",
+  "commandLine": "/home/tools/Vivado/2022.2/tps/lnx64/binutils-2.26/bin/ar -cr /home/hpk/cloud_back_up/_x/link/int/pma_insert_vertex/pma_insert_vertex.csim_cu.a /home/hpk/cloud_back_up/_x/link/int/pma_insert_vertex/obj/pma_insert_vertex.o",
+  "args": [
+   "-cr",
+   "/home/hpk/cloud_back_up/_x/link/int/pma_insert_vertex/pma_insert_vertex.csim_cu.a",
+   "/home/hpk/cloud_back_up/_x/link/int/pma_insert_vertex/obj/pma_insert_vertex.o"
+  ],
+  "iniFiles": [],
+  "cwd": "/home/hpk/cloud_back_up"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:42 2026",
+ "timestampMillis": "1774010862476",
+ "status": {
+  "cmdId": "ec892f45-c1ca-407a-8031-57bcd2d1a3ee",
+  "state": "CS_RUNNING"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:42 2026",
+ "timestampMillis": "1774010862496",
+ "status": {
+  "cmdId": "ec892f45-c1ca-407a-8031-57bcd2d1a3ee",
+  "state": "CS_PASSED"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_SubCmdStep",
+ "dateTimestamp": "Fri Mar 20 20:47:42 2026",
+ "timestampMillis": "1774010862498",
+ "buildStep": {
+  "cmdId": "dd71e3b5-d281-4a05-bf10-f62789fa4328",
+  "name": "gcc",
+  "logFile": "/home/hpk/cloud_back_up/_x/link/int/alloc_access_kernel/alloc_access_kernel_kernel_gcc.log",
+  "commandLine": "/home/tools/Vivado/2022.2/tps/lnx64/gcc-8.3.0/bin/gcc -I . -I /home/tools/Vitis_HLS/2022.2/bin/../include -I /home/tools/Vitis_HLS/2022.2/bin/../lnx64/tools/auto_cc/include -I /home/tools/Vitis_HLS/2022.2/bin/../common/technology/autopilot/opencl -I /home/tools/Vitis/2022.2/bin/../common/technology/autopilot/opencl -I /home/tools/Vitis/2022.2/bin/../data/emulation/include -I /usr/include/x86_64-linux-gnu -std=c++14 -g -I /home/sail/lyf/pma_demo/stream/include -g -fPIC -g -c -DHLS_STREAM_THREAD_SAFE -MD -MT obj/alloc_access_kernel.o -MP -MF obj/alloc_access_kernel.Cd /home/hpk/cloud_back_up/_x/link/int/xo/alloc_access_kernel/alloc_access_kernel/cpu_sources/alloc_access_kernel.cpp -o obj/alloc_access_kernel.o",
+  "args": [
+   "-I",
+   ".",
+   "-I",
+   "/home/tools/Vitis_HLS/2022.2/bin/../include",
+   "-I",
+   "/home/tools/Vitis_HLS/2022.2/bin/../lnx64/tools/auto_cc/include",
+   "-I",
+   "/home/tools/Vitis_HLS/2022.2/bin/../common/technology/autopilot/opencl",
+   "-I",
+   "/home/tools/Vitis/2022.2/bin/../common/technology/autopilot/opencl",
+   "-I",
+   "/home/tools/Vitis/2022.2/bin/../data/emulation/include",
+   "-I",
+   "/usr/include/x86_64-linux-gnu",
+   "-std=c++14",
+   "-g",
+   "-I",
+   "/home/sail/lyf/pma_demo/stream/include",
+   "-g",
+   "-fPIC",
+   "-g",
+   "-c",
+   "-DHLS_STREAM_THREAD_SAFE",
+   "-MD",
+   "-MT",
+   "obj/alloc_access_kernel.o",
+   "-MP",
+   "-MF",
+   "obj/alloc_access_kernel.Cd",
+   "/home/hpk/cloud_back_up/_x/link/int/xo/alloc_access_kernel/alloc_access_kernel/cpu_sources/alloc_access_kernel.cpp",
+   "-o",
+   "obj/alloc_access_kernel.o"
+  ],
+  "iniFiles": [],
+  "cwd": "/home/hpk/cloud_back_up"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:42 2026",
+ "timestampMillis": "1774010862498",
+ "status": {
+  "cmdId": "dd71e3b5-d281-4a05-bf10-f62789fa4328",
+  "state": "CS_RUNNING"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:44 2026",
+ "timestampMillis": "1774010864423",
+ "status": {
+  "cmdId": "dd71e3b5-d281-4a05-bf10-f62789fa4328",
+  "state": "CS_PASSED"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_SubCmdStep",
+ "dateTimestamp": "Fri Mar 20 20:47:44 2026",
+ "timestampMillis": "1774010864425",
+ "buildStep": {
+  "cmdId": "224e2daf-43d5-47ac-ab02-77a529ffae22",
+  "name": "ar",
+  "logFile": "/home/hpk/cloud_back_up/_x/link/int/alloc_access_kernel/alloc_access_kernel_ar.log",
+  "commandLine": "/home/tools/Vivado/2022.2/tps/lnx64/binutils-2.26/bin/ar -cr /home/hpk/cloud_back_up/_x/link/int/alloc_access_kernel/alloc_access_kernel.csim_cu.a /home/hpk/cloud_back_up/_x/link/int/alloc_access_kernel/obj/alloc_access_kernel.o",
+  "args": [
+   "-cr",
+   "/home/hpk/cloud_back_up/_x/link/int/alloc_access_kernel/alloc_access_kernel.csim_cu.a",
+   "/home/hpk/cloud_back_up/_x/link/int/alloc_access_kernel/obj/alloc_access_kernel.o"
+  ],
+  "iniFiles": [],
+  "cwd": "/home/hpk/cloud_back_up"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:44 2026",
+ "timestampMillis": "1774010864425",
+ "status": {
+  "cmdId": "224e2daf-43d5-47ac-ab02-77a529ffae22",
+  "state": "CS_RUNNING"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:44 2026",
+ "timestampMillis": "1774010864447",
+ "status": {
+  "cmdId": "224e2daf-43d5-47ac-ab02-77a529ffae22",
+  "state": "CS_PASSED"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_SubCmdStep",
+ "dateTimestamp": "Fri Mar 20 20:47:44 2026",
+ "timestampMillis": "1774010864450",
+ "buildStep": {
+  "cmdId": "4d286516-a71e-4da4-88a2-ab93f6829c6d",
+  "name": "gcc",
+  "logFile": "/home/hpk/cloud_back_up/_x/link/int/update_message_router/update_message_router_kernel_gcc.log",
+  "commandLine": "/home/tools/Vivado/2022.2/tps/lnx64/gcc-8.3.0/bin/gcc -I . -I /home/tools/Vitis_HLS/2022.2/bin/../include -I /home/tools/Vitis_HLS/2022.2/bin/../lnx64/tools/auto_cc/include -I /home/tools/Vitis_HLS/2022.2/bin/../common/technology/autopilot/opencl -I /home/tools/Vitis/2022.2/bin/../common/technology/autopilot/opencl -I /home/tools/Vitis/2022.2/bin/../data/emulation/include -I /usr/include/x86_64-linux-gnu -std=c++14 -g -I /home/sail/lyf/pma_demo/stream/include -g -fPIC -g -c -DHLS_STREAM_THREAD_SAFE -MD -MT obj/update_message_router.o -MP -MF obj/update_message_router.Cd /home/hpk/cloud_back_up/_x/link/int/xo/update_message_router/update_message_router/cpu_sources/update_message_router.cpp -o obj/update_message_router.o",
+  "args": [
+   "-I",
+   ".",
+   "-I",
+   "/home/tools/Vitis_HLS/2022.2/bin/../include",
+   "-I",
+   "/home/tools/Vitis_HLS/2022.2/bin/../lnx64/tools/auto_cc/include",
+   "-I",
+   "/home/tools/Vitis_HLS/2022.2/bin/../common/technology/autopilot/opencl",
+   "-I",
+   "/home/tools/Vitis/2022.2/bin/../common/technology/autopilot/opencl",
+   "-I",
+   "/home/tools/Vitis/2022.2/bin/../data/emulation/include",
+   "-I",
+   "/usr/include/x86_64-linux-gnu",
+   "-std=c++14",
+   "-g",
+   "-I",
+   "/home/sail/lyf/pma_demo/stream/include",
+   "-g",
+   "-fPIC",
+   "-g",
+   "-c",
+   "-DHLS_STREAM_THREAD_SAFE",
+   "-MD",
+   "-MT",
+   "obj/update_message_router.o",
+   "-MP",
+   "-MF",
+   "obj/update_message_router.Cd",
+   "/home/hpk/cloud_back_up/_x/link/int/xo/update_message_router/update_message_router/cpu_sources/update_message_router.cpp",
+   "-o",
+   "obj/update_message_router.o"
+  ],
+  "iniFiles": [],
+  "cwd": "/home/hpk/cloud_back_up"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:44 2026",
+ "timestampMillis": "1774010864450",
+ "status": {
+  "cmdId": "4d286516-a71e-4da4-88a2-ab93f6829c6d",
+  "state": "CS_RUNNING"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:46 2026",
+ "timestampMillis": "1774010866262",
+ "status": {
+  "cmdId": "4d286516-a71e-4da4-88a2-ab93f6829c6d",
+  "state": "CS_PASSED"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_SubCmdStep",
+ "dateTimestamp": "Fri Mar 20 20:47:46 2026",
+ "timestampMillis": "1774010866263",
+ "buildStep": {
+  "cmdId": "8656df91-d4a7-4f8a-9c67-bbefff9e55e6",
+  "name": "ar",
+  "logFile": "/home/hpk/cloud_back_up/_x/link/int/update_message_router/update_message_router_ar.log",
+  "commandLine": "/home/tools/Vivado/2022.2/tps/lnx64/binutils-2.26/bin/ar -cr /home/hpk/cloud_back_up/_x/link/int/update_message_router/update_message_router.csim_cu.a /home/hpk/cloud_back_up/_x/link/int/update_message_router/obj/update_message_router.o",
+  "args": [
+   "-cr",
+   "/home/hpk/cloud_back_up/_x/link/int/update_message_router/update_message_router.csim_cu.a",
+   "/home/hpk/cloud_back_up/_x/link/int/update_message_router/obj/update_message_router.o"
+  ],
+  "iniFiles": [],
+  "cwd": "/home/hpk/cloud_back_up"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:46 2026",
+ "timestampMillis": "1774010866263",
+ "status": {
+  "cmdId": "8656df91-d4a7-4f8a-9c67-bbefff9e55e6",
+  "state": "CS_RUNNING"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:46 2026",
+ "timestampMillis": "1774010866281",
+ "status": {
+  "cmdId": "8656df91-d4a7-4f8a-9c67-bbefff9e55e6",
+  "state": "CS_PASSED"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_SubCmdStep",
+ "dateTimestamp": "Fri Mar 20 20:47:46 2026",
+ "timestampMillis": "1774010866283",
+ "buildStep": {
+  "cmdId": "aaa41852-ea16-4eba-b07c-a31ba9c8ea92",
+  "name": "gcc",
+  "logFile": "/home/hpk/cloud_back_up/_x/link/int/check_kernel/check_kernel_kernel_gcc.log",
+  "commandLine": "/home/tools/Vivado/2022.2/tps/lnx64/gcc-8.3.0/bin/gcc -I . -I /home/tools/Vitis_HLS/2022.2/bin/../include -I /home/tools/Vitis_HLS/2022.2/bin/../lnx64/tools/auto_cc/include -I /home/tools/Vitis_HLS/2022.2/bin/../common/technology/autopilot/opencl -I /home/tools/Vitis/2022.2/bin/../common/technology/autopilot/opencl -I /home/tools/Vitis/2022.2/bin/../data/emulation/include -I /usr/include/x86_64-linux-gnu -std=c++14 -g -I /home/sail/lyf/pma_demo/stream/include -g -fPIC -g -c -DHLS_STREAM_THREAD_SAFE -MD -MT obj/check_kernel.o -MP -MF obj/check_kernel.Cd /home/hpk/cloud_back_up/_x/link/int/xo/check_kernel/check_kernel/cpu_sources/check_kernel.cpp -o obj/check_kernel.o",
+  "args": [
+   "-I",
+   ".",
+   "-I",
+   "/home/tools/Vitis_HLS/2022.2/bin/../include",
+   "-I",
+   "/home/tools/Vitis_HLS/2022.2/bin/../lnx64/tools/auto_cc/include",
+   "-I",
+   "/home/tools/Vitis_HLS/2022.2/bin/../common/technology/autopilot/opencl",
+   "-I",
+   "/home/tools/Vitis/2022.2/bin/../common/technology/autopilot/opencl",
+   "-I",
+   "/home/tools/Vitis/2022.2/bin/../data/emulation/include",
+   "-I",
+   "/usr/include/x86_64-linux-gnu",
+   "-std=c++14",
+   "-g",
+   "-I",
+   "/home/sail/lyf/pma_demo/stream/include",
+   "-g",
+   "-fPIC",
+   "-g",
+   "-c",
+   "-DHLS_STREAM_THREAD_SAFE",
+   "-MD",
+   "-MT",
+   "obj/check_kernel.o",
+   "-MP",
+   "-MF",
+   "obj/check_kernel.Cd",
+   "/home/hpk/cloud_back_up/_x/link/int/xo/check_kernel/check_kernel/cpu_sources/check_kernel.cpp",
+   "-o",
+   "obj/check_kernel.o"
+  ],
+  "iniFiles": [],
+  "cwd": "/home/hpk/cloud_back_up"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:46 2026",
+ "timestampMillis": "1774010866284",
+ "status": {
+  "cmdId": "aaa41852-ea16-4eba-b07c-a31ba9c8ea92",
+  "state": "CS_RUNNING"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:47 2026",
+ "timestampMillis": "1774010867732",
+ "status": {
+  "cmdId": "aaa41852-ea16-4eba-b07c-a31ba9c8ea92",
+  "state": "CS_PASSED"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_SubCmdStep",
+ "dateTimestamp": "Fri Mar 20 20:47:47 2026",
+ "timestampMillis": "1774010867733",
+ "buildStep": {
+  "cmdId": "864c79d7-248b-4a69-8711-723a8e03a24a",
+  "name": "ar",
+  "logFile": "/home/hpk/cloud_back_up/_x/link/int/check_kernel/check_kernel_ar.log",
+  "commandLine": "/home/tools/Vivado/2022.2/tps/lnx64/binutils-2.26/bin/ar -cr /home/hpk/cloud_back_up/_x/link/int/check_kernel/check_kernel.csim_cu.a /home/hpk/cloud_back_up/_x/link/int/check_kernel/obj/check_kernel.o",
+  "args": [
+   "-cr",
+   "/home/hpk/cloud_back_up/_x/link/int/check_kernel/check_kernel.csim_cu.a",
+   "/home/hpk/cloud_back_up/_x/link/int/check_kernel/obj/check_kernel.o"
+  ],
+  "iniFiles": [],
+  "cwd": "/home/hpk/cloud_back_up"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:47 2026",
+ "timestampMillis": "1774010867734",
+ "status": {
+  "cmdId": "864c79d7-248b-4a69-8711-723a8e03a24a",
+  "state": "CS_RUNNING"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:47 2026",
+ "timestampMillis": "1774010867747",
+ "status": {
+  "cmdId": "864c79d7-248b-4a69-8711-723a8e03a24a",
+  "state": "CS_PASSED"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_SubCmdStep",
+ "dateTimestamp": "Fri Mar 20 20:47:47 2026",
+ "timestampMillis": "1774010867749",
+ "buildStep": {
+  "cmdId": "658181da-86d8-42e1-86ee-c2e08c80a336",
+  "name": "gcc",
+  "logFile": "/home/hpk/cloud_back_up/_x/link/int/pma_insert_edge/pma_insert_edge_kernel_gcc.log",
+  "commandLine": "/home/tools/Vivado/2022.2/tps/lnx64/gcc-8.3.0/bin/gcc -I . -I /home/tools/Vitis_HLS/2022.2/bin/../include -I /home/tools/Vitis_HLS/2022.2/bin/../lnx64/tools/auto_cc/include -I /home/tools/Vitis_HLS/2022.2/bin/../common/technology/autopilot/opencl -I /home/tools/Vitis/2022.2/bin/../common/technology/autopilot/opencl -I /home/tools/Vitis/2022.2/bin/../data/emulation/include -I /usr/include/x86_64-linux-gnu -std=c++14 -g -I /home/sail/lyf/pma_demo/stream/include -g -fPIC -g -c -DHLS_STREAM_THREAD_SAFE -MD -MT obj/pma_insert_edge.o -MP -MF obj/pma_insert_edge.Cd /home/hpk/cloud_back_up/_x/link/int/xo/pma_insert_edge/pma_insert_edge/cpu_sources/pma_insert_edge.cpp -o obj/pma_insert_edge.o",
+  "args": [
+   "-I",
+   ".",
+   "-I",
+   "/home/tools/Vitis_HLS/2022.2/bin/../include",
+   "-I",
+   "/home/tools/Vitis_HLS/2022.2/bin/../lnx64/tools/auto_cc/include",
+   "-I",
+   "/home/tools/Vitis_HLS/2022.2/bin/../common/technology/autopilot/opencl",
+   "-I",
+   "/home/tools/Vitis/2022.2/bin/../common/technology/autopilot/opencl",
+   "-I",
+   "/home/tools/Vitis/2022.2/bin/../data/emulation/include",
+   "-I",
+   "/usr/include/x86_64-linux-gnu",
+   "-std=c++14",
+   "-g",
+   "-I",
+   "/home/sail/lyf/pma_demo/stream/include",
+   "-g",
+   "-fPIC",
+   "-g",
+   "-c",
+   "-DHLS_STREAM_THREAD_SAFE",
+   "-MD",
+   "-MT",
+   "obj/pma_insert_edge.o",
+   "-MP",
+   "-MF",
+   "obj/pma_insert_edge.Cd",
+   "/home/hpk/cloud_back_up/_x/link/int/xo/pma_insert_edge/pma_insert_edge/cpu_sources/pma_insert_edge.cpp",
+   "-o",
+   "obj/pma_insert_edge.o"
+  ],
+  "iniFiles": [],
+  "cwd": "/home/hpk/cloud_back_up"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:47 2026",
+ "timestampMillis": "1774010867749",
+ "status": {
+  "cmdId": "658181da-86d8-42e1-86ee-c2e08c80a336",
+  "state": "CS_RUNNING"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:50 2026",
+ "timestampMillis": "1774010870885",
+ "status": {
+  "cmdId": "658181da-86d8-42e1-86ee-c2e08c80a336",
+  "state": "CS_PASSED"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_SubCmdStep",
+ "dateTimestamp": "Fri Mar 20 20:47:50 2026",
+ "timestampMillis": "1774010870886",
+ "buildStep": {
+  "cmdId": "de7052c2-4d68-4e3f-b52c-9eeaac3caced",
+  "name": "ar",
+  "logFile": "/home/hpk/cloud_back_up/_x/link/int/pma_insert_edge/pma_insert_edge_ar.log",
+  "commandLine": "/home/tools/Vivado/2022.2/tps/lnx64/binutils-2.26/bin/ar -cr /home/hpk/cloud_back_up/_x/link/int/pma_insert_edge/pma_insert_edge.csim_cu.a /home/hpk/cloud_back_up/_x/link/int/pma_insert_edge/obj/pma_insert_edge.o",
+  "args": [
+   "-cr",
+   "/home/hpk/cloud_back_up/_x/link/int/pma_insert_edge/pma_insert_edge.csim_cu.a",
+   "/home/hpk/cloud_back_up/_x/link/int/pma_insert_edge/obj/pma_insert_edge.o"
+  ],
+  "iniFiles": [],
+  "cwd": "/home/hpk/cloud_back_up"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:50 2026",
+ "timestampMillis": "1774010870886",
+ "status": {
+  "cmdId": "de7052c2-4d68-4e3f-b52c-9eeaac3caced",
+  "state": "CS_RUNNING"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:50 2026",
+ "timestampMillis": "1774010870922",
+ "status": {
+  "cmdId": "de7052c2-4d68-4e3f-b52c-9eeaac3caced",
+  "state": "CS_PASSED"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_SubCmdStep",
+ "dateTimestamp": "Fri Mar 20 20:47:50 2026",
+ "timestampMillis": "1774010870925",
+ "buildStep": {
+  "cmdId": "36125ee9-d81b-4b9f-8179-691c6d533543",
+  "name": "gcc",
+  "logFile": "/home/hpk/cloud_back_up/_x/link/int/pma_read_kernel/pma_read_kernel_kernel_gcc.log",
+  "commandLine": "/home/tools/Vivado/2022.2/tps/lnx64/gcc-8.3.0/bin/gcc -I . -I /home/tools/Vitis_HLS/2022.2/bin/../include -I /home/tools/Vitis_HLS/2022.2/bin/../lnx64/tools/auto_cc/include -I /home/tools/Vitis_HLS/2022.2/bin/../common/technology/autopilot/opencl -I /home/tools/Vitis/2022.2/bin/../common/technology/autopilot/opencl -I /home/tools/Vitis/2022.2/bin/../data/emulation/include -I /usr/include/x86_64-linux-gnu -std=c++14 -g -I /home/sail/lyf/pma_demo/stream/include -g -fPIC -g -c -DHLS_STREAM_THREAD_SAFE -MD -MT obj/pma_read_kernel.o -MP -MF obj/pma_read_kernel.Cd /home/hpk/cloud_back_up/_x/link/int/xo/pma_read_kernel/pma_read_kernel/cpu_sources/pma_read_kernel.cpp -o obj/pma_read_kernel.o",
+  "args": [
+   "-I",
+   ".",
+   "-I",
+   "/home/tools/Vitis_HLS/2022.2/bin/../include",
+   "-I",
+   "/home/tools/Vitis_HLS/2022.2/bin/../lnx64/tools/auto_cc/include",
+   "-I",
+   "/home/tools/Vitis_HLS/2022.2/bin/../common/technology/autopilot/opencl",
+   "-I",
+   "/home/tools/Vitis/2022.2/bin/../common/technology/autopilot/opencl",
+   "-I",
+   "/home/tools/Vitis/2022.2/bin/../data/emulation/include",
+   "-I",
+   "/usr/include/x86_64-linux-gnu",
+   "-std=c++14",
+   "-g",
+   "-I",
+   "/home/sail/lyf/pma_demo/stream/include",
+   "-g",
+   "-fPIC",
+   "-g",
+   "-c",
+   "-DHLS_STREAM_THREAD_SAFE",
+   "-MD",
+   "-MT",
+   "obj/pma_read_kernel.o",
+   "-MP",
+   "-MF",
+   "obj/pma_read_kernel.Cd",
+   "/home/hpk/cloud_back_up/_x/link/int/xo/pma_read_kernel/pma_read_kernel/cpu_sources/pma_read_kernel.cpp",
+   "-o",
+   "obj/pma_read_kernel.o"
+  ],
+  "iniFiles": [],
+  "cwd": "/home/hpk/cloud_back_up"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:50 2026",
+ "timestampMillis": "1774010870925",
+ "status": {
+  "cmdId": "36125ee9-d81b-4b9f-8179-691c6d533543",
+  "state": "CS_RUNNING"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:52 2026",
+ "timestampMillis": "1774010872742",
+ "status": {
+  "cmdId": "36125ee9-d81b-4b9f-8179-691c6d533543",
+  "state": "CS_PASSED"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_SubCmdStep",
+ "dateTimestamp": "Fri Mar 20 20:47:52 2026",
+ "timestampMillis": "1774010872744",
+ "buildStep": {
+  "cmdId": "6bfe92e1-5e6c-4212-90a8-084a762440fb",
+  "name": "ar",
+  "logFile": "/home/hpk/cloud_back_up/_x/link/int/pma_read_kernel/pma_read_kernel_ar.log",
+  "commandLine": "/home/tools/Vivado/2022.2/tps/lnx64/binutils-2.26/bin/ar -cr /home/hpk/cloud_back_up/_x/link/int/pma_read_kernel/pma_read_kernel.csim_cu.a /home/hpk/cloud_back_up/_x/link/int/pma_read_kernel/obj/pma_read_kernel.o",
+  "args": [
+   "-cr",
+   "/home/hpk/cloud_back_up/_x/link/int/pma_read_kernel/pma_read_kernel.csim_cu.a",
+   "/home/hpk/cloud_back_up/_x/link/int/pma_read_kernel/obj/pma_read_kernel.o"
+  ],
+  "iniFiles": [],
+  "cwd": "/home/hpk/cloud_back_up"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:52 2026",
+ "timestampMillis": "1774010872744",
+ "status": {
+  "cmdId": "6bfe92e1-5e6c-4212-90a8-084a762440fb",
+  "state": "CS_RUNNING"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:52 2026",
+ "timestampMillis": "1774010872764",
+ "status": {
+  "cmdId": "6bfe92e1-5e6c-4212-90a8-084a762440fb",
+  "state": "CS_PASSED"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_SubCmdStep",
+ "dateTimestamp": "Fri Mar 20 20:47:52 2026",
+ "timestampMillis": "1774010872766",
+ "buildStep": {
+  "cmdId": "9b6973f3-bbd2-4209-a97a-cba7dd0776a3",
+  "name": "g++",
+  "logFile": "/home/hpk/cloud_back_up/_x/link/int/sw_emu_test_all_xcl_top_gpp.log",
+  "commandLine": "/home/tools/Vivado/2022.2/tps/lnx64/gcc-8.3.0/bin/g++ -I . -I /home/tools/Vitis_HLS/2022.2/bin/../include -I /home/tools/Vitis_HLS/2022.2/bin/../common/technology/autopilot/opencl -I /home/tools/Vitis/2022.2/bin/../common/technology/autopilot/opencl -I /home/tools/Vitis/2022.2/bin/../data/emulation/include -I /home/tools/Vitis_HLS/2022.2/bin/../lnx64/tools/auto_cc/include -fPIC -g -DHLS_STREAM_THREAD_SAFE -std=c++14 -fpermissive -c -MD -MT obj/xcl_top.o -MP -MF obj/xcl_top.CXXd xcl_top.cpp -o obj/xcl_top.o",
+  "args": [
+   "-I",
+   ".",
+   "-I",
+   "/home/tools/Vitis_HLS/2022.2/bin/../include",
+   "-I",
+   "/home/tools/Vitis_HLS/2022.2/bin/../common/technology/autopilot/opencl",
+   "-I",
+   "/home/tools/Vitis/2022.2/bin/../common/technology/autopilot/opencl",
+   "-I",
+   "/home/tools/Vitis/2022.2/bin/../data/emulation/include",
+   "-I",
+   "/home/tools/Vitis_HLS/2022.2/bin/../lnx64/tools/auto_cc/include",
+   "-fPIC",
+   "-g",
+   "-DHLS_STREAM_THREAD_SAFE",
+   "-std=c++14",
+   "-fpermissive",
+   "-c",
+   "-MD",
+   "-MT",
+   "obj/xcl_top.o",
+   "-MP",
+   "-MF",
+   "obj/xcl_top.CXXd",
+   "xcl_top.cpp",
+   "-o",
+   "obj/xcl_top.o"
+  ],
+  "iniFiles": [],
+  "cwd": "/home/hpk/cloud_back_up"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:52 2026",
+ "timestampMillis": "1774010872766",
+ "status": {
+  "cmdId": "9b6973f3-bbd2-4209-a97a-cba7dd0776a3",
+  "state": "CS_RUNNING"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:54 2026",
+ "timestampMillis": "1774010874428",
+ "status": {
+  "cmdId": "9b6973f3-bbd2-4209-a97a-cba7dd0776a3",
+  "state": "CS_FAILED"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Report",
+ "dateTimestamp": "Fri Mar 20 20:47:54 2026",
+ "timestampMillis": "1774010874430",
+ "report": {
+  "path": "/home/hpk/cloud_back_up/_x/logs/optraceViewer.html",
+  "name": "",
+  "fileType": "HTML",
+  "reportType": "OPERATION_TRACE",
+  "cmdId": ""
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Status",
+ "dateTimestamp": "Fri Mar 20 20:47:54 2026",
+ "timestampMillis": "1774010874431",
+ "status": {
+  "cmdId": "2589eca8-2bda-4aa0-85ec-6c2b5d24a667",
+  "state": "CS_FAILED"
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Report",
+ "dateTimestamp": "Fri Mar 20 20:47:54 2026",
+ "timestampMillis": "1774010874543",
+ "report": {
+  "path": "/home/hpk/cloud_back_up/_x/reports/link/v++_link_sw_emu_test_all_guidance.html",
+  "name": "",
+  "fileType": "HTML",
+  "reportType": "GLOBAL_RULECHECK_GUIDANCE",
+  "cmdId": ""
+ }
+}
+</ENTRY>
+<ENTRY>
+{
+ "type": "ET_Report",
+ "dateTimestamp": "Fri Mar 20 20:47:54 2026",
+ "timestampMillis": "1774010874544",
+ "report": {
+  "path": "/home/hpk/cloud_back_up/_x/v++_link_sw_emu_test_all_guidance.pb3",
+  "name": "",
+  "fileType": "BINARY_PROTOBUF",
+  "reportType": "GLOBAL_RULECHECK_GUIDANCE",
+  "cmdId": ""
+ }
+}
+</ENTRY>
