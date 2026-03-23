@@ -138,7 +138,6 @@ void bigKernelReadMemory(
 void write_out (
 	// TODO
 				ap_uint<512>                    *new_prop_1,
-				ap_uint<512>                    *new_prop_2,
         		hls::stream<write_burst_pkt>  	&write_burst_stm
 				)
 {		
@@ -162,7 +161,6 @@ void write_out (
 			ap_uint<512> new_prop = one_write_burst.data;
 			// TODO
 			new_prop_1[write_idx] = new_prop;
-			new_prop_2[write_idx] = new_prop;
 		}
 	}
 }

@@ -3,7 +3,7 @@ LITTLE_KERNEL_NUM=1
 LITTLE_KERNEL_DST_BUFFER_SIZE=65536
 #################################################################################################################
 #Big kernel setup 
-BIG_KERNEL_NUM=1
+BIG_KERNEL_NUM=0
 BIG_KERNEL_DST_BUFFER_SIZE=524288 #$(LITTLE_KERNEL_DST_BUFFER_SIZE)#
 #################################################################################################################
 #the size of destination buffer; patition size should be aligned with 8K size to improve the utilization of URAMs.

@@ -368,12 +368,21 @@ int main(int argc, char** argv)
         run_check_kernel.set_arg(6, bo_num_vertices);
         run_check_kernel.set_arg(7, bo_num_edges);
         run_check_kernel.set_arg(8, current_max_vertex + 1);
-        run_check_kernel.set_arg(9, 1); // COO mode for read kernel test
-        run_check_kernel.set_arg(10, 1);
+        // run_check_kernel.set_arg(9, 1); // COO mode for read kernel test
+        run_check_kernel.set_arg(9, 3); 
+        run_check_kernel.set_arg(10, 0);
         
         run_pma_read_kernel.start();
         run_check_kernel.start();
         run_check_kernel.wait();
+
+        bo_num_edges.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+        int edge_num = bo_num_edges_ptr[0];
+        std::cout << "Check kernel returned edge count: " << edge_num << std::endl;
+
+        run_check_kernel.set_arg(9, 1); 
+        run_check_kernel.set_arg(10, 1);
+        run_check_kernel.start();
         run_pma_read_kernel.wait();
 
         // Retrieve edge count and COO arrays written back by check_kernel
@@ -678,6 +687,7 @@ int main(int argc, char** argv)
     // run_app_mem_middle_ware_kernel.start();
     // run_memalloc_kernel.start();
     
+
     add_base_graph_to_hbm(static_max_vertex + 1, full_edge_count);
     std::cout << "Base graph loaded into HBM." << std::endl;
     bo_pos_vec_info.sync(XCL_BO_SYNC_BO_TO_DEVICE);

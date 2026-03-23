@@ -160,3 +160,17 @@ struct MEMORY_INFO_ACCESS_COMMAND
 // SEARCH_RESULT_STREAM flags
 #define SEARCH_FLAG_EXISTS 1
 #define SEARCH_FLAG_FOUND 2
+
+
+// // Little kernel setup 
+// const int LITTLE_KERNEL_NUM=1;
+// const int LITTLE_KERNEL_DST_BUFFER_SIZE=65536;
+// //Big kernel setup 
+// const int BIG_KERNEL_NUM=1;
+// const int BIG_KERNEL_DST_BUFFER_SIZE=524288;
+
+// //the size of destination buffer; patition size should be aligned with 8K size to improve the utilization of URAMs.
+// const int PARTITION_SIZE=LITTLE_KERNEL_DST_BUFFER_SIZE;
+// //the size of one ping or pong buffer
+// const int SRC_BUFFER_SIZE=4096; //4096 vertices 16*2 KB per source vertex buffer for a scatter PE// 64 BRAMs per scatter PE
+// const int LOG2_SRC_BUFFER_SIZE=12; // #4096 vertices 16*2 KB per source vertex buffer for a scatter PE// 64 BRAMs per scatter PE

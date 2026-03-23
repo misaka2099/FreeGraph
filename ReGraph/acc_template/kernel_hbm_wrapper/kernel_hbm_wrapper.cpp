@@ -18,11 +18,9 @@
 extern "C" {
     void  kernelHBMWrapper(
         ap_uint<512>                    *src_prop_1,
-        ap_uint<512>                    *src_prop_2,
 
 
         ap_uint<512>                    *new_prop_1,
-        ap_uint<512>                    *new_prop_2,
 
 
 		uint num_dense_paritions,
@@ -35,10 +33,8 @@ extern "C" {
         hls::stream<l_ppb_response_pkt>   &l_ppb_response_stm_1,
 
 
-        hls::stream<b_cacheline_request_pkt>    &b_cacheline_request_stm_1,
 
 
-        hls::stream<b_cacheline_response_pkt>   &b_cacheline_response_stm_1,
 
 		hls::stream<write_burst_pkt>      		&prop_write_burst_stm
 
@@ -46,16 +42,12 @@ extern "C" {
 {
 
 	#pragma HLS INTERFACE m_axi port=src_prop_1 offset=slave bundle = gmem1
-	#pragma HLS INTERFACE m_axi port=src_prop_2 offset=slave bundle = gmem2
 	
 	#pragma HLS INTERFACE m_axi port=new_prop_1 offset=slave bundle = gmem1
-	#pragma HLS INTERFACE m_axi port=new_prop_2 offset=slave bundle = gmem2
 
 	#pragma HLS INTERFACE s_axilite port=src_prop_1  bundle=control
-	#pragma HLS INTERFACE s_axilite port=src_prop_2  bundle=control
 	
 	#pragma HLS INTERFACE s_axilite port=new_prop_1  bundle=control
-	#pragma HLS INTERFACE s_axilite port=new_prop_2  bundle=control
 
 	#pragma HLS INTERFACE s_axilite port=num_dense_paritions  bundle=control
 	#pragma HLS INTERFACE s_axilite port=num_sparse_paritions  bundle=control
@@ -76,12 +68,10 @@ extern "C" {
 
 	littleKernelReadMemory<0>(0, src_prop_1, num_dense_paritions, l_ppb_request_stm_1, l_ppb_response_stm_1);
 
-	bigKernelReadMemory<0>(0, src_prop_2, num_sparse_paritions, b_cacheline_request_stm_1, b_cacheline_response_stm_1);
 
 
 	write_out(
 			new_prop_1,
-			new_prop_2,
 			prop_write_burst_stm			
 		);
 }

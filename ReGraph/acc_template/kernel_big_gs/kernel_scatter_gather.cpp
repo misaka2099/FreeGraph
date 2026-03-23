@@ -8,7 +8,7 @@
 
 #include "acc_scatter.h"
 #include "acc_gather.h"
-
+#include <ap_utils.h>
 extern "C" {
     void  bigKernelScatterGather(
                 hls::stream<edge_burst_dt>   &part_edge_burst_stm,
@@ -21,7 +21,10 @@ extern "C" {
     {
         const int stream_depth = 8;
         const int large_stream_depth = 32;
-
+        
+        ap_axiu<32,0,0,0> part_edge_num_pkt = part_edge_num_stm.read();
+        uint part_edge_num = part_edge_num_pkt.data;
+        ap_wait();        
 #pragma HLS DATAFLOW
 
 #pragma HLS INTERFACE axis port=part_edge_burst_stm
@@ -103,9 +106,6 @@ extern "C" {
                 }
                 DEBUG_PRINTF("reading edge exits! with %d edge sets read.\n", (part_edge_num >> LOG2_NUM_EDGE_PER_BURST));
                 #endif
-
-                ap_axiu<32,0,0,0> part_edge_num_pkt = part_edge_num_stm.read();
-                uint part_edge_num = part_edge_num_pkt.data;
 
                 readEdgesStream:
                 for (int i = 0; i < (part_edge_num >> LOG2_NUM_EDGE_PER_BURST); i++)

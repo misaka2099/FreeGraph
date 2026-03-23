@@ -13,7 +13,6 @@
 
 void merge_tmp_prop_big_krnls ( 
 	// TODO 
-				hls::stream<b_tmp_prop_pkt>    			&b_tmp_prop_stm_1,
 				hls::stream<write_burst_pkt>      		&b_write_burst_stm
 				)
 {
@@ -44,10 +43,8 @@ void merge_tmp_prop_big_krnls (
 #pragma HLS pipeline style=flp
 	
 		// TODO
-		if(!process_flag[0]) process_flag[0] = read_from_stream_nb(b_tmp_prop_stm_1, a_big_krnl_tmp_prop_pkt[0]);
 		
 		bool merge_flag =
-						 process_flag[0] &
 						 1;//  = process_flag[0] & process_flag[1] & process_flag[1] ... //if there are more channels
 		
 		if(merge_flag){  
@@ -85,17 +82,15 @@ void merge_tmp_prop_big_krnls (
 
 extern "C" {
     void  kernelBigGSMerger(
-        hls::stream<b_tmp_prop_pkt>    			&b_tmp_prop_stm_1,
 		hls::stream<write_burst_pkt>      		&b_write_burst_stm
     )
 {
 
-	#pragma HLS interface s_axilite port = return
+    #pragma HLS interface ap_ctrl_none port = return
 
 #pragma HLS DATAFLOW
 
 	merge_tmp_prop_big_krnls(
-							b_tmp_prop_stm_1,
 							b_write_burst_stm
 							);
 }

@@ -550,7 +550,7 @@ static void read_worker(
                 cnt_pkt.data = total_sum;
                 cnt_pkt.keep = 0xFF;
                 cnt_pkt.strb = 0xFF;
-                cnt_pkt.last = 1;
+                cnt_pkt.last = 0;
 
                 unified_out_stream.write(cnt_pkt);
 

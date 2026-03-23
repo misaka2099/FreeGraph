@@ -90,7 +90,7 @@ extern "C" {
     )
 {
 
-	#pragma HLS interface s_axilite port = return
+    #pragma HLS interface ap_ctrl_none port = return
 
 #pragma HLS DATAFLOW
 
