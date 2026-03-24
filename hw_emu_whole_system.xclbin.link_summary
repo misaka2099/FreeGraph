@@ -1,6 +1,6 @@
 <ENTRY>
 {
- "thisFile": "/home/hpk/cloud_back_up/hw_emu_whole_system.xclbin.link_summary",
+ "thisFile": "/home/sail/lyf/pma_demo/stream/hw_emu_whole_system.xclbin.link_summary",
  "connectId": "",
  "serverToken": "",
  "timestamp": "0"
@@ -9,13 +9,13 @@
 <ENTRY>
 {
  "type": "ET_CmdStep",
- "dateTimestamp": "Sat Mar 21 15:01:46 2026",
- "timestampMillis": "1774076506755",
+ "dateTimestamp": "Tue Mar 24 14:58:32 2026",
+ "timestampMillis": "1774335512171",
  "buildStep": {
-  "cmdId": "c1290a1e-a4f7-4e4f-b28b-7b05a2c55ed8",
+  "cmdId": "8cf5b9c4-2bad-4afd-b43e-bd96e2f9be0a",
   "name": "v++",
-  "logFile": "/home/hpk/cloud_back_up/_x/link/link.steps.log",
-  "commandLine": "/home/tools/Vitis/2022.2/bin/unwrapped/lnx64.o/v++  --vivado.prop \"run.__KERNEL__.{STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS}={-directive sdx_optimization_effort_high}\" --advanced.misc \"report=type report_timing_summary name impl_report_timing_summary_route_design_summary steps {route_design} runs {impl_1} options {-max_paths 10}\" --advanced.misc \"report=type report_timing_summary name impl_report_timing_summary_post_route_phys_opt_design_summary steps {post_route_phys_opt_design} runs {impl_1} options {-max_paths 10}\" -l -g -t hw_emu -I/home/sail/lyf/pma_demo/stream/include --platform /opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm --config whole_system.cfg --config profile.cfg -o hw_emu_whole_system.xclbin ./memkernel/alloc_access_kernel.xo ./memkernel/mem_access_kernel.xo ./pma_kernel/update_message_generator.xo ./pma_kernel/update_message_router.xo ./pma_kernel/pma_insert_vertex.xo ./pma_kernel/pma_insert_edge.xo ./pma_kernel/pma_read_kernel.xo ./pma_kernel/signal_kernel.xo ./ReGraph/xokernels/bigKernelScatterGather.xo ./ReGraph/xokernels/kernelHBMWrapper.xo ./ReGraph/xokernels/edgeReader.xo ./ReGraph/xokernels/kernelLittleGSMerger.xo ./ReGraph/xokernels/littleKernelScatterGather.xo ./ReGraph/xokernels/kernelBigGSMerger.xo ./ReGraph/xokernels/kernelApply.xo ",
+  "logFile": "/home/sail/lyf/pma_demo/stream/_x/link/link.steps.log",
+  "commandLine": "/home/tools/Vitis/2022.2/bin/unwrapped/lnx64.o/v++  --vivado.prop \"run.__KERNEL__.{STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS}={-directive sdx_optimization_effort_high}\" --advanced.misc \"report=type report_timing_summary name impl_report_timing_summary_route_design_summary steps {route_design} runs {impl_1} options {-max_paths 10}\" --advanced.misc \"report=type report_timing_summary name impl_report_timing_summary_post_route_phys_opt_design_summary steps {post_route_phys_opt_design} runs {impl_1} options {-max_paths 10}\" -l -g -t hw_emu -I/home/sail/lyf/pma_demo/stream/include --platform /opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm --config whole_system.cfg --config profile.cfg -o hw_emu_whole_system.xclbin ./memkernel/alloc_access_kernel.xo ./memkernel/mem_access_kernel.xo ./pma_kernel/update_message_generator.xo ./pma_kernel/update_message_router.xo ./pma_kernel/pma_insert_vertex.xo ./pma_kernel/pma_insert_edge.xo ./pma_kernel/pma_read_kernel.xo ./pma_kernel/signal_kernel.xo ./ReGraph/xokernels/kernelHBMWrapper.xo ./ReGraph/xokernels/edgeReader.xo ./ReGraph/xokernels/kernelLittleGSMerger.xo ./ReGraph/xokernels/littleKernelScatterGather.xo ./ReGraph/xokernels/kernelApply.xo ",
   "args": [
    "-l",
    "-g",
@@ -38,35 +38,33 @@
    "./pma_kernel/pma_insert_edge.xo",
    "./pma_kernel/pma_read_kernel.xo",
    "./pma_kernel/signal_kernel.xo",
-   "./ReGraph/xokernels/bigKernelScatterGather.xo",
    "./ReGraph/xokernels/kernelHBMWrapper.xo",
    "./ReGraph/xokernels/edgeReader.xo",
    "./ReGraph/xokernels/kernelLittleGSMerger.xo",
    "./ReGraph/xokernels/littleKernelScatterGather.xo",
-   "./ReGraph/xokernels/kernelBigGSMerger.xo",
    "./ReGraph/xokernels/kernelApply.xo"
   ],
   "iniFiles": [
    {
-    "path": "/home/hpk/cloud_back_up/whole_system.cfg",
-    "content": "[connectivity]\n# Kernel Declarations from all files\nnk=alloc_access_kernel:1:alloc_access_kernel_1\nnk=pma_insert_vertex:2:pma_insert_vertex_1,pma_insert_vertex_2\nnk=pma_insert_edge:2:pma_insert_edge_1,pma_insert_edge_2\nnk=update_message_generator:1:update_message_generator_1\nnk=update_message_router:1:update_message_router_1\nnk=pma_read_kernel:1:pma_read_kernel_1\nnk=signal_kernel:1:signal_kernel_1\nnk=mem_access_kernel:1:mem_access_kernel_1\nnk=edgeReader:1:edgeReader_1\n# Kernel Instance to SLR Assignments\n# SLR0 (Closest to HBM)\nslr=mem_access_kernel_1:SLR0\nslr=alloc_access_kernel_1:SLR0\nslr=update_message_generator_1:SLR0\nslr=pma_read_kernel_1:SLR0\nslr=edgeReader_1:SLR0\n# SLR1 (Middle)\nslr=signal_kernel_1:SLR1\nslr=update_message_router_1:SLR1\nslr=pma_insert_vertex_1:SLR1\nslr=pma_insert_vertex_2:SLR1\n\n# SLR2 (Top)\nslr=pma_insert_edge_1:SLR2\nslr=pma_insert_edge_2:SLR2\n\n# sp=pma_update_kernel_1.hbm_ptr:HBM[0:15]\n# sp=pma_update_kernel_2.hbm_ptr:HBM[0:15]\nsp=mem_access_kernel_1.hbm_ptr_1:HBM[0]\nsp=mem_access_kernel_1.hbm_ptr_2:HBM[1]\nsp=mem_access_kernel_1.pos_pma_addrs:HBM[29]\n\nsp=alloc_access_kernel_1.bm_in_hbm_1:HBM[20]\nsp=alloc_access_kernel_1.bm_in_hbm_2:HBM[21]\n# sp=pma_insert_edge_1.pos_pma_addrs_write:HBM[29]\n# sp=pma_insert_edge_1.neg_pma_addrs_write:HBM[28]\n# sp=pma_insert_edge_2.pos_pma_addrs_write:HBM[29]\n# sp=pma_insert_edge_2.neg_pma_addrs_write:HBM[28]\n\n\nsp=update_message_generator_1.src:HBM[30]\nsp=update_message_generator_1.dst:HBM[31]\n# sp=update_message_generator_1.src_to_change:HBM[27]\n# sp=update_message_generator_1.attr_to_change:HBM[26]\n# sp=pma_update_kernel_1.pos_pma_addrs:HBM[29]\n# sp=pma_update_kernel_1.neg_pma_addrs:HBM[28]\n# sp=pma_update_kernel_2.pos_pma_addrs:HBM[29]\n# sp=pma_update_kernel_2.neg_pma_addrs:HBM[28]\n# Stream Connections from memkernel/connectivity.cfg\n\nstream_connect=pma_insert_vertex_1.req_to_mem_alloc:alloc_access_kernel_1.req_from_vertex_1:16\nstream_connect=alloc_access_kernel_1.vec_info_to_vertex_1:pma_insert_vertex_1.vec_info_back_stream:16\nstream_connect=pma_insert_vertex_2.req_to_mem_alloc:alloc_access_kernel_1.req_from_vertex_2:16\nstream_connect=alloc_access_kernel_1.vec_info_to_vertex_2:pma_insert_vertex_2.vec_info_back_stream:16\n\nstream_connect=pma_insert_edge_1.req_to_mem_alloc:alloc_access_kernel_1.req_from_edge_1:16\nstream_connect=alloc_access_kernel_1.vec_info_to_edge_1:pma_insert_edge_1.vec_info_back_stream:16\nstream_connect=pma_insert_edge_2.req_to_mem_alloc:alloc_access_kernel_1.req_from_edge_2:16\nstream_connect=alloc_access_kernel_1.vec_info_to_edge_2:pma_insert_edge_2.vec_info_back_stream:16\n\n# Mem Access Kernel Connections\nstream_connect=pma_insert_vertex_1.req_to_mem_access:mem_access_kernel_1.req_from_vertex_1:16\nstream_connect=pma_insert_vertex_1.data_to_mem_access:mem_access_kernel_1.data_from_vertex_1:16\nstream_connect=pma_insert_vertex_2.req_to_mem_access:mem_access_kernel_1.req_from_vertex_2:16\nstream_connect=pma_insert_vertex_2.data_to_mem_access:mem_access_kernel_1.data_from_vertex_2:16\n\nstream_connect=pma_insert_edge_1.req_to_mem_access:mem_access_kernel_1.req_from_edge_1:16\nstream_connect=pma_insert_edge_1.data_to_mem_access:mem_access_kernel_1.data_from_edge_1:16\nstream_connect=mem_access_kernel_1.data_to_edge_1:pma_insert_edge_1.data_from_mem_access:16\nstream_connect=mem_access_kernel_1.vec_info_to_edge_1:pma_insert_edge_1.vec_info_from_mem_access:16\nstream_connect=pma_insert_edge_2.req_to_mem_access:mem_access_kernel_1.req_from_edge_2:16\nstream_connect=pma_insert_edge_2.data_to_mem_access:mem_access_kernel_1.data_from_edge_2:16\nstream_connect=mem_access_kernel_1.data_to_edge_2:pma_insert_edge_2.data_from_mem_access:16\nstream_connect=mem_access_kernel_1.vec_info_to_edge_2:pma_insert_edge_2.vec_info_from_mem_access:16\nstream_connect=pma_read_kernel_1.req_to_mem_access_ch1:mem_access_kernel_1.req_from_read_1:16\nstream_connect=pma_read_kernel_1.req_to_mem_access_ch2:mem_access_kernel_1.req_from_read_2:16\nstream_connect=mem_access_kernel_1.data_to_read_1:pma_read_kernel_1.data_from_mem_access_ch1:16\nstream_connect=mem_access_kernel_1.data_to_read_2:pma_read_kernel_1.data_from_mem_access_ch2:16\nstream_connect=mem_access_kernel_1.vec_info_to_read_1:pma_read_kernel_1.vec_info_back_stream_ch1:16\nstream_connect=mem_access_kernel_1.vec_info_to_read_2:pma_read_kernel_1.vec_info_back_stream_ch2:16\nstream_connect=signal_kernel_1.signal_to_mem_access:mem_access_kernel_1.signal_stream:16\n\n# ReGraph edge reader connections\nstream_connect=edgeReader_1.little_cmd_stm:pma_read_kernel_1.cmd_stream:16\n\n\nstream_connect=update_message_router_1.cmd_to_insert_vertex_1:pma_insert_vertex_1.cmd_stream:16\nstream_connect=update_message_router_1.cmd_to_insert_vertex_2:pma_insert_vertex_2.cmd_stream:16\nstream_connect=pma_insert_vertex_1.ack_back_to_router:update_message_router_1.ack_from_insert_vertex_1:16\nstream_connect=pma_insert_vertex_2.ack_back_to_router:update_message_router_1.ack_from_insert_vertex_2:16\n\nstream_connect=update_message_router_1.cmd_to_insert_edge_1:pma_insert_edge_1.cmd_stream:16\nstream_connect=update_message_router_1.cmd_to_insert_edge_2:pma_insert_edge_2.cmd_stream:16\nstream_connect=pma_insert_edge_1.ack_back_to_router:update_message_router_1.ack_from_insert_edge_1:16\nstream_connect=pma_insert_edge_2.ack_back_to_router:update_message_router_1.ack_from_insert_edge_2:16\n\n\nstream_connect=signal_kernel_1.signal_to_alloc_free:alloc_access_kernel_1.signal_stream:16\n# alloc_access_kernel broadcasts control internally; only one signal stream is connected.\n\n\n\n\nstream_connect=update_message_generator_1.cmd_to_router:update_message_router_1.cmd_from_generator:64  \nstream_connect=update_message_router_1.ack_to_generator:update_message_generator_1.ack_from_router:16\n# stream_connect=update_message_router_1.cmd_to_pma_1:pma_update_kernel_1.cmd_stream:16  \n# stream_connect=update_message_router_1.cmd_to_pma_2:pma_update_kernel_2.cmd_stream:16\n# Stream Connections from system_connect.cfg\n\n# REGRAPH_LITTLE_KERNEL_ID_TEXT REGRAPH_LITTLE_KERNEL_ID_TEXT\n# REGRAPH_LITTLE_KERNEL_ID_TEXT REGRAPH_LITTLE_KERNEL_ID_TEXT\n# REGRAPH_LITTLE_KERNEL_ID_TEXT REGRAPH_LITTLE_KERNEL_ID_TEXT\n\n# REGRAPH_BIG_KERNEL_ID_TEXT REGRAPH_BIG_KERNEL_ID_TEXT\n# REGRAPH_BIG_KERNEL_ID_TEXT REGRAPH_BIG_KERNEL_ID_TEXT\n# REGRAPH_BIG_KERNEL_ID_TEXT REGRAPH_BIG_KERNEL_ID_TEXT\n\n# REGRAPH_ALL_KERNEL_ID_TEXT REGRAPH_APPLY_KERNEL_HBM_ID\n\n# REGRAPH_LITTLE_KERNEL_NUM\n# REGRAPH_LITTLE_KERNEL_ID_TEXT REGRAPH_LITTLE_KERNEL_HBM_ID\n# REGRAPH_LITTLE_KERNEL_ID_TEXT REGRAPH_LITTLE_KERNEL_SLR_ID\n\n# REGRAPH_BIG_KERNEL_NUM\n# REGRAPH_BIG_KERNEL_ID_TEXT REGRAPH_BIG_KERNEL_HBM_ID\n# REGRAPH_BIG_KERNEL_ID_TEXT REGRAPH_BIG_KERNEL_SLR_ID\n\n\n# --------------------------------------------------------------------------------------------------------------------#\n#                          Little Gather Scatter Merger Kernel \u003c=\u003e Little Scatter Gather Kernel                       #\n# --------------------------------------------------------------------------------------------------------------------#\n\nstream_connect=edgeReader_1.little_edge_burst_stm:littleKernelScatterGather_1.part_edge_burst_stm:16\nstream_connect=edgeReader_1.little_edge_num_stm:littleKernelScatterGather_1.part_edge_num_stm:16\n\nstream_connect=littleKernelScatterGather_1.l_ppb_request_stm:kernelHBMWrapper_1.l_ppb_request_stm_1 \n\nstream_connect=kernelHBMWrapper_1.l_ppb_response_stm_1:littleKernelScatterGather_1.l_ppb_response_stm \n\nstream_connect=littleKernelScatterGather_1.l_tmp_prop_stm:kernelLittleGSMerger_1.l_tmp_prop_stm_1:16\n\n# --------------------------------------------------------------------------------------------------------------------#\n#                            Big Gather Scatter Merger Kernel \u003c=\u003e Big Scatter Gather Kernel                           #\n# --------------------------------------------------------------------------------------------------------------------#\n\nstream_connect=edgeReader_1.big_edge_burst_stm:bigKernelScatterGather_1.part_edge_burst_stm:16\nstream_connect=edgeReader_1.big_edge_num_stm:bigKernelScatterGather_1.part_edge_num_stm:16\n\nstream_connect=bigKernelScatterGather_1.b_cacheline_request_stm:kernelHBMWrapper_1.b_cacheline_request_stm_1:16\n\nstream_connect=kernelHBMWrapper_1.b_cacheline_response_stm_1:bigKernelScatterGather_1.b_cacheline_response_stm:16\n\nstream_connect=bigKernelScatterGather_1.b_tmp_prop_stm:kernelBigGSMerger_1.b_tmp_prop_stm_1 \n\n# ---------------------------------------------------------------------------------------------------#\n#               Little / Big Gather Scatter Merger Kernel \u003c=\u003e Merge Apply Write Kernel               #\n# ---------------------------------------------------------------------------------------------------#\n\nstream_connect=kernelLittleGSMerger_1.l_write_burst_stm:kernelApply_1.l_merged_prop_stm:16\nstream_connect=kernelBigGSMerger_1.b_write_burst_stm:kernelApply_1.b_merged_prop_stm:16\n\n# ---------------------------------------------------------------------------------------------------#\n#                                     Apply Kernel \u003c=\u003e HBM Wrapper                                   #\n# ---------------------------------------------------------------------------------------------------#\n\nstream_connect=kernelApply_1.prop_write_burst_stm:kernelHBMWrapper_1.prop_write_burst_stm:16\n\n# -----------------------------------------------------#\n#                     Merger  Kernels                  #\n# -----------------------------------------------------#\n\nnk=kernelLittleGSMerger:1\nslr=kernelLittleGSMerger_1:SLR1\n\nnk=kernelBigGSMerger:1\nslr=kernelBigGSMerger_1:SLR1\n\n# -----------------------------------------------------#\n#                     Edge Reader                      #\n# -----------------------------------------------------#\n\n# nk=edgeReader:1\n# slr=edgeReader_1:SLR0\nstream_connect=pma_read_kernel_1.data_to_coo_stream:edgeReader_1.coo_array_stm:16\nstream_connect=pma_read_kernel_1.coo_edge_count_stream:edgeReader_1.little_coo_edge_num_stm:16\n\n# -----------------------------------------------------#\n#                      Apply  Kernel                   #\n# -----------------------------------------------------#\n\nnk=kernelApply:1\n\n\n\nslr=kernelApply_1:SLR1\n\n\n# -----------------------------------------------------#\n#                       HBM Wrapper                    #\n# -----------------------------------------------------#\n\nnk=kernelHBMWrapper:1\n\nsp=kernelHBMWrapper_1.src_prop_1:HBM[1]\nsp=kernelHBMWrapper_1.src_prop_2:HBM[3]\n\nsp=kernelHBMWrapper_1.new_prop_1:HBM[1]\nsp=kernelHBMWrapper_1.new_prop_2:HBM[3]\n\nslr=kernelHBMWrapper_1:SLR0\n\n\n# -----------------------------------------------------#\n#             Little Scatter Gather Kernel             #\n# -----------------------------------------------------#\n\nnk=littleKernelScatterGather:1\n\nslr=littleKernelScatterGather_1:SLR0\n\n\n# -----------------------------------------------------#\n#              Big Scatter Gather Kernel               #\n# -----------------------------------------------------#\n\nnk=bigKernelScatterGather:1\n\nslr=bigKernelScatterGather_1:SLR1\n\n[vivado]\nprop=fileset.sim_1.xsim.elaborate.debug_level=all"
+    "path": "/home/sail/lyf/pma_demo/stream/whole_system.cfg",
+    "content": "[connectivity]\n# Kernel Declarations from all files\nnk=alloc_access_kernel:1:alloc_access_kernel_1\nnk=pma_insert_vertex:2:pma_insert_vertex_1,pma_insert_vertex_2\nnk=pma_insert_edge:2:pma_insert_edge_1,pma_insert_edge_2\nnk=update_message_generator:1:update_message_generator_1\nnk=update_message_router:1:update_message_router_1\nnk=pma_read_kernel:1:pma_read_kernel_1\nnk=signal_kernel:1:signal_kernel_1\nnk=mem_access_kernel:1:mem_access_kernel_1\nnk=edgeReader:1:edgeReader_1\n# Kernel Instance to SLR Assignments\n# SLR0 (Closest to HBM)\nslr=mem_access_kernel_1:SLR0\nslr=alloc_access_kernel_1:SLR0\nslr=update_message_generator_1:SLR0\nslr=pma_read_kernel_1:SLR0\nslr=edgeReader_1:SLR0\n# SLR1 (Middle)\nslr=signal_kernel_1:SLR1\nslr=update_message_router_1:SLR1\nslr=pma_insert_vertex_1:SLR1\nslr=pma_insert_vertex_2:SLR1\n\n# SLR2 (Top)\nslr=pma_insert_edge_1:SLR2\nslr=pma_insert_edge_2:SLR2\n\n# sp=pma_update_kernel_1.hbm_ptr:HBM[0:15]\n# sp=pma_update_kernel_2.hbm_ptr:HBM[0:15]\nsp=mem_access_kernel_1.hbm_ptr_1:HBM[0]\nsp=mem_access_kernel_1.hbm_ptr_2:HBM[1]\nsp=mem_access_kernel_1.pos_pma_addrs:HBM[29]\n\nsp=alloc_access_kernel_1.bm_in_hbm_1:HBM[20]\nsp=alloc_access_kernel_1.bm_in_hbm_2:HBM[21]\n# sp=pma_insert_edge_1.pos_pma_addrs_write:HBM[29]\n# sp=pma_insert_edge_1.neg_pma_addrs_write:HBM[28]\n# sp=pma_insert_edge_2.pos_pma_addrs_write:HBM[29]\n# sp=pma_insert_edge_2.neg_pma_addrs_write:HBM[28]\n\n\nsp=update_message_generator_1.src:HBM[30]\nsp=update_message_generator_1.dst:HBM[31]\n# sp=update_message_generator_1.src_to_change:HBM[27]\n# sp=update_message_generator_1.attr_to_change:HBM[26]\n# sp=pma_update_kernel_1.pos_pma_addrs:HBM[29]\n# sp=pma_update_kernel_1.neg_pma_addrs:HBM[28]\n# sp=pma_update_kernel_2.pos_pma_addrs:HBM[29]\n# sp=pma_update_kernel_2.neg_pma_addrs:HBM[28]\n# Stream Connections from memkernel/connectivity.cfg\n\nstream_connect=pma_insert_vertex_1.req_to_mem_alloc:alloc_access_kernel_1.req_from_vertex_1:16\nstream_connect=alloc_access_kernel_1.vec_info_to_vertex_1:pma_insert_vertex_1.vec_info_back_stream:16\nstream_connect=pma_insert_vertex_2.req_to_mem_alloc:alloc_access_kernel_1.req_from_vertex_2:16\nstream_connect=alloc_access_kernel_1.vec_info_to_vertex_2:pma_insert_vertex_2.vec_info_back_stream:16\n\nstream_connect=pma_insert_edge_1.req_to_mem_alloc:alloc_access_kernel_1.req_from_edge_1:16\nstream_connect=alloc_access_kernel_1.vec_info_to_edge_1:pma_insert_edge_1.vec_info_back_stream:16\nstream_connect=pma_insert_edge_2.req_to_mem_alloc:alloc_access_kernel_1.req_from_edge_2:16\nstream_connect=alloc_access_kernel_1.vec_info_to_edge_2:pma_insert_edge_2.vec_info_back_stream:16\n\n# Mem Access Kernel Connections\nstream_connect=pma_insert_vertex_1.req_to_mem_access:mem_access_kernel_1.req_from_vertex_1:16\nstream_connect=pma_insert_vertex_1.data_to_mem_access:mem_access_kernel_1.data_from_vertex_1:16\nstream_connect=pma_insert_vertex_2.req_to_mem_access:mem_access_kernel_1.req_from_vertex_2:16\nstream_connect=pma_insert_vertex_2.data_to_mem_access:mem_access_kernel_1.data_from_vertex_2:16\n\nstream_connect=pma_insert_edge_1.req_to_mem_access:mem_access_kernel_1.req_from_edge_1:16\nstream_connect=pma_insert_edge_1.data_to_mem_access:mem_access_kernel_1.data_from_edge_1:16\nstream_connect=mem_access_kernel_1.data_to_edge_1:pma_insert_edge_1.data_from_mem_access:16\nstream_connect=mem_access_kernel_1.vec_info_to_edge_1:pma_insert_edge_1.vec_info_from_mem_access:16\nstream_connect=pma_insert_edge_2.req_to_mem_access:mem_access_kernel_1.req_from_edge_2:16\nstream_connect=pma_insert_edge_2.data_to_mem_access:mem_access_kernel_1.data_from_edge_2:16\nstream_connect=mem_access_kernel_1.data_to_edge_2:pma_insert_edge_2.data_from_mem_access:16\nstream_connect=mem_access_kernel_1.vec_info_to_edge_2:pma_insert_edge_2.vec_info_from_mem_access:16\nstream_connect=pma_read_kernel_1.req_to_mem_access_ch1:mem_access_kernel_1.req_from_read_1:16\nstream_connect=pma_read_kernel_1.req_to_mem_access_ch2:mem_access_kernel_1.req_from_read_2:16\nstream_connect=mem_access_kernel_1.data_to_read_1:pma_read_kernel_1.data_from_mem_access_ch1:16\nstream_connect=mem_access_kernel_1.data_to_read_2:pma_read_kernel_1.data_from_mem_access_ch2:16\nstream_connect=mem_access_kernel_1.vec_info_to_read_1:pma_read_kernel_1.vec_info_back_stream_ch1:16\nstream_connect=mem_access_kernel_1.vec_info_to_read_2:pma_read_kernel_1.vec_info_back_stream_ch2:16\nstream_connect=signal_kernel_1.signal_to_mem_access:mem_access_kernel_1.signal_stream:16\n\n# ReGraph edge reader connections\nstream_connect=edgeReader_1.little_cmd_stm:pma_read_kernel_1.cmd_stream:16\nstream_connect=update_message_router_1.cmd_to_insert_vertex_1:pma_insert_vertex_1.cmd_stream:16\nstream_connect=update_message_router_1.cmd_to_insert_vertex_2:pma_insert_vertex_2.cmd_stream:16\nstream_connect=pma_insert_vertex_1.ack_back_to_router:update_message_router_1.ack_from_insert_vertex_1:16\nstream_connect=pma_insert_vertex_2.ack_back_to_router:update_message_router_1.ack_from_insert_vertex_2:16\n\nstream_connect=update_message_router_1.cmd_to_insert_edge_1:pma_insert_edge_1.cmd_stream:16\nstream_connect=update_message_router_1.cmd_to_insert_edge_2:pma_insert_edge_2.cmd_stream:16\nstream_connect=pma_insert_edge_1.ack_back_to_router:update_message_router_1.ack_from_insert_edge_1:16\nstream_connect=pma_insert_edge_2.ack_back_to_router:update_message_router_1.ack_from_insert_edge_2:16\n\n\nstream_connect=signal_kernel_1.signal_to_alloc_free:alloc_access_kernel_1.signal_stream:16\n# alloc_access_kernel broadcasts control internally; only one signal stream is connected.\n\n\n\n\nstream_connect=update_message_generator_1.cmd_to_router:update_message_router_1.cmd_from_generator:64  \nstream_connect=update_message_router_1.ack_to_generator:update_message_generator_1.ack_from_router:16\n\n[connectivity]\n\n# --------------------------------------------------------------------------------------------------------------------#\n#                          Little Gather Scatter Merger Kernel \u003c=\u003e Little Scatter Gather Kernel                       #\n# --------------------------------------------------------------------------------------------------------------------#\n\n\nstream_connect=edgeReader_1.little_edge_burst_stm:littleKernelScatterGather_1.part_edge_burst_stm:16\nstream_connect=edgeReader_1.little_edge_num_stm:littleKernelScatterGather_1.part_edge_num_stm:16\n\nstream_connect=littleKernelScatterGather_1.l_ppb_request_stm:kernelHBMWrapper_1.l_ppb_request_stm_1 \n\nstream_connect=kernelHBMWrapper_1.l_ppb_response_stm_1:littleKernelScatterGather_1.l_ppb_response_stm \n\nstream_connect=littleKernelScatterGather_1.l_tmp_prop_stm:kernelLittleGSMerger_1.l_tmp_prop_stm_1:16\n\n# --------------------------------------------------------------------------------------------------------------------#\n#                            Big Gather Scatter Merger Kernel \u003c=\u003e Big Scatter Gather Kernel                           #\n# --------------------------------------------------------------------------------------------------------------------#\n\n\n\n\n# ---------------------------------------------------------------------------------------------------#\n#               Little / Big Gather Scatter Merger Kernel \u003c=\u003e Merge Apply Write Kernel               #\n# ---------------------------------------------------------------------------------------------------#\n\nstream_connect=kernelLittleGSMerger_1.l_write_burst_stm:kernelApply_1.l_merged_prop_stm:16\n\n# ---------------------------------------------------------------------------------------------------#\n#                                     Apply Kernel \u003c=\u003e HBM Wrapper                                   #\n# ---------------------------------------------------------------------------------------------------#\n\nstream_connect=kernelApply_1.prop_write_burst_stm:kernelHBMWrapper_1.prop_write_burst_stm:16\n\n# -----------------------------------------------------#\n#                     Merger  Kernels                  #\n# -----------------------------------------------------#\n\nnk=kernelLittleGSMerger:1\nslr=kernelLittleGSMerger_1:SLR1\n\n# -----------------------------------------------------#\n#                     Edge Reader                      #\n# -----------------------------------------------------#\n\n# nk=edgeReader:1\n# slr=edgeReader_1:SLR0\nstream_connect=pma_read_kernel_1.data_to_coo_stream:edgeReader_1.coo_array_stm:16\nstream_connect=pma_read_kernel_1.coo_edge_count_stream:edgeReader_1.little_coo_edge_num_stm:16\n\n# -----------------------------------------------------#\n#                      Apply  Kernel                   #\n# -----------------------------------------------------#\n\nnk=kernelApply:1\n\n\n\nslr=kernelApply_1:SLR1\n\n\n# -----------------------------------------------------#\n#                       HBM Wrapper                    #\n# -----------------------------------------------------#\n\nnk=kernelHBMWrapper:1\n\nsp=kernelHBMWrapper_1.src_prop_1:HBM[1]\n\nsp=kernelHBMWrapper_1.new_prop_1:HBM[1]\n\nslr=kernelHBMWrapper_1:SLR0\n\n\n# -----------------------------------------------------#\n#             Little Scatter Gather Kernel             #\n# -----------------------------------------------------#\n\nnk=littleKernelScatterGather:1\n\nslr=littleKernelScatterGather_1:SLR0\n\n\n# -----------------------------------------------------#\n#              Big Scatter Gather Kernel               #\n# -----------------------------------------------------#\n\n\n\n\n[vivado]\nprop=fileset.sim_1.xsim.elaborate.debug_level=all"
    },
    {
-    "path": "/home/hpk/cloud_back_up/profile.cfg",
+    "path": "/home/sail/lyf/pma_demo/stream/profile.cfg",
     "content": "[profile]\n# data=all:all:all\n# exec=all:all\n# stall=all:all\n# # memory=all"
    }
   ],
-  "cwd": "/home/hpk/cloud_back_up"
+  "cwd": "/home/sail/lyf/pma_demo/stream"
  }
 }
 </ENTRY>
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 15:01:46 2026",
- "timestampMillis": "1774076506756",
+ "dateTimestamp": "Tue Mar 24 14:58:32 2026",
+ "timestampMillis": "1774335512171",
  "status": {
-  "cmdId": "c1290a1e-a4f7-4e4f-b28b-7b05a2c55ed8",
+  "cmdId": "8cf5b9c4-2bad-4afd-b43e-bd96e2f9be0a",
   "state": "CS_RUNNING"
  }
 }
@@ -74,8 +72,8 @@
 <ENTRY>
 {
  "type": "ET_FlowMetaData",
- "dateTimestamp": "Sat Mar 21 15:01:54 2026",
- "timestampMillis": "1774076514642",
+ "dateTimestamp": "Tue Mar 24 14:58:38 2026",
+ "timestampMillis": "1774335518516",
  "buildSummary": {
   "hardwarePlatform": "xilinx_u280_gen3x16_xdma_1_202211_1.xpfm",
   "hardwareDsa": "",
@@ -88,7 +86,7 @@
    "base": {
     "type": "BT_UKNOWN",
     "name": "hw_emu_whole_system",
-    "file": "/home/hpk/cloud_back_up/hw_emu_whole_system.xclbin",
+    "file": "/home/sail/lyf/pma_demo/stream/hw_emu_whole_system.xclbin",
     "reports": [],
     "uuid": ""
    },
@@ -99,12 +97,12 @@
     "base": {
      "type": "KERNEL",
      "name": "alloc_access_kernel",
-     "file": "/home/hpk/cloud_back_up/memkernel/alloc_access_kernel.xo",
+     "file": "/home/sail/lyf/pma_demo/stream/memkernel/alloc_access_kernel.xo",
      "reports": [],
      "uuid": ""
     },
     "sources": [
-     "/home/hpk/cloud_back_up/_x/link/int/xo/alloc_access_kernel/alloc_access_kernel/cpu_sources/alloc_access_kernel.cpp"
+     "/home/sail/lyf/pma_demo/stream/_x/link/int/xo/alloc_access_kernel/alloc_access_kernel/cpu_sources/alloc_access_kernel.cpp"
     ],
     "psSources": [],
     "cuNames": [
@@ -118,12 +116,12 @@
     "base": {
      "type": "KERNEL",
      "name": "mem_access_kernel",
-     "file": "/home/hpk/cloud_back_up/memkernel/mem_access_kernel.xo",
+     "file": "/home/sail/lyf/pma_demo/stream/memkernel/mem_access_kernel.xo",
      "reports": [],
      "uuid": ""
     },
     "sources": [
-     "/home/hpk/cloud_back_up/_x/link/int/xo/mem_access_kernel/mem_access_kernel/cpu_sources/mem_access_kernel.cpp"
+     "/home/sail/lyf/pma_demo/stream/_x/link/int/xo/mem_access_kernel/mem_access_kernel/cpu_sources/mem_access_kernel.cpp"
     ],
     "psSources": [],
     "cuNames": [
@@ -137,12 +135,12 @@
     "base": {
      "type": "KERNEL",
      "name": "update_message_generator",
-     "file": "/home/hpk/cloud_back_up/pma_kernel/update_message_generator.xo",
+     "file": "/home/sail/lyf/pma_demo/stream/pma_kernel/update_message_generator.xo",
      "reports": [],
      "uuid": ""
     },
     "sources": [
-     "/home/hpk/cloud_back_up/_x/link/int/xo/update_message_generator/update_message_generator/cpu_sources/update_message_generator.cpp"
+     "/home/sail/lyf/pma_demo/stream/_x/link/int/xo/update_message_generator/update_message_generator/cpu_sources/update_message_generator.cpp"
     ],
     "psSources": [],
     "cuNames": [
@@ -156,12 +154,12 @@
     "base": {
      "type": "KERNEL",
      "name": "update_message_router",
-     "file": "/home/hpk/cloud_back_up/pma_kernel/update_message_router.xo",
+     "file": "/home/sail/lyf/pma_demo/stream/pma_kernel/update_message_router.xo",
      "reports": [],
      "uuid": ""
     },
     "sources": [
-     "/home/hpk/cloud_back_up/_x/link/int/xo/update_message_router/update_message_router/cpu_sources/update_message_router.cpp"
+     "/home/sail/lyf/pma_demo/stream/_x/link/int/xo/update_message_router/update_message_router/cpu_sources/update_message_router.cpp"
     ],
     "psSources": [],
     "cuNames": [
@@ -175,12 +173,12 @@
     "base": {
      "type": "KERNEL",
      "name": "pma_insert_vertex",
-     "file": "/home/hpk/cloud_back_up/pma_kernel/pma_insert_vertex.xo",
+     "file": "/home/sail/lyf/pma_demo/stream/pma_kernel/pma_insert_vertex.xo",
      "reports": [],
      "uuid": ""
     },
     "sources": [
-     "/home/hpk/cloud_back_up/_x/link/int/xo/pma_insert_vertex/pma_insert_vertex/cpu_sources/pma_insert_vertex.cpp"
+     "/home/sail/lyf/pma_demo/stream/_x/link/int/xo/pma_insert_vertex/pma_insert_vertex/cpu_sources/pma_insert_vertex.cpp"
     ],
     "psSources": [],
     "cuNames": [
@@ -195,12 +193,12 @@
     "base": {
      "type": "KERNEL",
      "name": "pma_insert_edge",
-     "file": "/home/hpk/cloud_back_up/pma_kernel/pma_insert_edge.xo",
+     "file": "/home/sail/lyf/pma_demo/stream/pma_kernel/pma_insert_edge.xo",
      "reports": [],
      "uuid": ""
     },
     "sources": [
-     "/home/hpk/cloud_back_up/_x/link/int/xo/pma_insert_edge/pma_insert_edge/cpu_sources/pma_insert_edge.cpp"
+     "/home/sail/lyf/pma_demo/stream/_x/link/int/xo/pma_insert_edge/pma_insert_edge/cpu_sources/pma_insert_edge.cpp"
     ],
     "psSources": [],
     "cuNames": [
@@ -215,12 +213,12 @@
     "base": {
      "type": "KERNEL",
      "name": "pma_read_kernel",
-     "file": "/home/hpk/cloud_back_up/pma_kernel/pma_read_kernel.xo",
+     "file": "/home/sail/lyf/pma_demo/stream/pma_kernel/pma_read_kernel.xo",
      "reports": [],
      "uuid": ""
     },
     "sources": [
-     "/home/hpk/cloud_back_up/_x/link/int/xo/pma_read_kernel/pma_read_kernel/cpu_sources/pma_read_kernel.cpp"
+     "/home/sail/lyf/pma_demo/stream/_x/link/int/xo/pma_read_kernel/pma_read_kernel/cpu_sources/pma_read_kernel.cpp"
     ],
     "psSources": [],
     "cuNames": [
@@ -234,12 +232,12 @@
     "base": {
      "type": "KERNEL",
      "name": "signal_kernel",
-     "file": "/home/hpk/cloud_back_up/pma_kernel/signal_kernel.xo",
+     "file": "/home/sail/lyf/pma_demo/stream/pma_kernel/signal_kernel.xo",
      "reports": [],
      "uuid": ""
     },
     "sources": [
-     "/home/hpk/cloud_back_up/_x/link/int/xo/signal_kernel/signal_kernel/cpu_sources/signal_kernel.cpp"
+     "/home/sail/lyf/pma_demo/stream/_x/link/int/xo/signal_kernel/signal_kernel/cpu_sources/signal_kernel.cpp"
     ],
     "psSources": [],
     "cuNames": [
@@ -252,32 +250,13 @@
    {
     "base": {
      "type": "KERNEL",
-     "name": "bigKernelScatterGather",
-     "file": "/home/hpk/cloud_back_up/ReGraph/xokernels/bigKernelScatterGather.xo",
-     "reports": [],
-     "uuid": ""
-    },
-    "sources": [
-     "/home/hpk/cloud_back_up/_x/link/int/xo/bigKernelScatterGather/bigKernelScatterGather/cpu_sources/kernel_scatter_gather.cpp"
-    ],
-    "psSources": [],
-    "cuNames": [
-     "bigKernelScatterGather_1"
-    ],
-    "type": "HLS",
-    "frequency": 0,
-    "freqUnits": ""
-   },
-   {
-    "base": {
-     "type": "KERNEL",
      "name": "kernelHBMWrapper",
-     "file": "/home/hpk/cloud_back_up/ReGraph/xokernels/kernelHBMWrapper.xo",
+     "file": "/home/sail/lyf/pma_demo/stream/ReGraph/xokernels/kernelHBMWrapper.xo",
      "reports": [],
      "uuid": ""
     },
     "sources": [
-     "/home/hpk/cloud_back_up/_x/link/int/xo/kernelHBMWrapper/kernelHBMWrapper/cpu_sources/kernel_hbm_wrapper.cpp"
+     "/home/sail/lyf/pma_demo/stream/_x/link/int/xo/kernelHBMWrapper/kernelHBMWrapper/cpu_sources/kernel_hbm_wrapper.cpp"
     ],
     "psSources": [],
     "cuNames": [
@@ -291,12 +270,12 @@
     "base": {
      "type": "KERNEL",
      "name": "edgeReader",
-     "file": "/home/hpk/cloud_back_up/ReGraph/xokernels/edgeReader.xo",
+     "file": "/home/sail/lyf/pma_demo/stream/ReGraph/xokernels/edgeReader.xo",
      "reports": [],
      "uuid": ""
     },
     "sources": [
-     "/home/hpk/cloud_back_up/_x/link/int/xo/edgeReader/edgeReader/cpu_sources/edge_reader.cpp"
+     "/home/sail/lyf/pma_demo/stream/_x/link/int/xo/edgeReader/edgeReader/cpu_sources/edgeReader.cpp"
     ],
     "psSources": [],
     "cuNames": [
@@ -310,12 +289,12 @@
     "base": {
      "type": "KERNEL",
      "name": "kernelLittleGSMerger",
-     "file": "/home/hpk/cloud_back_up/ReGraph/xokernels/kernelLittleGSMerger.xo",
+     "file": "/home/sail/lyf/pma_demo/stream/ReGraph/xokernels/kernelLittleGSMerger.xo",
      "reports": [],
      "uuid": ""
     },
     "sources": [
-     "/home/hpk/cloud_back_up/_x/link/int/xo/kernelLittleGSMerger/kernelLittleGSMerger/cpu_sources/kernel_little_gs_merger.cpp"
+     "/home/sail/lyf/pma_demo/stream/_x/link/int/xo/kernelLittleGSMerger/kernelLittleGSMerger/cpu_sources/kernel_little_gs_merger.cpp"
     ],
     "psSources": [],
     "cuNames": [
@@ -329,12 +308,12 @@
     "base": {
      "type": "KERNEL",
      "name": "littleKernelScatterGather",
-     "file": "/home/hpk/cloud_back_up/ReGraph/xokernels/littleKernelScatterGather.xo",
+     "file": "/home/sail/lyf/pma_demo/stream/ReGraph/xokernels/littleKernelScatterGather.xo",
      "reports": [],
      "uuid": ""
     },
     "sources": [
-     "/home/hpk/cloud_back_up/_x/link/int/xo/littleKernelScatterGather/littleKernelScatterGather/cpu_sources/kernel_scatter_gather.cpp"
+     "/home/sail/lyf/pma_demo/stream/_x/link/int/xo/littleKernelScatterGather/littleKernelScatterGather/cpu_sources/kernel_scatter_gather.cpp"
     ],
     "psSources": [],
     "cuNames": [
@@ -347,32 +326,13 @@
    {
     "base": {
      "type": "KERNEL",
-     "name": "kernelBigGSMerger",
-     "file": "/home/hpk/cloud_back_up/ReGraph/xokernels/kernelBigGSMerger.xo",
-     "reports": [],
-     "uuid": ""
-    },
-    "sources": [
-     "/home/hpk/cloud_back_up/_x/link/int/xo/kernelBigGSMerger/kernelBigGSMerger/cpu_sources/kernel_big_gs_merger.cpp"
-    ],
-    "psSources": [],
-    "cuNames": [
-     "kernelBigGSMerger_1"
-    ],
-    "type": "HLS",
-    "frequency": 0,
-    "freqUnits": ""
-   },
-   {
-    "base": {
-     "type": "KERNEL",
      "name": "kernelApply",
-     "file": "/home/hpk/cloud_back_up/ReGraph/xokernels/kernelApply.xo",
+     "file": "/home/sail/lyf/pma_demo/stream/ReGraph/xokernels/kernelApply.xo",
      "reports": [],
      "uuid": ""
     },
     "sources": [
-     "/home/hpk/cloud_back_up/_x/link/int/xo/kernelApply/kernelApply/cpu_sources/kernel_apply.cpp"
+     "/home/sail/lyf/pma_demo/stream/_x/link/int/xo/kernelApply/kernelApply/cpu_sources/kernel_apply.cpp"
     ],
     "psSources": [],
     "cuNames": [
@@ -390,72 +350,68 @@
 <ENTRY>
 {
  "type": "ET_SubCmdStep",
- "dateTimestamp": "Sat Mar 21 15:01:55 2026",
- "timestampMillis": "1774076515261",
+ "dateTimestamp": "Tue Mar 24 14:58:39 2026",
+ "timestampMillis": "1774335519028",
  "buildStep": {
-  "cmdId": "42851323-7c26-4a82-ad1a-5ca49cea2690",
+  "cmdId": "f7d6efd6-5b44-4558-97a9-948d2e107a63",
   "name": "system_link",
   "logFile": "",
-  "commandLine": "system_link --xo /home/hpk/cloud_back_up/memkernel/alloc_access_kernel.xo --xo /home/hpk/cloud_back_up/memkernel/mem_access_kernel.xo --xo /home/hpk/cloud_back_up/pma_kernel/update_message_generator.xo --xo /home/hpk/cloud_back_up/pma_kernel/update_message_router.xo --xo /home/hpk/cloud_back_up/pma_kernel/pma_insert_vertex.xo --xo /home/hpk/cloud_back_up/pma_kernel/pma_insert_edge.xo --xo /home/hpk/cloud_back_up/pma_kernel/pma_read_kernel.xo --xo /home/hpk/cloud_back_up/pma_kernel/signal_kernel.xo --xo /home/hpk/cloud_back_up/ReGraph/xokernels/bigKernelScatterGather.xo --xo /home/hpk/cloud_back_up/ReGraph/xokernels/kernelHBMWrapper.xo --xo /home/hpk/cloud_back_up/ReGraph/xokernels/edgeReader.xo --xo /home/hpk/cloud_back_up/ReGraph/xokernels/kernelLittleGSMerger.xo --xo /home/hpk/cloud_back_up/ReGraph/xokernels/littleKernelScatterGather.xo --xo /home/hpk/cloud_back_up/ReGraph/xokernels/kernelBigGSMerger.xo --xo /home/hpk/cloud_back_up/ReGraph/xokernels/kernelApply.xo --config /home/hpk/cloud_back_up/_x/link/int/syslinkConfig.ini --xpfm /opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm --target emu --output_dir /home/hpk/cloud_back_up/_x/link/int --temp_dir /home/hpk/cloud_back_up/_x/link/sys_link",
+  "commandLine": "system_link --xo /home/sail/lyf/pma_demo/stream/memkernel/alloc_access_kernel.xo --xo /home/sail/lyf/pma_demo/stream/memkernel/mem_access_kernel.xo --xo /home/sail/lyf/pma_demo/stream/pma_kernel/update_message_generator.xo --xo /home/sail/lyf/pma_demo/stream/pma_kernel/update_message_router.xo --xo /home/sail/lyf/pma_demo/stream/pma_kernel/pma_insert_vertex.xo --xo /home/sail/lyf/pma_demo/stream/pma_kernel/pma_insert_edge.xo --xo /home/sail/lyf/pma_demo/stream/pma_kernel/pma_read_kernel.xo --xo /home/sail/lyf/pma_demo/stream/pma_kernel/signal_kernel.xo --xo /home/sail/lyf/pma_demo/stream/ReGraph/xokernels/kernelHBMWrapper.xo --xo /home/sail/lyf/pma_demo/stream/ReGraph/xokernels/edgeReader.xo --xo /home/sail/lyf/pma_demo/stream/ReGraph/xokernels/kernelLittleGSMerger.xo --xo /home/sail/lyf/pma_demo/stream/ReGraph/xokernels/littleKernelScatterGather.xo --xo /home/sail/lyf/pma_demo/stream/ReGraph/xokernels/kernelApply.xo --config /home/sail/lyf/pma_demo/stream/_x/link/int/syslinkConfig.ini --xpfm /opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm --target emu --output_dir /home/sail/lyf/pma_demo/stream/_x/link/int --temp_dir /home/sail/lyf/pma_demo/stream/_x/link/sys_link",
   "args": [
    "--xo",
-   "/home/hpk/cloud_back_up/memkernel/alloc_access_kernel.xo",
+   "/home/sail/lyf/pma_demo/stream/memkernel/alloc_access_kernel.xo",
    "--xo",
-   "/home/hpk/cloud_back_up/memkernel/mem_access_kernel.xo",
+   "/home/sail/lyf/pma_demo/stream/memkernel/mem_access_kernel.xo",
    "--xo",
-   "/home/hpk/cloud_back_up/pma_kernel/update_message_generator.xo",
+   "/home/sail/lyf/pma_demo/stream/pma_kernel/update_message_generator.xo",
    "--xo",
-   "/home/hpk/cloud_back_up/pma_kernel/update_message_router.xo",
+   "/home/sail/lyf/pma_demo/stream/pma_kernel/update_message_router.xo",
    "--xo",
-   "/home/hpk/cloud_back_up/pma_kernel/pma_insert_vertex.xo",
+   "/home/sail/lyf/pma_demo/stream/pma_kernel/pma_insert_vertex.xo",
    "--xo",
-   "/home/hpk/cloud_back_up/pma_kernel/pma_insert_edge.xo",
+   "/home/sail/lyf/pma_demo/stream/pma_kernel/pma_insert_edge.xo",
    "--xo",
-   "/home/hpk/cloud_back_up/pma_kernel/pma_read_kernel.xo",
+   "/home/sail/lyf/pma_demo/stream/pma_kernel/pma_read_kernel.xo",
    "--xo",
-   "/home/hpk/cloud_back_up/pma_kernel/signal_kernel.xo",
+   "/home/sail/lyf/pma_demo/stream/pma_kernel/signal_kernel.xo",
    "--xo",
-   "/home/hpk/cloud_back_up/ReGraph/xokernels/bigKernelScatterGather.xo",
+   "/home/sail/lyf/pma_demo/stream/ReGraph/xokernels/kernelHBMWrapper.xo",
    "--xo",
-   "/home/hpk/cloud_back_up/ReGraph/xokernels/kernelHBMWrapper.xo",
+   "/home/sail/lyf/pma_demo/stream/ReGraph/xokernels/edgeReader.xo",
    "--xo",
-   "/home/hpk/cloud_back_up/ReGraph/xokernels/edgeReader.xo",
+   "/home/sail/lyf/pma_demo/stream/ReGraph/xokernels/kernelLittleGSMerger.xo",
    "--xo",
-   "/home/hpk/cloud_back_up/ReGraph/xokernels/kernelLittleGSMerger.xo",
+   "/home/sail/lyf/pma_demo/stream/ReGraph/xokernels/littleKernelScatterGather.xo",
    "--xo",
-   "/home/hpk/cloud_back_up/ReGraph/xokernels/littleKernelScatterGather.xo",
-   "--xo",
-   "/home/hpk/cloud_back_up/ReGraph/xokernels/kernelBigGSMerger.xo",
-   "--xo",
-   "/home/hpk/cloud_back_up/ReGraph/xokernels/kernelApply.xo",
+   "/home/sail/lyf/pma_demo/stream/ReGraph/xokernels/kernelApply.xo",
    "--config",
-   "/home/hpk/cloud_back_up/_x/link/int/syslinkConfig.ini",
+   "/home/sail/lyf/pma_demo/stream/_x/link/int/syslinkConfig.ini",
    "--xpfm",
    "/opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm",
    "--target",
    "emu",
    "--output_dir",
-   "/home/hpk/cloud_back_up/_x/link/int",
+   "/home/sail/lyf/pma_demo/stream/_x/link/int",
    "--temp_dir",
-   "/home/hpk/cloud_back_up/_x/link/sys_link"
+   "/home/sail/lyf/pma_demo/stream/_x/link/sys_link"
   ],
   "iniFiles": [
    {
-    "path": "/home/hpk/cloud_back_up/_x/link/int/syslinkConfig.ini",
-    "content": "nk=alloc_access_kernel:1:alloc_access_kernel_1\nnk=pma_insert_vertex:2:pma_insert_vertex_1,pma_insert_vertex_2\nnk=pma_insert_edge:2:pma_insert_edge_1,pma_insert_edge_2\nnk=update_message_generator:1:update_message_generator_1\nnk=update_message_router:1:update_message_router_1\nnk=pma_read_kernel:1:pma_read_kernel_1\nnk=signal_kernel:1:signal_kernel_1\nnk=mem_access_kernel:1:mem_access_kernel_1\nnk=edgeReader:1:edgeReader_1\nnk=kernelLittleGSMerger:1\nnk=kernelBigGSMerger:1\nnk=kernelApply:1\nnk=kernelHBMWrapper:1\nnk=littleKernelScatterGather:1\nnk=bigKernelScatterGather:1\nsc=pma_insert_vertex_1.req_to_mem_alloc:alloc_access_kernel_1.req_from_vertex_1:16\nsc=alloc_access_kernel_1.vec_info_to_vertex_1:pma_insert_vertex_1.vec_info_back_stream:16\nsc=pma_insert_vertex_2.req_to_mem_alloc:alloc_access_kernel_1.req_from_vertex_2:16\nsc=alloc_access_kernel_1.vec_info_to_vertex_2:pma_insert_vertex_2.vec_info_back_stream:16\nsc=pma_insert_edge_1.req_to_mem_alloc:alloc_access_kernel_1.req_from_edge_1:16\nsc=alloc_access_kernel_1.vec_info_to_edge_1:pma_insert_edge_1.vec_info_back_stream:16\nsc=pma_insert_edge_2.req_to_mem_alloc:alloc_access_kernel_1.req_from_edge_2:16\nsc=alloc_access_kernel_1.vec_info_to_edge_2:pma_insert_edge_2.vec_info_back_stream:16\nsc=pma_insert_vertex_1.req_to_mem_access:mem_access_kernel_1.req_from_vertex_1:16\nsc=pma_insert_vertex_1.data_to_mem_access:mem_access_kernel_1.data_from_vertex_1:16\nsc=pma_insert_vertex_2.req_to_mem_access:mem_access_kernel_1.req_from_vertex_2:16\nsc=pma_insert_vertex_2.data_to_mem_access:mem_access_kernel_1.data_from_vertex_2:16\nsc=pma_insert_edge_1.req_to_mem_access:mem_access_kernel_1.req_from_edge_1:16\nsc=pma_insert_edge_1.data_to_mem_access:mem_access_kernel_1.data_from_edge_1:16\nsc=mem_access_kernel_1.data_to_edge_1:pma_insert_edge_1.data_from_mem_access:16\nsc=mem_access_kernel_1.vec_info_to_edge_1:pma_insert_edge_1.vec_info_from_mem_access:16\nsc=pma_insert_edge_2.req_to_mem_access:mem_access_kernel_1.req_from_edge_2:16\nsc=pma_insert_edge_2.data_to_mem_access:mem_access_kernel_1.data_from_edge_2:16\nsc=mem_access_kernel_1.data_to_edge_2:pma_insert_edge_2.data_from_mem_access:16\nsc=mem_access_kernel_1.vec_info_to_edge_2:pma_insert_edge_2.vec_info_from_mem_access:16\nsc=pma_read_kernel_1.req_to_mem_access_ch1:mem_access_kernel_1.req_from_read_1:16\nsc=pma_read_kernel_1.req_to_mem_access_ch2:mem_access_kernel_1.req_from_read_2:16\nsc=mem_access_kernel_1.data_to_read_1:pma_read_kernel_1.data_from_mem_access_ch1:16\nsc=mem_access_kernel_1.data_to_read_2:pma_read_kernel_1.data_from_mem_access_ch2:16\nsc=mem_access_kernel_1.vec_info_to_read_1:pma_read_kernel_1.vec_info_back_stream_ch1:16\nsc=mem_access_kernel_1.vec_info_to_read_2:pma_read_kernel_1.vec_info_back_stream_ch2:16\nsc=signal_kernel_1.signal_to_mem_access:mem_access_kernel_1.signal_stream:16\nsc=edgeReader_1.little_cmd_stm:pma_read_kernel_1.cmd_stream:16\nsc=update_message_router_1.cmd_to_insert_vertex_1:pma_insert_vertex_1.cmd_stream:16\nsc=update_message_router_1.cmd_to_insert_vertex_2:pma_insert_vertex_2.cmd_stream:16\nsc=pma_insert_vertex_1.ack_back_to_router:update_message_router_1.ack_from_insert_vertex_1:16\nsc=pma_insert_vertex_2.ack_back_to_router:update_message_router_1.ack_from_insert_vertex_2:16\nsc=update_message_router_1.cmd_to_insert_edge_1:pma_insert_edge_1.cmd_stream:16\nsc=update_message_router_1.cmd_to_insert_edge_2:pma_insert_edge_2.cmd_stream:16\nsc=pma_insert_edge_1.ack_back_to_router:update_message_router_1.ack_from_insert_edge_1:16\nsc=pma_insert_edge_2.ack_back_to_router:update_message_router_1.ack_from_insert_edge_2:16\nsc=signal_kernel_1.signal_to_alloc_free:alloc_access_kernel_1.signal_stream:16\nsc=update_message_generator_1.cmd_to_router:update_message_router_1.cmd_from_generator:64\nsc=update_message_router_1.ack_to_generator:update_message_generator_1.ack_from_router:16\nsc=edgeReader_1.little_edge_burst_stm:littleKernelScatterGather_1.part_edge_burst_stm:16\nsc=edgeReader_1.little_edge_num_stm:littleKernelScatterGather_1.part_edge_num_stm:16\nsc=littleKernelScatterGather_1.l_ppb_request_stm:kernelHBMWrapper_1.l_ppb_request_stm_1\nsc=kernelHBMWrapper_1.l_ppb_response_stm_1:littleKernelScatterGather_1.l_ppb_response_stm\nsc=littleKernelScatterGather_1.l_tmp_prop_stm:kernelLittleGSMerger_1.l_tmp_prop_stm_1:16\nsc=edgeReader_1.big_edge_burst_stm:bigKernelScatterGather_1.part_edge_burst_stm:16\nsc=edgeReader_1.big_edge_num_stm:bigKernelScatterGather_1.part_edge_num_stm:16\nsc=bigKernelScatterGather_1.b_cacheline_request_stm:kernelHBMWrapper_1.b_cacheline_request_stm_1:16\nsc=kernelHBMWrapper_1.b_cacheline_response_stm_1:bigKernelScatterGather_1.b_cacheline_response_stm:16\nsc=bigKernelScatterGather_1.b_tmp_prop_stm:kernelBigGSMerger_1.b_tmp_prop_stm_1\nsc=kernelLittleGSMerger_1.l_write_burst_stm:kernelApply_1.l_merged_prop_stm:16\nsc=kernelBigGSMerger_1.b_write_burst_stm:kernelApply_1.b_merged_prop_stm:16\nsc=kernelApply_1.prop_write_burst_stm:kernelHBMWrapper_1.prop_write_burst_stm:16\nsc=pma_read_kernel_1.data_to_coo_stream:edgeReader_1.coo_array_stm:16\nsc=pma_read_kernel_1.coo_edge_count_stream:edgeReader_1.little_coo_edge_num_stm:16\nsp=mem_access_kernel_1.hbm_ptr_1:HBM[0]\nsp=mem_access_kernel_1.hbm_ptr_2:HBM[1]\nsp=mem_access_kernel_1.pos_pma_addrs:HBM[29]\nsp=alloc_access_kernel_1.bm_in_hbm_1:HBM[20]\nsp=alloc_access_kernel_1.bm_in_hbm_2:HBM[21]\nsp=update_message_generator_1.src:HBM[30]\nsp=update_message_generator_1.dst:HBM[31]\nsp=kernelHBMWrapper_1.src_prop_1:HBM[1]\nsp=kernelHBMWrapper_1.src_prop_2:HBM[3]\nsp=kernelHBMWrapper_1.new_prop_1:HBM[1]\nsp=kernelHBMWrapper_1.new_prop_2:HBM[3]\nslr=mem_access_kernel_1:SLR0\nslr=alloc_access_kernel_1:SLR0\nslr=update_message_generator_1:SLR0\nslr=pma_read_kernel_1:SLR0\nslr=edgeReader_1:SLR0\nslr=signal_kernel_1:SLR1\nslr=update_message_router_1:SLR1\nslr=pma_insert_vertex_1:SLR1\nslr=pma_insert_vertex_2:SLR1\nslr=pma_insert_edge_1:SLR2\nslr=pma_insert_edge_2:SLR2\nslr=kernelLittleGSMerger_1:SLR1\nslr=kernelBigGSMerger_1:SLR1\nslr=kernelApply_1:SLR1\nslr=kernelHBMWrapper_1:SLR0\nslr=littleKernelScatterGather_1:SLR0\nslr=bigKernelScatterGather_1:SLR1\n\n"
+    "path": "/home/sail/lyf/pma_demo/stream/_x/link/int/syslinkConfig.ini",
+    "content": "nk=alloc_access_kernel:1:alloc_access_kernel_1\nnk=pma_insert_vertex:2:pma_insert_vertex_1,pma_insert_vertex_2\nnk=pma_insert_edge:2:pma_insert_edge_1,pma_insert_edge_2\nnk=update_message_generator:1:update_message_generator_1\nnk=update_message_router:1:update_message_router_1\nnk=pma_read_kernel:1:pma_read_kernel_1\nnk=signal_kernel:1:signal_kernel_1\nnk=mem_access_kernel:1:mem_access_kernel_1\nnk=edgeReader:1:edgeReader_1\nnk=kernelLittleGSMerger:1\nnk=kernelApply:1\nnk=kernelHBMWrapper:1\nnk=littleKernelScatterGather:1\nsc=pma_insert_vertex_1.req_to_mem_alloc:alloc_access_kernel_1.req_from_vertex_1:16\nsc=alloc_access_kernel_1.vec_info_to_vertex_1:pma_insert_vertex_1.vec_info_back_stream:16\nsc=pma_insert_vertex_2.req_to_mem_alloc:alloc_access_kernel_1.req_from_vertex_2:16\nsc=alloc_access_kernel_1.vec_info_to_vertex_2:pma_insert_vertex_2.vec_info_back_stream:16\nsc=pma_insert_edge_1.req_to_mem_alloc:alloc_access_kernel_1.req_from_edge_1:16\nsc=alloc_access_kernel_1.vec_info_to_edge_1:pma_insert_edge_1.vec_info_back_stream:16\nsc=pma_insert_edge_2.req_to_mem_alloc:alloc_access_kernel_1.req_from_edge_2:16\nsc=alloc_access_kernel_1.vec_info_to_edge_2:pma_insert_edge_2.vec_info_back_stream:16\nsc=pma_insert_vertex_1.req_to_mem_access:mem_access_kernel_1.req_from_vertex_1:16\nsc=pma_insert_vertex_1.data_to_mem_access:mem_access_kernel_1.data_from_vertex_1:16\nsc=pma_insert_vertex_2.req_to_mem_access:mem_access_kernel_1.req_from_vertex_2:16\nsc=pma_insert_vertex_2.data_to_mem_access:mem_access_kernel_1.data_from_vertex_2:16\nsc=pma_insert_edge_1.req_to_mem_access:mem_access_kernel_1.req_from_edge_1:16\nsc=pma_insert_edge_1.data_to_mem_access:mem_access_kernel_1.data_from_edge_1:16\nsc=mem_access_kernel_1.data_to_edge_1:pma_insert_edge_1.data_from_mem_access:16\nsc=mem_access_kernel_1.vec_info_to_edge_1:pma_insert_edge_1.vec_info_from_mem_access:16\nsc=pma_insert_edge_2.req_to_mem_access:mem_access_kernel_1.req_from_edge_2:16\nsc=pma_insert_edge_2.data_to_mem_access:mem_access_kernel_1.data_from_edge_2:16\nsc=mem_access_kernel_1.data_to_edge_2:pma_insert_edge_2.data_from_mem_access:16\nsc=mem_access_kernel_1.vec_info_to_edge_2:pma_insert_edge_2.vec_info_from_mem_access:16\nsc=pma_read_kernel_1.req_to_mem_access_ch1:mem_access_kernel_1.req_from_read_1:16\nsc=pma_read_kernel_1.req_to_mem_access_ch2:mem_access_kernel_1.req_from_read_2:16\nsc=mem_access_kernel_1.data_to_read_1:pma_read_kernel_1.data_from_mem_access_ch1:16\nsc=mem_access_kernel_1.data_to_read_2:pma_read_kernel_1.data_from_mem_access_ch2:16\nsc=mem_access_kernel_1.vec_info_to_read_1:pma_read_kernel_1.vec_info_back_stream_ch1:16\nsc=mem_access_kernel_1.vec_info_to_read_2:pma_read_kernel_1.vec_info_back_stream_ch2:16\nsc=signal_kernel_1.signal_to_mem_access:mem_access_kernel_1.signal_stream:16\nsc=edgeReader_1.little_cmd_stm:pma_read_kernel_1.cmd_stream:16\nsc=update_message_router_1.cmd_to_insert_vertex_1:pma_insert_vertex_1.cmd_stream:16\nsc=update_message_router_1.cmd_to_insert_vertex_2:pma_insert_vertex_2.cmd_stream:16\nsc=pma_insert_vertex_1.ack_back_to_router:update_message_router_1.ack_from_insert_vertex_1:16\nsc=pma_insert_vertex_2.ack_back_to_router:update_message_router_1.ack_from_insert_vertex_2:16\nsc=update_message_router_1.cmd_to_insert_edge_1:pma_insert_edge_1.cmd_stream:16\nsc=update_message_router_1.cmd_to_insert_edge_2:pma_insert_edge_2.cmd_stream:16\nsc=pma_insert_edge_1.ack_back_to_router:update_message_router_1.ack_from_insert_edge_1:16\nsc=pma_insert_edge_2.ack_back_to_router:update_message_router_1.ack_from_insert_edge_2:16\nsc=signal_kernel_1.signal_to_alloc_free:alloc_access_kernel_1.signal_stream:16\nsc=update_message_generator_1.cmd_to_router:update_message_router_1.cmd_from_generator:64\nsc=update_message_router_1.ack_to_generator:update_message_generator_1.ack_from_router:16\nsc=edgeReader_1.little_edge_burst_stm:littleKernelScatterGather_1.part_edge_burst_stm:16\nsc=edgeReader_1.little_edge_num_stm:littleKernelScatterGather_1.part_edge_num_stm:16\nsc=littleKernelScatterGather_1.l_ppb_request_stm:kernelHBMWrapper_1.l_ppb_request_stm_1\nsc=kernelHBMWrapper_1.l_ppb_response_stm_1:littleKernelScatterGather_1.l_ppb_response_stm\nsc=littleKernelScatterGather_1.l_tmp_prop_stm:kernelLittleGSMerger_1.l_tmp_prop_stm_1:16\nsc=kernelLittleGSMerger_1.l_write_burst_stm:kernelApply_1.l_merged_prop_stm:16\nsc=kernelApply_1.prop_write_burst_stm:kernelHBMWrapper_1.prop_write_burst_stm:16\nsc=pma_read_kernel_1.data_to_coo_stream:edgeReader_1.coo_array_stm:16\nsc=pma_read_kernel_1.coo_edge_count_stream:edgeReader_1.little_coo_edge_num_stm:16\nsp=mem_access_kernel_1.hbm_ptr_1:HBM[0]\nsp=mem_access_kernel_1.hbm_ptr_2:HBM[1]\nsp=mem_access_kernel_1.pos_pma_addrs:HBM[29]\nsp=alloc_access_kernel_1.bm_in_hbm_1:HBM[20]\nsp=alloc_access_kernel_1.bm_in_hbm_2:HBM[21]\nsp=update_message_generator_1.src:HBM[30]\nsp=update_message_generator_1.dst:HBM[31]\nsp=kernelHBMWrapper_1.src_prop_1:HBM[1]\nsp=kernelHBMWrapper_1.new_prop_1:HBM[1]\nslr=mem_access_kernel_1:SLR0\nslr=alloc_access_kernel_1:SLR0\nslr=update_message_generator_1:SLR0\nslr=pma_read_kernel_1:SLR0\nslr=edgeReader_1:SLR0\nslr=signal_kernel_1:SLR1\nslr=update_message_router_1:SLR1\nslr=pma_insert_vertex_1:SLR1\nslr=pma_insert_vertex_2:SLR1\nslr=pma_insert_edge_1:SLR2\nslr=pma_insert_edge_2:SLR2\nslr=kernelLittleGSMerger_1:SLR1\nslr=kernelApply_1:SLR1\nslr=kernelHBMWrapper_1:SLR0\nslr=littleKernelScatterGather_1:SLR0\n\n"
    }
   ],
-  "cwd": "/home/hpk/cloud_back_up"
+  "cwd": "/home/sail/lyf/pma_demo/stream"
  }
 }
 </ENTRY>
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 15:01:55 2026",
- "timestampMillis": "1774076515262",
+ "dateTimestamp": "Tue Mar 24 14:58:39 2026",
+ "timestampMillis": "1774335519029",
  "status": {
-  "cmdId": "42851323-7c26-4a82-ad1a-5ca49cea2690",
+  "cmdId": "f7d6efd6-5b44-4558-97a9-948d2e107a63",
   "state": "CS_RUNNING"
  }
 }
@@ -463,10 +419,10 @@
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 15:02:54 2026",
- "timestampMillis": "1774076574759",
+ "dateTimestamp": "Tue Mar 24 14:59:35 2026",
+ "timestampMillis": "1774335575225",
  "status": {
-  "cmdId": "42851323-7c26-4a82-ad1a-5ca49cea2690",
+  "cmdId": "f7d6efd6-5b44-4558-97a9-948d2e107a63",
   "state": "CS_PASSED"
  }
 }
@@ -474,37 +430,37 @@
 <ENTRY>
 {
  "type": "ET_SubCmdStep",
- "dateTimestamp": "Sat Mar 21 15:02:54 2026",
- "timestampMillis": "1774076574762",
+ "dateTimestamp": "Tue Mar 24 14:59:35 2026",
+ "timestampMillis": "1774335575227",
  "buildStep": {
-  "cmdId": "4b56039a-cc9b-49eb-8cd0-c80bf7cae04a",
+  "cmdId": "944974b4-cef4-4f3d-9702-18010e2ceb0b",
   "name": "cf2sw",
   "logFile": "",
-  "commandLine": "cf2sw -sdsl /home/hpk/cloud_back_up/_x/link/int/sdsl.dat -rtd /home/hpk/cloud_back_up/_x/link/int/cf2sw.rtd -nofilter /home/hpk/cloud_back_up/_x/link/int/cf2sw_full.rtd -xclbin /home/hpk/cloud_back_up/_x/link/int/xclbin_orig.xml -o /home/hpk/cloud_back_up/_x/link/int/xclbin_orig.1.xml",
+  "commandLine": "cf2sw -sdsl /home/sail/lyf/pma_demo/stream/_x/link/int/sdsl.dat -rtd /home/sail/lyf/pma_demo/stream/_x/link/int/cf2sw.rtd -nofilter /home/sail/lyf/pma_demo/stream/_x/link/int/cf2sw_full.rtd -xclbin /home/sail/lyf/pma_demo/stream/_x/link/int/xclbin_orig.xml -o /home/sail/lyf/pma_demo/stream/_x/link/int/xclbin_orig.1.xml",
   "args": [
    "-sdsl",
-   "/home/hpk/cloud_back_up/_x/link/int/sdsl.dat",
+   "/home/sail/lyf/pma_demo/stream/_x/link/int/sdsl.dat",
    "-rtd",
-   "/home/hpk/cloud_back_up/_x/link/int/cf2sw.rtd",
+   "/home/sail/lyf/pma_demo/stream/_x/link/int/cf2sw.rtd",
    "-nofilter",
-   "/home/hpk/cloud_back_up/_x/link/int/cf2sw_full.rtd",
+   "/home/sail/lyf/pma_demo/stream/_x/link/int/cf2sw_full.rtd",
    "-xclbin",
-   "/home/hpk/cloud_back_up/_x/link/int/xclbin_orig.xml",
+   "/home/sail/lyf/pma_demo/stream/_x/link/int/xclbin_orig.xml",
    "-o",
-   "/home/hpk/cloud_back_up/_x/link/int/xclbin_orig.1.xml"
+   "/home/sail/lyf/pma_demo/stream/_x/link/int/xclbin_orig.1.xml"
   ],
   "iniFiles": [],
-  "cwd": "/home/hpk/cloud_back_up"
+  "cwd": "/home/sail/lyf/pma_demo/stream"
  }
 }
 </ENTRY>
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 15:02:54 2026",
- "timestampMillis": "1774076574762",
+ "dateTimestamp": "Tue Mar 24 14:59:35 2026",
+ "timestampMillis": "1774335575227",
  "status": {
-  "cmdId": "4b56039a-cc9b-49eb-8cd0-c80bf7cae04a",
+  "cmdId": "944974b4-cef4-4f3d-9702-18010e2ceb0b",
   "state": "CS_RUNNING"
  }
 }
@@ -512,10 +468,10 @@
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 15:03:33 2026",
- "timestampMillis": "1774076613064",
+ "dateTimestamp": "Tue Mar 24 15:00:12 2026",
+ "timestampMillis": "1774335612328",
  "status": {
-  "cmdId": "4b56039a-cc9b-49eb-8cd0-c80bf7cae04a",
+  "cmdId": "944974b4-cef4-4f3d-9702-18010e2ceb0b",
   "state": "CS_PASSED"
  }
 }
@@ -523,26 +479,26 @@
 <ENTRY>
 {
  "type": "ET_SubCmdStep",
- "dateTimestamp": "Sat Mar 21 15:03:33 2026",
- "timestampMillis": "1774076613067",
+ "dateTimestamp": "Tue Mar 24 15:00:12 2026",
+ "timestampMillis": "1774335612330",
  "buildStep": {
-  "cmdId": "6b509db1-424d-4888-aa71-d965e982aa6e",
+  "cmdId": "bef01d5e-1d44-4419-81c9-40b24b3ae769",
   "name": "rtd2_system_diagram",
   "logFile": "",
   "commandLine": "rtd2SystemDiagram",
   "args": [],
   "iniFiles": [],
-  "cwd": "/home/hpk/cloud_back_up"
+  "cwd": "/home/sail/lyf/pma_demo/stream"
  }
 }
 </ENTRY>
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 15:03:33 2026",
- "timestampMillis": "1774076613068",
+ "dateTimestamp": "Tue Mar 24 15:00:12 2026",
+ "timestampMillis": "1774335612330",
  "status": {
-  "cmdId": "6b509db1-424d-4888-aa71-d965e982aa6e",
+  "cmdId": "bef01d5e-1d44-4419-81c9-40b24b3ae769",
   "state": "CS_RUNNING"
  }
 }
@@ -550,10 +506,10 @@
 <ENTRY>
 {
  "type": "ET_Report",
- "dateTimestamp": "Sat Mar 21 15:03:33 2026",
- "timestampMillis": "1774076613576",
+ "dateTimestamp": "Tue Mar 24 15:00:12 2026",
+ "timestampMillis": "1774335612862",
  "report": {
-  "path": "/home/hpk/cloud_back_up/_x/link/int/systemDiagramModel.json",
+  "path": "/home/sail/lyf/pma_demo/stream/_x/link/int/systemDiagramModel.json",
   "name": "",
   "fileType": "JSON",
   "reportType": "SYSTEM_DIAGRAM",
@@ -564,10 +520,10 @@
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 15:03:33 2026",
- "timestampMillis": "1774076613576",
+ "dateTimestamp": "Tue Mar 24 15:00:12 2026",
+ "timestampMillis": "1774335612863",
  "status": {
-  "cmdId": "6b509db1-424d-4888-aa71-d965e982aa6e",
+  "cmdId": "bef01d5e-1d44-4419-81c9-40b24b3ae769",
   "state": "CS_PASSED"
  }
 }
@@ -575,13 +531,13 @@
 <ENTRY>
 {
  "type": "ET_SubCmdStep",
- "dateTimestamp": "Sat Mar 21 15:03:33 2026",
- "timestampMillis": "1774076613579",
+ "dateTimestamp": "Tue Mar 24 15:00:13 2026",
+ "timestampMillis": "1774335613056",
  "buildStep": {
-  "cmdId": "13cc17ba-09d3-4214-b1c4-335dda2b8f7c",
+  "cmdId": "e7475004-d2d3-4e13-b931-8c2a90d40e88",
   "name": "vpl",
   "logFile": "",
-  "commandLine": "vpl -t hw_emu -f /opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm -g --remote_ip_cache /home/hpk/cloud_back_up/.ipcache --output_dir /home/hpk/cloud_back_up/_x/link/int --log_dir /home/hpk/cloud_back_up/_x/logs/link --report_dir /home/hpk/cloud_back_up/_x/reports/link --config /home/hpk/cloud_back_up/_x/link/int/vplConfig.ini -k /home/hpk/cloud_back_up/_x/link/int/kernel_info.dat --webtalk_flag Vitis --temp_dir /home/hpk/cloud_back_up/_x/link --emulation_mode debug_waveform --no-info --iprepo /home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_kernelApply_1_0 --iprepo /home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_littleKernelScatterGather_1_0 --iprepo /home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_edgeReader_1_0 --iprepo /home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_kernelHBMWrapper_1_0 --iprepo /home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_bigKernelScatterGather_1_0 --iprepo /home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_kernelBigGSMerger_1_0 --iprepo /home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_mem_access_kernel_1_0 --iprepo /home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_kernelLittleGSMerger_1_0 --iprepo /home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_alloc_access_kernel_1_0 --iprepo /home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_signal_kernel_1_0 --iprepo /home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_pma_insert_edge_1_0 --iprepo /home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_update_message_generator_1_0 --iprepo /home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_update_message_router_1_0 --iprepo /home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_pma_insert_vertex_1_0 --iprepo /home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_pma_read_kernel_1_0 --messageDb /home/hpk/cloud_back_up/_x/link/run_link/vpl.pb /home/hpk/cloud_back_up/_x/link/int/dr.bd.tcl",
+  "commandLine": "vpl -t hw_emu -f /opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm -g --remote_ip_cache /home/sail/lyf/pma_demo/stream/.ipcache --output_dir /home/sail/lyf/pma_demo/stream/_x/link/int --log_dir /home/sail/lyf/pma_demo/stream/_x/logs/link --report_dir /home/sail/lyf/pma_demo/stream/_x/reports/link --config /home/sail/lyf/pma_demo/stream/_x/link/int/vplConfig.ini -k /home/sail/lyf/pma_demo/stream/_x/link/int/kernel_info.dat --webtalk_flag Vitis --temp_dir /home/sail/lyf/pma_demo/stream/_x/link --emulation_mode debug_waveform --no-info --iprepo /home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_kernelApply_1_0 --iprepo /home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_kernelLittleGSMerger_1_0 --iprepo /home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_edgeReader_1_0 --iprepo /home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_signal_kernel_1_0 --iprepo /home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_mem_access_kernel_1_0 --iprepo /home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_update_message_generator_1_0 --iprepo /home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_pma_insert_vertex_1_0 --iprepo /home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_update_message_router_1_0 --iprepo /home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_littleKernelScatterGather_1_0 --iprepo /home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_kernelHBMWrapper_1_0 --iprepo /home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_alloc_access_kernel_1_0 --iprepo /home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_pma_insert_edge_1_0 --iprepo /home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_pma_read_kernel_1_0 --messageDb /home/sail/lyf/pma_demo/stream/_x/link/run_link/vpl.pb /home/sail/lyf/pma_demo/stream/_x/link/int/dr.bd.tcl",
   "args": [
    "-t",
    "hw_emu",
@@ -589,75 +545,71 @@
    "/opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm",
    "-g",
    "--remote_ip_cache",
-   "/home/hpk/cloud_back_up/.ipcache",
+   "/home/sail/lyf/pma_demo/stream/.ipcache",
    "--output_dir",
-   "/home/hpk/cloud_back_up/_x/link/int",
+   "/home/sail/lyf/pma_demo/stream/_x/link/int",
    "--log_dir",
-   "/home/hpk/cloud_back_up/_x/logs/link",
+   "/home/sail/lyf/pma_demo/stream/_x/logs/link",
    "--report_dir",
-   "/home/hpk/cloud_back_up/_x/reports/link",
+   "/home/sail/lyf/pma_demo/stream/_x/reports/link",
    "--config",
-   "/home/hpk/cloud_back_up/_x/link/int/vplConfig.ini",
+   "/home/sail/lyf/pma_demo/stream/_x/link/int/vplConfig.ini",
    "-k",
-   "/home/hpk/cloud_back_up/_x/link/int/kernel_info.dat",
+   "/home/sail/lyf/pma_demo/stream/_x/link/int/kernel_info.dat",
    "--webtalk_flag",
    "Vitis",
    "--temp_dir",
-   "/home/hpk/cloud_back_up/_x/link",
+   "/home/sail/lyf/pma_demo/stream/_x/link",
    "--emulation_mode",
    "debug_waveform",
    "--no-info",
    "--iprepo",
-   "/home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_kernelApply_1_0",
+   "/home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_kernelApply_1_0",
    "--iprepo",
-   "/home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_littleKernelScatterGather_1_0",
+   "/home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_kernelLittleGSMerger_1_0",
    "--iprepo",
-   "/home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_edgeReader_1_0",
+   "/home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_edgeReader_1_0",
    "--iprepo",
-   "/home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_kernelHBMWrapper_1_0",
+   "/home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_signal_kernel_1_0",
    "--iprepo",
-   "/home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_bigKernelScatterGather_1_0",
+   "/home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_mem_access_kernel_1_0",
    "--iprepo",
-   "/home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_kernelBigGSMerger_1_0",
+   "/home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_update_message_generator_1_0",
    "--iprepo",
-   "/home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_mem_access_kernel_1_0",
+   "/home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_pma_insert_vertex_1_0",
    "--iprepo",
-   "/home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_kernelLittleGSMerger_1_0",
+   "/home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_update_message_router_1_0",
    "--iprepo",
-   "/home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_alloc_access_kernel_1_0",
+   "/home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_littleKernelScatterGather_1_0",
    "--iprepo",
-   "/home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_signal_kernel_1_0",
+   "/home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_kernelHBMWrapper_1_0",
    "--iprepo",
-   "/home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_pma_insert_edge_1_0",
+   "/home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_alloc_access_kernel_1_0",
    "--iprepo",
-   "/home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_update_message_generator_1_0",
+   "/home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_pma_insert_edge_1_0",
    "--iprepo",
-   "/home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_update_message_router_1_0",
-   "--iprepo",
-   "/home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_pma_insert_vertex_1_0",
-   "--iprepo",
-   "/home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_pma_read_kernel_1_0",
+   "/home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_pma_read_kernel_1_0",
    "--messageDb",
-   "/home/hpk/cloud_back_up/_x/link/run_link/vpl.pb",
-   "/home/hpk/cloud_back_up/_x/link/int/dr.bd.tcl"
+   "/home/sail/lyf/pma_demo/stream/_x/link/run_link/vpl.pb",
+   "/home/sail/lyf/pma_demo/stream/_x/link/int/dr.bd.tcl"
   ],
   "iniFiles": [
    {
-    "path": "/home/hpk/cloud_back_up/_x/link/int/vplConfig.ini",
-    "content": "[advanced]\nmisc=report=type report_timing_summary name impl_report_timing_summary_route_design_summary steps {route_design} runs {impl_1} options {-max_paths 10}\nmisc=report=type report_timing_summary name impl_report_timing_summary_post_route_phys_opt_design_summary steps {post_route_phys_opt_design} runs {impl_1} options {-max_paths 10}\nparam=compiler.enablePerformanceTrace=1\nparam=hw_emu.enableDebugWaveform=1\nparam=hw_emu.enableProfiling=1\nparam=compiler.vppCurrentWorkingDir=/home/hpk/cloud_back_up\nmisc=BinaryName=hw_emu_whole_system\n\n[connectivity]\nnk=alloc_access_kernel:1:alloc_access_kernel_1\nnk=mem_access_kernel:1:mem_access_kernel_1\nnk=update_message_generator:1:update_message_generator_1\nnk=update_message_router:1:update_message_router_1\nnk=pma_insert_vertex:2:pma_insert_vertex_1,pma_insert_vertex_2\nnk=pma_insert_edge:2:pma_insert_edge_1,pma_insert_edge_2\nnk=pma_read_kernel:1:pma_read_kernel_1\nnk=signal_kernel:1:signal_kernel_1\nnk=bigKernelScatterGather:1:bigKernelScatterGather_1\nnk=kernelHBMWrapper:1:kernelHBMWrapper_1\nnk=edgeReader:1:edgeReader_1\nnk=kernelLittleGSMerger:1:kernelLittleGSMerger_1\nnk=littleKernelScatterGather:1:littleKernelScatterGather_1\nnk=kernelBigGSMerger:1:kernelBigGSMerger_1\nnk=kernelApply:1:kernelApply_1\n\n[vivado]\nprop=run.__KERNEL__.{STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS}={-directive sdx_optimization_effort_high}\nprop=fileset.sim_1.xsim.elaborate.debug_level=all\n\n"
+    "path": "/home/sail/lyf/pma_demo/stream/_x/link/int/vplConfig.ini",
+    "content": "[advanced]\nmisc=report=type report_timing_summary name impl_report_timing_summary_route_design_summary steps {route_design} runs {impl_1} options {-max_paths 10}\nmisc=report=type report_timing_summary name impl_report_timing_summary_post_route_phys_opt_design_summary steps {post_route_phys_opt_design} runs {impl_1} options {-max_paths 10}\nparam=compiler.enablePerformanceTrace=1\nparam=hw_emu.enableDebugWaveform=1\nparam=hw_emu.enableProfiling=1\nparam=compiler.vppCurrentWorkingDir=/home/sail/lyf/pma_demo/stream\nmisc=BinaryName=hw_emu_whole_system\n\n[connectivity]\nnk=alloc_access_kernel:1:alloc_access_kernel_1\nnk=mem_access_kernel:1:mem_access_kernel_1\nnk=update_message_generator:1:update_message_generator_1\nnk=update_message_router:1:update_message_router_1\nnk=pma_insert_vertex:2:pma_insert_vertex_1,pma_insert_vertex_2\nnk=pma_insert_edge:2:pma_insert_edge_1,pma_insert_edge_2\nnk=pma_read_kernel:1:pma_read_kernel_1\nnk=signal_kernel:1:signal_kernel_1\nnk=kernelHBMWrapper:1:kernelHBMWrapper_1\nnk=edgeReader:1:edgeReader_1\nnk=kernelLittleGSMerger:1:kernelLittleGSMerger_1\nnk=littleKernelScatterGather:1:littleKernelScatterGather_1\nnk=kernelApply:1:kernelApply_1\n\n[vivado]\nprop=run.__KERNEL__.{STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS}={-directive sdx_optimization_effort_high}\nprop=fileset.sim_1.xsim.elaborate.debug_level=all\n\n"
    }
   ],
-  "cwd": "/home/hpk/cloud_back_up"
+  "cwd": "/home/sail/lyf/pma_demo/stream"
  }
 }
 </ENTRY>
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 15:03:33 2026",
- "timestampMillis": "1774076613579",
+ "dateTimestamp": "Tue Mar 24 15:00:13 2026",
+ "timestampMillis": "1774335613057",
  "status": {
-  "cmdId": "13cc17ba-09d3-4214-b1c4-335dda2b8f7c",
+  "cmdId": "e7475004-d2d3-4e13-b931-8c2a90d40e88",
   "state": "CS_RUNNING"
  }
 }
@@ -665,26 +617,26 @@
 <ENTRY>
 {
  "type": "ET_CmdStep",
- "dateTimestamp": "Sat Mar 21 15:03:35 2026",
- "timestampMillis": "1774076615134",
+ "dateTimestamp": "Tue Mar 24 15:00:14 2026",
+ "timestampMillis": "1774335614622",
  "buildStep": {
-  "cmdId": "6a7598fd-fed3-495f-9e2f-3937d3b2ac4b",
+  "cmdId": "3f7fe945-d843-4dae-b844-098d9e4e818c",
   "name": "vpl",
-  "logFile": "/home/hpk/cloud_back_up/_x/link/link.steps.log",
-  "commandLine": "/home/tools/Vitis/2022.2/bin/unwrapped/lnx64.o/vpl -t hw_emu -f /opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm -g --remote_ip_cache /home/hpk/cloud_back_up/.ipcache --output_dir /home/hpk/cloud_back_up/_x/link/int --log_dir /home/hpk/cloud_back_up/_x/logs/link --report_dir /home/hpk/cloud_back_up/_x/reports/link --config /home/hpk/cloud_back_up/_x/link/int/vplConfig.ini -k /home/hpk/cloud_back_up/_x/link/int/kernel_info.dat --webtalk_flag Vitis --temp_dir /home/hpk/cloud_back_up/_x/link --emulation_mode debug_waveform --no-info --iprepo /home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_kernelApply_1_0 --iprepo /home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_littleKernelScatterGather_1_0 --iprepo /home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_edgeReader_1_0 --iprepo /home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_kernelHBMWrapper_1_0 --iprepo /home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_bigKernelScatterGather_1_0 --iprepo /home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_kernelBigGSMerger_1_0 --iprepo /home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_mem_access_kernel_1_0 --iprepo /home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_kernelLittleGSMerger_1_0 --iprepo /home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_alloc_access_kernel_1_0 --iprepo /home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_signal_kernel_1_0 --iprepo /home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_pma_insert_edge_1_0 --iprepo /home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_update_message_generator_1_0 --iprepo /home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_update_message_router_1_0 --iprepo /home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_pma_insert_vertex_1_0 --iprepo /home/hpk/cloud_back_up/_x/link/int/xo/ip_repo/xilinx_com_hls_pma_read_kernel_1_0 --messageDb /home/hpk/cloud_back_up/_x/link/run_link/vpl.pb /home/hpk/cloud_back_up/_x/link/int/dr.bd.tcl ",
+  "logFile": "/home/sail/lyf/pma_demo/stream/_x/link/link.steps.log",
+  "commandLine": "/home/tools/Vitis/2022.2/bin/unwrapped/lnx64.o/vpl -t hw_emu -f /opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm -g --remote_ip_cache /home/sail/lyf/pma_demo/stream/.ipcache --output_dir /home/sail/lyf/pma_demo/stream/_x/link/int --log_dir /home/sail/lyf/pma_demo/stream/_x/logs/link --report_dir /home/sail/lyf/pma_demo/stream/_x/reports/link --config /home/sail/lyf/pma_demo/stream/_x/link/int/vplConfig.ini -k /home/sail/lyf/pma_demo/stream/_x/link/int/kernel_info.dat --webtalk_flag Vitis --temp_dir /home/sail/lyf/pma_demo/stream/_x/link --emulation_mode debug_waveform --no-info --iprepo /home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_kernelApply_1_0 --iprepo /home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_kernelLittleGSMerger_1_0 --iprepo /home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_edgeReader_1_0 --iprepo /home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_signal_kernel_1_0 --iprepo /home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_mem_access_kernel_1_0 --iprepo /home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_update_message_generator_1_0 --iprepo /home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_pma_insert_vertex_1_0 --iprepo /home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_update_message_router_1_0 --iprepo /home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_littleKernelScatterGather_1_0 --iprepo /home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_kernelHBMWrapper_1_0 --iprepo /home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_alloc_access_kernel_1_0 --iprepo /home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_pma_insert_edge_1_0 --iprepo /home/sail/lyf/pma_demo/stream/_x/link/int/xo/ip_repo/xilinx_com_hls_pma_read_kernel_1_0 --messageDb /home/sail/lyf/pma_demo/stream/_x/link/run_link/vpl.pb /home/sail/lyf/pma_demo/stream/_x/link/int/dr.bd.tcl ",
   "args": [],
   "iniFiles": [],
-  "cwd": "/home/hpk/cloud_back_up/_x/link/run_link"
+  "cwd": "/home/sail/lyf/pma_demo/stream/_x/link/run_link"
  }
 }
 </ENTRY>
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 15:03:35 2026",
- "timestampMillis": "1774076615134",
+ "dateTimestamp": "Tue Mar 24 15:00:14 2026",
+ "timestampMillis": "1774335614622",
  "status": {
-  "cmdId": "6a7598fd-fed3-495f-9e2f-3937d3b2ac4b",
+  "cmdId": "3f7fe945-d843-4dae-b844-098d9e4e818c",
   "state": "CS_RUNNING"
  }
 }
@@ -692,10 +644,10 @@
 <ENTRY>
 {
  "type": "ET_VivadoProject",
- "dateTimestamp": "Sat Mar 21 15:03:41 2026",
- "timestampMillis": "1774076621071",
+ "dateTimestamp": "Tue Mar 24 15:00:20 2026",
+ "timestampMillis": "1774335620453",
  "vivadoProject": {
-  "openDir": "/home/hpk/cloud_back_up/_x/link/vivado/vpl",
+  "openDir": "/home/sail/lyf/pma_demo/stream/_x/link/vivado/vpl",
   "openScript": "openprj.tcl",
   "relativeProject": "prj/prj.xpr"
  }
@@ -704,12 +656,12 @@
 <ENTRY>
 {
  "type": "ET_SubCmdStep",
- "dateTimestamp": "Sat Mar 21 15:03:41 2026",
- "timestampMillis": "1774076621072",
+ "dateTimestamp": "Tue Mar 24 15:00:20 2026",
+ "timestampMillis": "1774335620454",
  "buildStep": {
-  "cmdId": "f0fd52d6-e19b-422c-90b6-f9b6ec02f74d",
+  "cmdId": "ef38a729-e4ab-45be-8a12-867f17ce6b7b",
   "name": "vivado",
-  "logFile": "/home/hpk/cloud_back_up/_x/link/vivado/vpl/vivado.log",
+  "logFile": "/home/sail/lyf/pma_demo/stream/_x/link/vivado/vpl/vivado.log",
   "commandLine": "vivado -log vivado.log -applog -m64 -messageDb vivado.pb -mode batch -source vpl.tcl -notrace",
   "args": [
    "-log",
@@ -725,17 +677,17 @@
    "-notrace"
   ],
   "iniFiles": [],
-  "cwd": "/home/hpk/cloud_back_up/_x/link/run_link"
+  "cwd": "/home/sail/lyf/pma_demo/stream/_x/link/run_link"
  }
 }
 </ENTRY>
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 15:03:41 2026",
- "timestampMillis": "1774076621072",
+ "dateTimestamp": "Tue Mar 24 15:00:20 2026",
+ "timestampMillis": "1774335620454",
  "status": {
-  "cmdId": "f0fd52d6-e19b-422c-90b6-f9b6ec02f74d",
+  "cmdId": "ef38a729-e4ab-45be-8a12-867f17ce6b7b",
   "state": "CS_RUNNING"
  }
 }
@@ -743,10 +695,10 @@
 <ENTRY>
 {
  "type": "ET_Report",
- "dateTimestamp": "Sat Mar 21 15:05:57 2026",
- "timestampMillis": "1774076757775",
+ "dateTimestamp": "Tue Mar 24 15:03:18 2026",
+ "timestampMillis": "1774335798188",
  "report": {
-  "path": "/home/hpk/cloud_back_up/_x/link/int/automation_summary_update_bd.txt",
+  "path": "/home/sail/lyf/pma_demo/stream/_x/link/int/automation_summary_update_bd.txt",
   "name": "",
   "fileType": "TEXT",
   "reportType": "VITIS_DESIGN_FLOW",
@@ -757,10 +709,10 @@
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 15:15:35 2026",
- "timestampMillis": "1774077335059",
+ "dateTimestamp": "Tue Mar 24 15:13:20 2026",
+ "timestampMillis": "1774336400883",
  "status": {
-  "cmdId": "f0fd52d6-e19b-422c-90b6-f9b6ec02f74d",
+  "cmdId": "ef38a729-e4ab-45be-8a12-867f17ce6b7b",
   "state": "CS_PASSED"
  }
 }
@@ -768,10 +720,10 @@
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 15:15:36 2026",
- "timestampMillis": "1774077336193",
+ "dateTimestamp": "Tue Mar 24 15:13:22 2026",
+ "timestampMillis": "1774336402028",
  "status": {
-  "cmdId": "6a7598fd-fed3-495f-9e2f-3937d3b2ac4b",
+  "cmdId": "3f7fe945-d843-4dae-b844-098d9e4e818c",
   "state": "CS_PASSED"
  }
 }
@@ -779,10 +731,10 @@
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 15:15:36 2026",
- "timestampMillis": "1774077336217",
+ "dateTimestamp": "Tue Mar 24 15:13:22 2026",
+ "timestampMillis": "1774336402058",
  "status": {
-  "cmdId": "13cc17ba-09d3-4214-b1c4-335dda2b8f7c",
+  "cmdId": "e7475004-d2d3-4e13-b931-8c2a90d40e88",
   "state": "CS_PASSED"
  }
 }
@@ -790,26 +742,26 @@
 <ENTRY>
 {
  "type": "ET_SubCmdStep",
- "dateTimestamp": "Sat Mar 21 15:15:36 2026",
- "timestampMillis": "1774077336220",
+ "dateTimestamp": "Tue Mar 24 15:13:22 2026",
+ "timestampMillis": "1774336402060",
  "buildStep": {
-  "cmdId": "2aa6d7b2-ee91-4322-af90-afcf4c69a1ec",
+  "cmdId": "b797c4f8-f3fd-4b8f-9770-29a2272c455f",
   "name": "rtdgen",
   "logFile": "",
   "commandLine": "rtdgen",
   "args": [],
   "iniFiles": [],
-  "cwd": "/home/hpk/cloud_back_up"
+  "cwd": "/home/sail/lyf/pma_demo/stream"
  }
 }
 </ENTRY>
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 15:15:36 2026",
- "timestampMillis": "1774077336220",
+ "dateTimestamp": "Tue Mar 24 15:13:22 2026",
+ "timestampMillis": "1774336402060",
  "status": {
-  "cmdId": "2aa6d7b2-ee91-4322-af90-afcf4c69a1ec",
+  "cmdId": "b797c4f8-f3fd-4b8f-9770-29a2272c455f",
   "state": "CS_RUNNING"
  }
 }
@@ -817,10 +769,10 @@
 <ENTRY>
 {
  "type": "ET_Report",
- "dateTimestamp": "Sat Mar 21 15:15:36 2026",
- "timestampMillis": "1774077336251",
+ "dateTimestamp": "Tue Mar 24 15:13:22 2026",
+ "timestampMillis": "1774336402075",
  "report": {
-  "path": "/home/hpk/cloud_back_up/_x/link/int/hw_emu_whole_system_xml.rtd",
+  "path": "/home/sail/lyf/pma_demo/stream/_x/link/int/hw_emu_whole_system_xml.rtd",
   "name": "",
   "fileType": "JSON",
   "reportType": "XCLBIN_INFO",
@@ -831,37 +783,37 @@
 <ENTRY>
 {
  "type": "ET_SubCmdStep",
- "dateTimestamp": "Sat Mar 21 15:15:36 2026",
- "timestampMillis": "1774077336253",
+ "dateTimestamp": "Tue Mar 24 15:13:22 2026",
+ "timestampMillis": "1774336402077",
  "buildStep": {
-  "cmdId": "ed6442a0-6729-4862-834c-64c56fad0aa2",
+  "cmdId": "81606b32-8aac-4def-803c-6b64442eee72",
   "name": "cf2sw",
   "logFile": "",
-  "commandLine": "cf2sw -a /home/hpk/cloud_back_up/_x/link/int/address_map.xml -sdsl /home/hpk/cloud_back_up/_x/link/int/sdsl.dat -xclbin /home/hpk/cloud_back_up/_x/link/int/xclbin_orig.xml -rtd /home/hpk/cloud_back_up/_x/link/int/hw_emu_whole_system.rtd -o /home/hpk/cloud_back_up/_x/link/int/hw_emu_whole_system.xml",
+  "commandLine": "cf2sw -a /home/sail/lyf/pma_demo/stream/_x/link/int/address_map.xml -sdsl /home/sail/lyf/pma_demo/stream/_x/link/int/sdsl.dat -xclbin /home/sail/lyf/pma_demo/stream/_x/link/int/xclbin_orig.xml -rtd /home/sail/lyf/pma_demo/stream/_x/link/int/hw_emu_whole_system.rtd -o /home/sail/lyf/pma_demo/stream/_x/link/int/hw_emu_whole_system.xml",
   "args": [
    "-a",
-   "/home/hpk/cloud_back_up/_x/link/int/address_map.xml",
+   "/home/sail/lyf/pma_demo/stream/_x/link/int/address_map.xml",
    "-sdsl",
-   "/home/hpk/cloud_back_up/_x/link/int/sdsl.dat",
+   "/home/sail/lyf/pma_demo/stream/_x/link/int/sdsl.dat",
    "-xclbin",
-   "/home/hpk/cloud_back_up/_x/link/int/xclbin_orig.xml",
+   "/home/sail/lyf/pma_demo/stream/_x/link/int/xclbin_orig.xml",
    "-rtd",
-   "/home/hpk/cloud_back_up/_x/link/int/hw_emu_whole_system.rtd",
+   "/home/sail/lyf/pma_demo/stream/_x/link/int/hw_emu_whole_system.rtd",
    "-o",
-   "/home/hpk/cloud_back_up/_x/link/int/hw_emu_whole_system.xml"
+   "/home/sail/lyf/pma_demo/stream/_x/link/int/hw_emu_whole_system.xml"
   ],
   "iniFiles": [],
-  "cwd": "/home/hpk/cloud_back_up"
+  "cwd": "/home/sail/lyf/pma_demo/stream"
  }
 }
 </ENTRY>
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 15:15:36 2026",
- "timestampMillis": "1774077336253",
+ "dateTimestamp": "Tue Mar 24 15:13:22 2026",
+ "timestampMillis": "1774336402077",
  "status": {
-  "cmdId": "ed6442a0-6729-4862-834c-64c56fad0aa2",
+  "cmdId": "81606b32-8aac-4def-803c-6b64442eee72",
   "state": "CS_RUNNING"
  }
 }
@@ -869,10 +821,10 @@
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 15:16:14 2026",
- "timestampMillis": "1774077374011",
+ "dateTimestamp": "Tue Mar 24 15:14:00 2026",
+ "timestampMillis": "1774336440436",
  "status": {
-  "cmdId": "ed6442a0-6729-4862-834c-64c56fad0aa2",
+  "cmdId": "81606b32-8aac-4def-803c-6b64442eee72",
   "state": "CS_PASSED"
  }
 }
@@ -880,29 +832,29 @@
 <ENTRY>
 {
  "type": "ET_SubCmdStep",
- "dateTimestamp": "Sat Mar 21 15:16:27 2026",
- "timestampMillis": "1774077387497",
+ "dateTimestamp": "Tue Mar 24 15:14:14 2026",
+ "timestampMillis": "1774336454347",
  "buildStep": {
-  "cmdId": "6b06d103-08a4-4e0b-9fe3-1a2d9a4fb538",
+  "cmdId": "1c4e8d10-179b-4d47-8614-4b842f2b629d",
   "name": "rtdgen",
   "logFile": "",
   "commandLine": "writeSystemDiagram",
   "args": [
-   "/home/hpk/cloud_back_up/_x/link/int/hw_emu_whole_system.rtd",
-   "/home/hpk/cloud_back_up/_x/link/int/systemDiagramModelSlrBaseAddress.json"
+   "/home/sail/lyf/pma_demo/stream/_x/link/int/hw_emu_whole_system.rtd",
+   "/home/sail/lyf/pma_demo/stream/_x/link/int/systemDiagramModelSlrBaseAddress.json"
   ],
   "iniFiles": [],
-  "cwd": "/home/hpk/cloud_back_up"
+  "cwd": "/home/sail/lyf/pma_demo/stream"
  }
 }
 </ENTRY>
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 15:16:27 2026",
- "timestampMillis": "1774077387498",
+ "dateTimestamp": "Tue Mar 24 15:14:14 2026",
+ "timestampMillis": "1774336454347",
  "status": {
-  "cmdId": "6b06d103-08a4-4e0b-9fe3-1a2d9a4fb538",
+  "cmdId": "1c4e8d10-179b-4d47-8614-4b842f2b629d",
   "state": "CS_RUNNING"
  }
 }
@@ -910,10 +862,10 @@
 <ENTRY>
 {
  "type": "ET_Report",
- "dateTimestamp": "Sat Mar 21 15:16:27 2026",
- "timestampMillis": "1774077387518",
+ "dateTimestamp": "Tue Mar 24 15:14:14 2026",
+ "timestampMillis": "1774336454378",
  "report": {
-  "path": "/home/hpk/cloud_back_up/_x/link/int/systemDiagramModelSlrBaseAddress.json",
+  "path": "/home/sail/lyf/pma_demo/stream/_x/link/int/systemDiagramModelSlrBaseAddress.json",
   "name": "",
   "fileType": "JSON",
   "reportType": "SYSTEM_DIAGRAM_PLUS",
@@ -924,10 +876,10 @@
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 15:16:27 2026",
- "timestampMillis": "1774077387519",
+ "dateTimestamp": "Tue Mar 24 15:14:14 2026",
+ "timestampMillis": "1774336454379",
  "status": {
-  "cmdId": "6b06d103-08a4-4e0b-9fe3-1a2d9a4fb538",
+  "cmdId": "1c4e8d10-179b-4d47-8614-4b842f2b629d",
   "state": "CS_PASSED"
  }
 }
@@ -935,28 +887,28 @@
 <ENTRY>
 {
  "type": "ET_SubCmdStep",
- "dateTimestamp": "Sat Mar 21 15:16:27 2026",
- "timestampMillis": "1774077387519",
+ "dateTimestamp": "Tue Mar 24 15:14:14 2026",
+ "timestampMillis": "1774336454379",
  "buildStep": {
-  "cmdId": "c8dd3368-aead-4726-a900-14a2def3a09b",
+  "cmdId": "9f421127-1238-4e3a-8dda-884900f76461",
   "name": "rtdgen",
   "logFile": "",
   "commandLine": "writeAutomationSummary",
   "args": [
-   "/home/hpk/cloud_back_up/_x/link/int/automation_summary.txt"
+   "/home/sail/lyf/pma_demo/stream/_x/link/int/automation_summary.txt"
   ],
   "iniFiles": [],
-  "cwd": "/home/hpk/cloud_back_up"
+  "cwd": "/home/sail/lyf/pma_demo/stream"
  }
 }
 </ENTRY>
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 15:16:27 2026",
- "timestampMillis": "1774077387519",
+ "dateTimestamp": "Tue Mar 24 15:14:14 2026",
+ "timestampMillis": "1774336454380",
  "status": {
-  "cmdId": "c8dd3368-aead-4726-a900-14a2def3a09b",
+  "cmdId": "9f421127-1238-4e3a-8dda-884900f76461",
   "state": "CS_RUNNING"
  }
 }
@@ -964,10 +916,10 @@
 <ENTRY>
 {
  "type": "ET_Report",
- "dateTimestamp": "Sat Mar 21 15:16:27 2026",
- "timestampMillis": "1774077387521",
+ "dateTimestamp": "Tue Mar 24 15:14:14 2026",
+ "timestampMillis": "1774336454417",
  "report": {
-  "path": "/home/hpk/cloud_back_up/_x/link/int/automation_summary.txt",
+  "path": "/home/sail/lyf/pma_demo/stream/_x/link/int/automation_summary.txt",
   "name": "",
   "fileType": "TEXT",
   "reportType": "VITIS_DESIGN_FLOW",
@@ -978,10 +930,10 @@
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 15:16:27 2026",
- "timestampMillis": "1774077387522",
+ "dateTimestamp": "Tue Mar 24 15:14:14 2026",
+ "timestampMillis": "1774336454417",
  "status": {
-  "cmdId": "c8dd3368-aead-4726-a900-14a2def3a09b",
+  "cmdId": "9f421127-1238-4e3a-8dda-884900f76461",
   "state": "CS_PASSED"
  }
 }
@@ -989,10 +941,10 @@
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 15:16:27 2026",
- "timestampMillis": "1774077387523",
+ "dateTimestamp": "Tue Mar 24 15:14:14 2026",
+ "timestampMillis": "1774336454419",
  "status": {
-  "cmdId": "2aa6d7b2-ee91-4322-af90-afcf4c69a1ec",
+  "cmdId": "b797c4f8-f3fd-4b8f-9770-29a2272c455f",
   "state": "CS_PASSED"
  }
 }
@@ -1000,48 +952,48 @@
 <ENTRY>
 {
  "type": "ET_SubCmdStep",
- "dateTimestamp": "Sat Mar 21 15:16:27 2026",
- "timestampMillis": "1774077387527",
+ "dateTimestamp": "Tue Mar 24 15:14:14 2026",
+ "timestampMillis": "1774336454477",
  "buildStep": {
-  "cmdId": "40f766a0-a868-47f2-8778-f5438cc6bbfc",
+  "cmdId": "14b29d40-c3b4-4004-8e76-48eeb52f91d1",
   "name": "xclbinutil",
   "logFile": "",
-  "commandLine": "xclbinutil --add-section BITSTREAM:RAW:/home/hpk/cloud_back_up/_x/link/int/behav.xse --force --target hw_emu --key-value SYS:dfx_enable:false --add-section :JSON:/home/hpk/cloud_back_up/_x/link/int/hw_emu_whole_system.rtd --add-section CLOCK_FREQ_TOPOLOGY:JSON:/home/hpk/cloud_back_up/_x/link/int/hw_emu_whole_system_xml.rtd --add-section BUILD_METADATA:JSON:/home/hpk/cloud_back_up/_x/link/int/hw_emu_whole_system_build.rtd --add-section EMBEDDED_METADATA:RAW:/home/hpk/cloud_back_up/_x/link/int/hw_emu_whole_system.xml --add-section SYSTEM_METADATA:RAW:/home/hpk/cloud_back_up/_x/link/int/systemDiagramModelSlrBaseAddress.json --key-value SYS:PlatformVBNV:xilinx_u280_gen3x16_xdma_1_202211_1 --output /home/hpk/cloud_back_up/hw_emu_whole_system.xclbin",
+  "commandLine": "xclbinutil --add-section BITSTREAM:RAW:/home/sail/lyf/pma_demo/stream/_x/link/int/behav.xse --force --target hw_emu --key-value SYS:dfx_enable:false --add-section :JSON:/home/sail/lyf/pma_demo/stream/_x/link/int/hw_emu_whole_system.rtd --add-section CLOCK_FREQ_TOPOLOGY:JSON:/home/sail/lyf/pma_demo/stream/_x/link/int/hw_emu_whole_system_xml.rtd --add-section BUILD_METADATA:JSON:/home/sail/lyf/pma_demo/stream/_x/link/int/hw_emu_whole_system_build.rtd --add-section EMBEDDED_METADATA:RAW:/home/sail/lyf/pma_demo/stream/_x/link/int/hw_emu_whole_system.xml --add-section SYSTEM_METADATA:RAW:/home/sail/lyf/pma_demo/stream/_x/link/int/systemDiagramModelSlrBaseAddress.json --key-value SYS:PlatformVBNV:xilinx_u280_gen3x16_xdma_1_202211_1 --output /home/sail/lyf/pma_demo/stream/hw_emu_whole_system.xclbin",
   "args": [
    "--add-section",
-   "BITSTREAM:RAW:/home/hpk/cloud_back_up/_x/link/int/behav.xse",
+   "BITSTREAM:RAW:/home/sail/lyf/pma_demo/stream/_x/link/int/behav.xse",
    "--force",
    "--target",
    "hw_emu",
    "--key-value",
    "SYS:dfx_enable:false",
    "--add-section",
-   ":JSON:/home/hpk/cloud_back_up/_x/link/int/hw_emu_whole_system.rtd",
+   ":JSON:/home/sail/lyf/pma_demo/stream/_x/link/int/hw_emu_whole_system.rtd",
    "--add-section",
-   "CLOCK_FREQ_TOPOLOGY:JSON:/home/hpk/cloud_back_up/_x/link/int/hw_emu_whole_system_xml.rtd",
+   "CLOCK_FREQ_TOPOLOGY:JSON:/home/sail/lyf/pma_demo/stream/_x/link/int/hw_emu_whole_system_xml.rtd",
    "--add-section",
-   "BUILD_METADATA:JSON:/home/hpk/cloud_back_up/_x/link/int/hw_emu_whole_system_build.rtd",
+   "BUILD_METADATA:JSON:/home/sail/lyf/pma_demo/stream/_x/link/int/hw_emu_whole_system_build.rtd",
    "--add-section",
-   "EMBEDDED_METADATA:RAW:/home/hpk/cloud_back_up/_x/link/int/hw_emu_whole_system.xml",
+   "EMBEDDED_METADATA:RAW:/home/sail/lyf/pma_demo/stream/_x/link/int/hw_emu_whole_system.xml",
    "--add-section",
-   "SYSTEM_METADATA:RAW:/home/hpk/cloud_back_up/_x/link/int/systemDiagramModelSlrBaseAddress.json",
+   "SYSTEM_METADATA:RAW:/home/sail/lyf/pma_demo/stream/_x/link/int/systemDiagramModelSlrBaseAddress.json",
    "--key-value",
    "SYS:PlatformVBNV:xilinx_u280_gen3x16_xdma_1_202211_1",
    "--output",
-   "/home/hpk/cloud_back_up/hw_emu_whole_system.xclbin"
+   "/home/sail/lyf/pma_demo/stream/hw_emu_whole_system.xclbin"
   ],
   "iniFiles": [],
-  "cwd": "/home/hpk/cloud_back_up"
+  "cwd": "/home/sail/lyf/pma_demo/stream"
  }
 }
 </ENTRY>
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 15:16:27 2026",
- "timestampMillis": "1774077387527",
+ "dateTimestamp": "Tue Mar 24 15:14:14 2026",
+ "timestampMillis": "1774336454478",
  "status": {
-  "cmdId": "40f766a0-a868-47f2-8778-f5438cc6bbfc",
+  "cmdId": "14b29d40-c3b4-4004-8e76-48eeb52f91d1",
   "state": "CS_RUNNING"
  }
 }
@@ -1049,10 +1001,10 @@
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 15:16:27 2026",
- "timestampMillis": "1774077387991",
+ "dateTimestamp": "Tue Mar 24 15:14:16 2026",
+ "timestampMillis": "1774336456883",
  "status": {
-  "cmdId": "40f766a0-a868-47f2-8778-f5438cc6bbfc",
+  "cmdId": "14b29d40-c3b4-4004-8e76-48eeb52f91d1",
   "state": "CS_PASSED"
  }
 }
@@ -1060,33 +1012,33 @@
 <ENTRY>
 {
  "type": "ET_SubCmdStep",
- "dateTimestamp": "Sat Mar 21 15:16:27 2026",
- "timestampMillis": "1774077387993",
+ "dateTimestamp": "Tue Mar 24 15:14:16 2026",
+ "timestampMillis": "1774336456886",
  "buildStep": {
-  "cmdId": "edefeea9-e003-4436-a40c-bf9c3ea33f30",
+  "cmdId": "1eaf6e50-c918-4681-a17b-bde1daf77aff",
   "name": "xclbinutilinfo",
   "logFile": "",
-  "commandLine": "xclbinutil --quiet --force --info /home/hpk/cloud_back_up/hw_emu_whole_system.xclbin.info --input /home/hpk/cloud_back_up/hw_emu_whole_system.xclbin",
+  "commandLine": "xclbinutil --quiet --force --info /home/sail/lyf/pma_demo/stream/hw_emu_whole_system.xclbin.info --input /home/sail/lyf/pma_demo/stream/hw_emu_whole_system.xclbin",
   "args": [
    "--quiet",
    "--force",
    "--info",
-   "/home/hpk/cloud_back_up/hw_emu_whole_system.xclbin.info",
+   "/home/sail/lyf/pma_demo/stream/hw_emu_whole_system.xclbin.info",
    "--input",
-   "/home/hpk/cloud_back_up/hw_emu_whole_system.xclbin"
+   "/home/sail/lyf/pma_demo/stream/hw_emu_whole_system.xclbin"
   ],
   "iniFiles": [],
-  "cwd": "/home/hpk/cloud_back_up"
+  "cwd": "/home/sail/lyf/pma_demo/stream"
  }
 }
 </ENTRY>
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 15:16:27 2026",
- "timestampMillis": "1774077387994",
+ "dateTimestamp": "Tue Mar 24 15:14:16 2026",
+ "timestampMillis": "1774336456887",
  "status": {
-  "cmdId": "edefeea9-e003-4436-a40c-bf9c3ea33f30",
+  "cmdId": "1eaf6e50-c918-4681-a17b-bde1daf77aff",
   "state": "CS_RUNNING"
  }
 }
@@ -1094,10 +1046,10 @@
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 15:16:29 2026",
- "timestampMillis": "1774077389565",
+ "dateTimestamp": "Tue Mar 24 15:14:18 2026",
+ "timestampMillis": "1774336458397",
  "status": {
-  "cmdId": "edefeea9-e003-4436-a40c-bf9c3ea33f30",
+  "cmdId": "1eaf6e50-c918-4681-a17b-bde1daf77aff",
   "state": "CS_PASSED"
  }
 }
@@ -1105,26 +1057,26 @@
 <ENTRY>
 {
  "type": "ET_SubCmdStep",
- "dateTimestamp": "Sat Mar 21 15:16:29 2026",
- "timestampMillis": "1774077389568",
+ "dateTimestamp": "Tue Mar 24 15:14:18 2026",
+ "timestampMillis": "1774336458399",
  "buildStep": {
-  "cmdId": "dee2618f-1d54-4d66-a1c8-e17255a9fde7",
+  "cmdId": "2dbf0b5d-4557-493b-b568-d2b58f3982c1",
   "name": "generate_sc_driver",
   "logFile": "",
   "commandLine": "",
   "args": [],
   "iniFiles": [],
-  "cwd": "/home/hpk/cloud_back_up"
+  "cwd": "/home/sail/lyf/pma_demo/stream"
  }
 }
 </ENTRY>
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 15:16:29 2026",
- "timestampMillis": "1774077389568",
+ "dateTimestamp": "Tue Mar 24 15:14:18 2026",
+ "timestampMillis": "1774336458399",
  "status": {
-  "cmdId": "dee2618f-1d54-4d66-a1c8-e17255a9fde7",
+  "cmdId": "2dbf0b5d-4557-493b-b568-d2b58f3982c1",
   "state": "CS_RUNNING"
  }
 }
@@ -1132,10 +1084,10 @@
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 15:16:29 2026",
- "timestampMillis": "1774077389569",
+ "dateTimestamp": "Tue Mar 24 15:14:18 2026",
+ "timestampMillis": "1774336458399",
  "status": {
-  "cmdId": "dee2618f-1d54-4d66-a1c8-e17255a9fde7",
+  "cmdId": "2dbf0b5d-4557-493b-b568-d2b58f3982c1",
   "state": "CS_PASSED"
  }
 }
@@ -1143,10 +1095,10 @@
 <ENTRY>
 {
  "type": "ET_Report",
- "dateTimestamp": "Sat Mar 21 15:16:29 2026",
- "timestampMillis": "1774077389754",
+ "dateTimestamp": "Tue Mar 24 15:14:18 2026",
+ "timestampMillis": "1774336458522",
  "report": {
-  "path": "/home/hpk/cloud_back_up/_x/reports/link/system_estimate_hw_emu_whole_system.xtxt",
+  "path": "/home/sail/lyf/pma_demo/stream/_x/reports/link/system_estimate_hw_emu_whole_system.xtxt",
   "name": "",
   "fileType": "TEXT",
   "reportType": "GLOBAL_SYSTEM_ESTIMATE",
@@ -1157,10 +1109,10 @@
 <ENTRY>
 {
  "type": "ET_Report",
- "dateTimestamp": "Sat Mar 21 15:16:31 2026",
- "timestampMillis": "1774077391109",
+ "dateTimestamp": "Tue Mar 24 15:14:19 2026",
+ "timestampMillis": "1774336459967",
  "report": {
-  "path": "/home/hpk/cloud_back_up/_x/logs/optraceViewer.html",
+  "path": "/home/sail/lyf/pma_demo/stream/_x/logs/optraceViewer.html",
   "name": "",
   "fileType": "HTML",
   "reportType": "OPERATION_TRACE",
@@ -1171,10 +1123,10 @@
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 15:16:31 2026",
- "timestampMillis": "1774077391110",
+ "dateTimestamp": "Tue Mar 24 15:14:19 2026",
+ "timestampMillis": "1774336459967",
  "status": {
-  "cmdId": "c1290a1e-a4f7-4e4f-b28b-7b05a2c55ed8",
+  "cmdId": "8cf5b9c4-2bad-4afd-b43e-bd96e2f9be0a",
   "state": "CS_PASSED"
  }
 }
@@ -1182,10 +1134,10 @@
 <ENTRY>
 {
  "type": "ET_Report",
- "dateTimestamp": "Sat Mar 21 15:16:31 2026",
- "timestampMillis": "1774077391216",
+ "dateTimestamp": "Tue Mar 24 15:14:20 2026",
+ "timestampMillis": "1774336460055",
  "report": {
-  "path": "/home/hpk/cloud_back_up/_x/reports/link/v++_link_hw_emu_whole_system_guidance.html",
+  "path": "/home/sail/lyf/pma_demo/stream/_x/reports/link/v++_link_hw_emu_whole_system_guidance.html",
   "name": "",
   "fileType": "HTML",
   "reportType": "GLOBAL_RULECHECK_GUIDANCE",
@@ -1196,10 +1148,10 @@
 <ENTRY>
 {
  "type": "ET_Report",
- "dateTimestamp": "Sat Mar 21 15:16:31 2026",
- "timestampMillis": "1774077391217",
+ "dateTimestamp": "Tue Mar 24 15:14:20 2026",
+ "timestampMillis": "1774336460056",
  "report": {
-  "path": "/home/hpk/cloud_back_up/_x/v++_link_hw_emu_whole_system_guidance.pb3",
+  "path": "/home/sail/lyf/pma_demo/stream/_x/v++_link_hw_emu_whole_system_guidance.pb3",
   "name": "",
   "fileType": "BINARY_PROTOBUF",
   "reportType": "GLOBAL_RULECHECK_GUIDANCE",

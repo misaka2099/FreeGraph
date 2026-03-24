@@ -1,26 +1,9 @@
 VPP ?= v++
 
 PLATFORM ?= /xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm
-<<<<<<< HEAD
-# INCLUDES := -I /home/sail/lyf/pma_demo/stream/include -I $(CURDIR)/acc_template -I $(CURDIR)/acc_template/common \
-# 			-I $(CURDIR)/acc_udfs -I $(CURDIR)/acc_udfs/bfs
-INCLUDES := -I /home/sail/lyf/pma_demo/stream/include \
-			-I $(CURDIR)/acc_template \
-			-I $(CURDIR)/acc_template/common \
-			-I $(CURDIR)/acc_template/edge_reader \
-			-I $(CURDIR)/acc_template/kernel_apply \
-			-I $(CURDIR)/acc_template/kernel_hbm_wrapper \
-			-I $(CURDIR)/acc_template/kernel_big_gs \
-			-I $(CURDIR)/acc_template/kernel_little_gs \
-			-I $(CURDIR)/acc_template/kernel_big_gs_merger \
-			-I $(CURDIR)/acc_template/kernel_little_gs_merger \
-			-I $(CURDIR)/acc_udfs \
-			-I $(CURDIR)/acc_udfs/bfs
-=======
 INCLUDES := -I /home/sail/lyf/pma_demo/stream/include -I $(CURDIR)/acc_template -I $(CURDIR)/acc_template/common \
 			-I $(CURDIR)/acc_template/kernel_little_gs -I $(CURDIR)/acc_template/kernel_big_gs \
 			-I $(CURDIR)/acc_udfs -I $(CURDIR)/acc_udfs/$(ALGO)
->>>>>>> 3aebe2e (to speed up)
 TARGET ?= sw_emu
 
 # load global parameters (LITTLE/BIG buffer sizes etc.)
@@ -61,8 +44,11 @@ DEFINES := -D LITTLE_KERNEL_DST_BUFFER_SIZE=$(LITTLE_KERNEL_DST_BUFFER_SIZE) \
 		   $(WHOLE_HOST_DEFINES)
 
 # List of kernel symbols (extern "C" function names)
-KERNELS := edgeReader kernelApply kernelHBMWrapper kernelBigGSMerger kernelLittleGSMerger \
+# KERNELS := edgeReader kernelApply kernelHBMWrapper kernelBigGSMerger kernelLittleGSMerger \
            bigKernelScatterGather littleKernelScatterGather
+
+KERNELS := edgeReader kernelApply kernelHBMWrapper kernelLittleGSMerger \
+        littleKernelScatterGather
 
 # Map kernel symbol to source file path
 edgeReader_SRC := acc_template/edge_reader/edge_reader.cpp

@@ -39,7 +39,7 @@ subdirs:
 	$(MAKE) -C pma_kernel all TARGET=$(TARGET)
 
 # Host source list: all ReGraph/host .cpp except files that define main
-HOST_SRCS := $(shell find ReGraph/host -name "*.cpp" | grep -v -E 'host_xrt.cpp|host.cpp|host_original.cpp' | tr '\n' ' ')
+HOST_SRCS := $(shell find ReGraph/host -name "*.cpp" | grep -v -E 'host_xrt.cpp|host.cpp|host_original.cpp|test_partition.cpp' | tr '\n' ' ')
 # Add xcl2 implementation so xcl:: symbols resolve
 HOST_SRCS += ReGraph/utils/common/includes/xcl2/xcl2.cpp
 
@@ -76,10 +76,6 @@ test_host: test_host.cpp
 clean:
 	$(MAKE) -C memkernel clean
 	$(MAKE) -C pma_kernel clean
-<<<<<<< HEAD
-	rm -f $(XCLBIN_FILE) $(WHOLE_SYSTEM_XCLBIN) host real_host test_host
-=======
 	$(MAKE) -C ReGraph -f makekernel.mk clean
 	rm -f $(XCLBIN_FILE) host
->>>>>>> 3aebe2e (to speed up)
 	rm -rf _x/link

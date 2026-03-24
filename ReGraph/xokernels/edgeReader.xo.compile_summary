@@ -1,6 +1,6 @@
 <ENTRY>
 {
- "thisFile": "/home/hpk/cloud_back_up/ReGraph/xokernels/edgeReader.xo.compile_summary",
+ "thisFile": "/home/sail/lyf/pma_demo/stream/ReGraph/xokernels/edgeReader.xo.compile_summary",
  "connectId": "",
  "serverToken": "",
  "timestamp": "0"
@@ -9,13 +9,13 @@
 <ENTRY>
 {
  "type": "ET_CmdStep",
- "dateTimestamp": "Sat Mar 21 14:05:54 2026",
- "timestampMillis": "1774073154347",
+ "dateTimestamp": "Tue Mar 24 14:57:43 2026",
+ "timestampMillis": "1774335463021",
  "buildStep": {
-  "cmdId": "b11c663e-2efd-4fb0-8817-c9447118687a",
+  "cmdId": "ce116fa7-5c41-44e8-b033-be157e0b91b0",
   "name": "v++",
-  "logFile": "/home/hpk/cloud_back_up/ReGraph/_x/edgeReader/edgeReader.steps.log",
-  "commandLine": "/home/tools/Vitis/2022.2/bin/unwrapped/lnx64.o/v++  --vivado.prop \"run.__KERNEL__.{STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS}={-directive sdx_optimization_effort_high}\" --advanced.misc \"report=type report_timing_summary name impl_report_timing_summary_route_design_summary steps {route_design} runs {impl_1} options {-max_paths 10}\" --advanced.misc \"report=type report_timing_summary name impl_report_timing_summary_post_route_phys_opt_design_summary steps {post_route_phys_opt_design} runs {impl_1} options {-max_paths 10}\" -c -g -D LITTLE_KERNEL_DST_BUFFER_SIZE=65536 -D BIG_KERNEL_DST_BUFFER_SIZE=524288 -D PARTITION_SIZE=65536 -D SRC_BUFFER_SIZE=4096 -D LOG2_SRC_BUFFER_SIZE=12 -D VERTEX_REORDER_ENABLE=1 -D BIG_KERNEL_NUM=1 -D LITTLE_KERNEL_NUM=1 -t hw_emu -I /home/sail/lyf/pma_demo/stream/include -I /home/hpk/cloud_back_up/ReGraph/acc_template -I /home/hpk/cloud_back_up/ReGraph/acc_template/common -I /home/hpk/cloud_back_up/ReGraph/acc_template/edge_reader -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_apply -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_hbm_wrapper -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_big_gs -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_little_gs -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_big_gs_merger -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_little_gs_merger -I /home/hpk/cloud_back_up/ReGraph/acc_udfs -I /home/hpk/cloud_back_up/ReGraph/acc_udfs/bfs --platform /opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm -k edgeReader -o xokernels/edgeReader.xo acc_template/edge_reader/edge_reader.cpp ",
+  "logFile": "/home/sail/lyf/pma_demo/stream/ReGraph/_x/edgeReader/edgeReader.steps.log",
+  "commandLine": "/home/tools/Vitis/2022.2/bin/unwrapped/lnx64.o/v++  --vivado.prop \"run.__KERNEL__.{STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS}={-directive sdx_optimization_effort_high}\" --advanced.misc \"report=type report_timing_summary name impl_report_timing_summary_route_design_summary steps {route_design} runs {impl_1} options {-max_paths 10}\" --advanced.misc \"report=type report_timing_summary name impl_report_timing_summary_post_route_phys_opt_design_summary steps {post_route_phys_opt_design} runs {impl_1} options {-max_paths 10}\" -c -g -D LITTLE_KERNEL_DST_BUFFER_SIZE=65536 -D BIG_KERNEL_DST_BUFFER_SIZE=524288 -D PARTITION_SIZE=65536 -D SRC_BUFFER_SIZE=4096 -D LOG2_SRC_BUFFER_SIZE=12 -D VERTEX_REORDER_ENABLE=1 -D BIG_KERNEL_NUM=0 -D LITTLE_KERNEL_NUM=1 -D HAVE_EDGE_PROP=0 -D HAVE_UNSIGNED_PROP=1 -D HAVE_APPLY=1 -D HAVE_APPLY_OUTDEG=0 -D HAVE_VERTEX_PROP=1 -DLITTLE_KERNEL_NUM=1 -DBIG_KERNEL_NUM=0 -DPARTITION_SIZE=65536 -DSRC_BUFFER_SIZE=4096 -DLOG2_SRC_BUFFER_SIZE=12 -DLITTLE_KERNEL_DST_BUFFER_SIZE=65536 -DBIG_KERNEL_DST_BUFFER_SIZE=524288 -DHAVE_APPLY=1 -DVERTEX_REORDER_ENABLE=1 -DALGO_CODE=0 -t hw_emu -I /home/sail/lyf/pma_demo/stream/include -I /home/sail/lyf/pma_demo/stream/ReGraph/acc_template -I /home/sail/lyf/pma_demo/stream/ReGraph/acc_template/common -I /home/sail/lyf/pma_demo/stream/ReGraph/acc_template/kernel_little_gs -I /home/sail/lyf/pma_demo/stream/ReGraph/acc_template/kernel_big_gs -I /home/sail/lyf/pma_demo/stream/ReGraph/acc_udfs -I /home/sail/lyf/pma_demo/stream/ReGraph/acc_udfs/bfs --platform /opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm -k edgeReader -o xokernels/edgeReader.xo acc_template/edge_reader/edgeReader.cpp ",
   "args": [
    "-c",
    "-g",
@@ -32,55 +32,65 @@
    "-D",
    "VERTEX_REORDER_ENABLE=1",
    "-D",
-   "BIG_KERNEL_NUM=1",
+   "BIG_KERNEL_NUM=0",
    "-D",
    "LITTLE_KERNEL_NUM=1",
+   "-D",
+   "HAVE_EDGE_PROP=0",
+   "-D",
+   "HAVE_UNSIGNED_PROP=1",
+   "-D",
+   "HAVE_APPLY=1",
+   "-D",
+   "HAVE_APPLY_OUTDEG=0",
+   "-D",
+   "HAVE_VERTEX_PROP=1",
+   "-DLITTLE_KERNEL_NUM=1",
+   "-DBIG_KERNEL_NUM=0",
+   "-DPARTITION_SIZE=65536",
+   "-DSRC_BUFFER_SIZE=4096",
+   "-DLOG2_SRC_BUFFER_SIZE=12",
+   "-DLITTLE_KERNEL_DST_BUFFER_SIZE=65536",
+   "-DBIG_KERNEL_DST_BUFFER_SIZE=524288",
+   "-DHAVE_APPLY=1",
+   "-DVERTEX_REORDER_ENABLE=1",
+   "-DALGO_CODE=0",
    "-t",
    "hw_emu",
    "-I",
    "/home/sail/lyf/pma_demo/stream/include",
    "-I",
-   "/home/hpk/cloud_back_up/ReGraph/acc_template",
+   "/home/sail/lyf/pma_demo/stream/ReGraph/acc_template",
    "-I",
-   "/home/hpk/cloud_back_up/ReGraph/acc_template/common",
+   "/home/sail/lyf/pma_demo/stream/ReGraph/acc_template/common",
    "-I",
-   "/home/hpk/cloud_back_up/ReGraph/acc_template/edge_reader",
+   "/home/sail/lyf/pma_demo/stream/ReGraph/acc_template/kernel_little_gs",
    "-I",
-   "/home/hpk/cloud_back_up/ReGraph/acc_template/kernel_apply",
+   "/home/sail/lyf/pma_demo/stream/ReGraph/acc_template/kernel_big_gs",
    "-I",
-   "/home/hpk/cloud_back_up/ReGraph/acc_template/kernel_hbm_wrapper",
+   "/home/sail/lyf/pma_demo/stream/ReGraph/acc_udfs",
    "-I",
-   "/home/hpk/cloud_back_up/ReGraph/acc_template/kernel_big_gs",
-   "-I",
-   "/home/hpk/cloud_back_up/ReGraph/acc_template/kernel_little_gs",
-   "-I",
-   "/home/hpk/cloud_back_up/ReGraph/acc_template/kernel_big_gs_merger",
-   "-I",
-   "/home/hpk/cloud_back_up/ReGraph/acc_template/kernel_little_gs_merger",
-   "-I",
-   "/home/hpk/cloud_back_up/ReGraph/acc_udfs",
-   "-I",
-   "/home/hpk/cloud_back_up/ReGraph/acc_udfs/bfs",
+   "/home/sail/lyf/pma_demo/stream/ReGraph/acc_udfs/bfs",
    "--platform",
    "/opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm",
    "-k",
    "edgeReader",
    "-o",
    "xokernels/edgeReader.xo",
-   "acc_template/edge_reader/edge_reader.cpp"
+   "acc_template/edge_reader/edgeReader.cpp"
   ],
   "iniFiles": [],
-  "cwd": "/home/hpk/cloud_back_up/ReGraph"
+  "cwd": "/home/sail/lyf/pma_demo/stream/ReGraph"
  }
 }
 </ENTRY>
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 14:05:54 2026",
- "timestampMillis": "1774073154348",
+ "dateTimestamp": "Tue Mar 24 14:57:43 2026",
+ "timestampMillis": "1774335463021",
  "status": {
-  "cmdId": "b11c663e-2efd-4fb0-8817-c9447118687a",
+  "cmdId": "ce116fa7-5c41-44e8-b033-be157e0b91b0",
   "state": "CS_RUNNING"
  }
 }
@@ -88,8 +98,8 @@
 <ENTRY>
 {
  "type": "ET_FlowMetaData",
- "dateTimestamp": "Sat Mar 21 14:05:58 2026",
- "timestampMillis": "1774073158765",
+ "dateTimestamp": "Tue Mar 24 14:57:47 2026",
+ "timestampMillis": "1774335467538",
  "buildSummary": {
   "hardwarePlatform": "xilinx_u280_gen3x16_xdma_1_202211_1.xpfm",
   "hardwareDsa": "",
@@ -103,12 +113,12 @@
     "base": {
      "type": "KERNEL",
      "name": "edgeReader",
-     "file": "/home/hpk/cloud_back_up/ReGraph/xokernels/edgeReader.xo",
+     "file": "/home/sail/lyf/pma_demo/stream/ReGraph/xokernels/edgeReader.xo",
      "reports": [],
      "uuid": ""
     },
     "sources": [
-     "/home/hpk/cloud_back_up/ReGraph/acc_template/edge_reader/edge_reader.cpp"
+     "/home/sail/lyf/pma_demo/stream/ReGraph/acc_template/edge_reader/edgeReader.cpp"
     ],
     "psSources": [],
     "cuNames": [],
@@ -124,32 +134,32 @@
 <ENTRY>
 {
  "type": "ET_SubCmdStep",
- "dateTimestamp": "Sat Mar 21 14:05:58 2026",
- "timestampMillis": "1774073158768",
+ "dateTimestamp": "Tue Mar 24 14:57:47 2026",
+ "timestampMillis": "1774335467541",
  "buildStep": {
-  "cmdId": "4964c2e1-1bce-4b41-94be-ea37d22c4caf",
+  "cmdId": "90a3a658-9f48-4896-8896-5e748373a007",
   "name": "vitis_hls",
-  "logFile": "/home/hpk/cloud_back_up/ReGraph/_x/edgeReader/edgeReader/vitis_hls.log",
-  "commandLine": "vitis_hls -f /home/hpk/cloud_back_up/ReGraph/_x/edgeReader/edgeReader/edgeReader.tcl -messageDb vitis_hls.pb",
+  "logFile": "/home/sail/lyf/pma_demo/stream/ReGraph/_x/edgeReader/edgeReader/vitis_hls.log",
+  "commandLine": "vitis_hls -f /home/sail/lyf/pma_demo/stream/ReGraph/_x/edgeReader/edgeReader/edgeReader.tcl -messageDb vitis_hls.pb",
   "args": [
    "vitis_hls",
    "-f",
-   "/home/hpk/cloud_back_up/ReGraph/_x/edgeReader/edgeReader/edgeReader.tcl",
+   "/home/sail/lyf/pma_demo/stream/ReGraph/_x/edgeReader/edgeReader/edgeReader.tcl",
    "-messageDb",
    "vitis_hls.pb"
   ],
   "iniFiles": [],
-  "cwd": "/home/hpk/cloud_back_up/ReGraph"
+  "cwd": "/home/sail/lyf/pma_demo/stream/ReGraph"
  }
 }
 </ENTRY>
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 14:05:58 2026",
- "timestampMillis": "1774073158768",
+ "dateTimestamp": "Tue Mar 24 14:57:47 2026",
+ "timestampMillis": "1774335467542",
  "status": {
-  "cmdId": "4964c2e1-1bce-4b41-94be-ea37d22c4caf",
+  "cmdId": "90a3a658-9f48-4896-8896-5e748373a007",
   "state": "CS_RUNNING"
  }
 }
@@ -157,10 +167,10 @@
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 14:06:31 2026",
- "timestampMillis": "1774073191558",
+ "dateTimestamp": "Tue Mar 24 14:58:19 2026",
+ "timestampMillis": "1774335499785",
  "status": {
-  "cmdId": "4964c2e1-1bce-4b41-94be-ea37d22c4caf",
+  "cmdId": "90a3a658-9f48-4896-8896-5e748373a007",
   "state": "CS_PASSED"
  }
 }
@@ -168,10 +178,10 @@
 <ENTRY>
 {
  "type": "ET_Report",
- "dateTimestamp": "Sat Mar 21 14:06:31 2026",
- "timestampMillis": "1774073191572",
+ "dateTimestamp": "Tue Mar 24 14:58:19 2026",
+ "timestampMillis": "1774335499804",
  "report": {
-  "path": "/home/hpk/cloud_back_up/ReGraph/_x/edgeReader/edgeReader/edgeReader/solution/.autopilot/db/edgeReader.design.xml",
+  "path": "/home/sail/lyf/pma_demo/stream/ReGraph/_x/edgeReader/edgeReader/edgeReader/solution/.autopilot/db/edgeReader.design.xml",
   "name": "edgeReader",
   "fileType": "XML",
   "reportType": "KERNEL_HLS_REPORT",
@@ -182,10 +192,10 @@
 <ENTRY>
 {
  "type": "ET_Report",
- "dateTimestamp": "Sat Mar 21 14:06:31 2026",
- "timestampMillis": "1774073191573",
+ "dateTimestamp": "Tue Mar 24 14:58:19 2026",
+ "timestampMillis": "1774335499804",
  "report": {
-  "path": "/home/hpk/cloud_back_up/ReGraph/_x/edgeReader/edgeReader/edgeReader/solution/.autopilot/db/.message_syn.xml",
+  "path": "/home/sail/lyf/pma_demo/stream/ReGraph/_x/edgeReader/edgeReader/edgeReader/solution/.autopilot/db/.message_syn.xml",
   "name": "edgeReader",
   "fileType": "XML",
   "reportType": "KERNEL_HLS_DRC_SYNTHESIS",
@@ -196,10 +206,10 @@
 <ENTRY>
 {
  "type": "ET_Report",
- "dateTimestamp": "Sat Mar 21 14:06:31 2026",
- "timestampMillis": "1774073191574",
+ "dateTimestamp": "Tue Mar 24 14:58:19 2026",
+ "timestampMillis": "1774335499805",
  "report": {
-  "path": "/home/hpk/cloud_back_up/ReGraph/_x/reports/edgeReader/hls_reports/edgeReader_csynth.rpt",
+  "path": "/home/sail/lyf/pma_demo/stream/ReGraph/_x/reports/edgeReader/hls_reports/edgeReader_csynth.rpt",
   "name": "edgeReader",
   "fileType": "TEXT",
   "reportType": "KERNEL_HLS_CSYNTH",
@@ -210,10 +220,10 @@
 <ENTRY>
 {
  "type": "ET_Report",
- "dateTimestamp": "Sat Mar 21 14:06:31 2026",
- "timestampMillis": "1774073191574",
+ "dateTimestamp": "Tue Mar 24 14:58:19 2026",
+ "timestampMillis": "1774335499806",
  "report": {
-  "path": "/home/hpk/cloud_back_up/ReGraph/_x/edgeReader/edgeReader/edgeReader/solution/syn/report/edgeReader_csynth.xml",
+  "path": "/home/sail/lyf/pma_demo/stream/ReGraph/_x/edgeReader/edgeReader/edgeReader/solution/syn/report/edgeReader_csynth.xml",
   "name": "edgeReader",
   "fileType": "XML",
   "reportType": "KERNEL_HLS_CSYNTH",
@@ -224,10 +234,10 @@
 <ENTRY>
 {
  "type": "ET_Report",
- "dateTimestamp": "Sat Mar 21 14:06:31 2026",
- "timestampMillis": "1774073191580",
+ "dateTimestamp": "Tue Mar 24 14:58:19 2026",
+ "timestampMillis": "1774335499809",
  "report": {
-  "path": "/home/hpk/cloud_back_up/ReGraph/_x/reports/edgeReader/system_estimate_edgeReader.xtxt",
+  "path": "/home/sail/lyf/pma_demo/stream/ReGraph/_x/reports/edgeReader/system_estimate_edgeReader.xtxt",
   "name": "",
   "fileType": "TEXT",
   "reportType": "GLOBAL_SYSTEM_ESTIMATE",
@@ -238,10 +248,10 @@
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 14:06:31 2026",
- "timestampMillis": "1774073191681",
+ "dateTimestamp": "Tue Mar 24 14:58:19 2026",
+ "timestampMillis": "1774335499930",
  "status": {
-  "cmdId": "b11c663e-2efd-4fb0-8817-c9447118687a",
+  "cmdId": "ce116fa7-5c41-44e8-b033-be157e0b91b0",
   "state": "CS_PASSED"
  }
 }
@@ -249,10 +259,10 @@
 <ENTRY>
 {
  "type": "ET_Report",
- "dateTimestamp": "Sat Mar 21 14:06:31 2026",
- "timestampMillis": "1774073191789",
+ "dateTimestamp": "Tue Mar 24 14:58:20 2026",
+ "timestampMillis": "1774335500029",
  "report": {
-  "path": "/home/hpk/cloud_back_up/ReGraph/_x/reports/edgeReader/v++_compile_edgeReader_guidance.html",
+  "path": "/home/sail/lyf/pma_demo/stream/ReGraph/_x/reports/edgeReader/v++_compile_edgeReader_guidance.html",
   "name": "",
   "fileType": "HTML",
   "reportType": "GLOBAL_RULECHECK_GUIDANCE",
@@ -263,10 +273,10 @@
 <ENTRY>
 {
  "type": "ET_Report",
- "dateTimestamp": "Sat Mar 21 14:06:31 2026",
- "timestampMillis": "1774073191790",
+ "dateTimestamp": "Tue Mar 24 14:58:20 2026",
+ "timestampMillis": "1774335500030",
  "report": {
-  "path": "/home/hpk/cloud_back_up/ReGraph/_x/v++_compile_edgeReader_guidance.pb3",
+  "path": "/home/sail/lyf/pma_demo/stream/ReGraph/_x/v++_compile_edgeReader_guidance.pb3",
   "name": "",
   "fileType": "BINARY_PROTOBUF",
   "reportType": "GLOBAL_RULECHECK_GUIDANCE",

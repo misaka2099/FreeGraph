@@ -3407,9 +3407,9 @@ window.onload = function () { addSorting(); }
 <center><h1>Design Guidance Report</h1></center><center><table class="header" border="0">
 <tr><td><b>Copyright</b></td><td>Copyright 1986-2022 Xilinx, Inc. All Rights Reserved.</td></tr>
 <tr><td><b>Tool Version</b></td><td>xcd v.2022.2 (lin64) Build 0 </td></tr>
-<tr><td><b>Date</b></td><td>Sat Mar 21 15:16:31 2026</td></tr>
+<tr><td><b>Date</b></td><td>Tue Mar 24 15:14:19 2026</td></tr>
 <tr><td><b>Host</b></td><td>fpga-epcc running 64-bit Ubuntu 20.04.6 LTS</td></tr>
-<tr><td><b>Command</b></td><td>/home/tools/Vitis/2022.2/bin/unwrapped/lnx64.o/v++  --vivado.prop "run.__KERNEL__.{STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS}={-directive sdx_optimization_effort_high}" --advanced.misc "report=type report_timing_summary name impl_report_timing_summary_route_design_summary steps {route_design} runs {impl_1} options {-max_paths 10}" --advanced.misc "report=type report_timing_summary name impl_report_timing_summary_post_route_phys_opt_design_summary steps {post_route_phys_opt_design} runs {impl_1} options {-max_paths 10}" -l -g -t hw_emu -I/home/sail/lyf/pma_demo/stream/include --platform /opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm --config whole_system.cfg --config profile.cfg -o hw_emu_whole_system.xclbin ./memkernel/alloc_access_kernel.xo ./memkernel/mem_access_kernel.xo ./pma_kernel/update_message_generator.xo ./pma_kernel/update_message_router.xo ./pma_kernel/pma_insert_vertex.xo ./pma_kernel/pma_insert_edge.xo ./pma_kernel/pma_read_kernel.xo ./pma_kernel/signal_kernel.xo ./ReGraph/xokernels/bigKernelScatterGather.xo ./ReGraph/xokernels/kernelHBMWrapper.xo ./ReGraph/xokernels/edgeReader.xo ./ReGraph/xokernels/kernelLittleGSMerger.xo ./ReGraph/xokernels/littleKernelScatterGather.xo ./ReGraph/xokernels/kernelBigGSMerger.xo ./ReGraph/xokernels/kernelApply.xo </td></tr>
+<tr><td><b>Command</b></td><td>/home/tools/Vitis/2022.2/bin/unwrapped/lnx64.o/v++  --vivado.prop "run.__KERNEL__.{STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS}={-directive sdx_optimization_effort_high}" --advanced.misc "report=type report_timing_summary name impl_report_timing_summary_route_design_summary steps {route_design} runs {impl_1} options {-max_paths 10}" --advanced.misc "report=type report_timing_summary name impl_report_timing_summary_post_route_phys_opt_design_summary steps {post_route_phys_opt_design} runs {impl_1} options {-max_paths 10}" -l -g -t hw_emu -I/home/sail/lyf/pma_demo/stream/include --platform /opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm --config whole_system.cfg --config profile.cfg -o hw_emu_whole_system.xclbin ./memkernel/alloc_access_kernel.xo ./memkernel/mem_access_kernel.xo ./pma_kernel/update_message_generator.xo ./pma_kernel/update_message_router.xo ./pma_kernel/pma_insert_vertex.xo ./pma_kernel/pma_insert_edge.xo ./pma_kernel/pma_read_kernel.xo ./pma_kernel/signal_kernel.xo ./ReGraph/xokernels/kernelHBMWrapper.xo ./ReGraph/xokernels/edgeReader.xo ./ReGraph/xokernels/kernelLittleGSMerger.xo ./ReGraph/xokernels/littleKernelScatterGather.xo ./ReGraph/xokernels/kernelApply.xo </td></tr>
 </table></center><br>
 <table class="toc" border="1"><tr><td><b>Table of Contents</b></td></tr>
 <tr><td><a href="#REPORT SUMMARY">1 REPORT SUMMARY</a></tr></td>
@@ -3417,11 +3417,11 @@ window.onload = function () { addSorting(); }
 <tr><td><a href="#PERFORMANCE CHECKS MET">3 PERFORMANCE CHECKS MET</a></tr></td>
 </table>
 <a name="REPORT SUMMARY"></a><h1>1 REPORT SUMMARY</h1>
-<pre>Violations found: 9
+<pre>Violations found: 10
 </pre>
-<pre>Rule Specs Violated: 3
+<pre>Rule Specs Violated: 4
 </pre>
-<pre>Rules Met: 10
+<pre>Rules Met: 9
 </pre>
 <pre>Rule Specs Met: 1
 </pre>
@@ -3439,13 +3439,56 @@ window.onload = function () { addSorting(); }
 <th align="left" width="380">Resolution</th>
 </tr>
 <tr>
+<td align="left">6</td>
+<td align="left">IP-LOCK-01</td>
+<td align="left">WARNING</td>
+<td align="left"><undefined></td>
+<td align="left">IP - Locked IP</td>
+<td align="left">System.Link.IP</td>
+<td align="left">In your vivado project:prj for design:dr the IP bd_387c_s00mmu_0 is locked. The IP is locked for the following reason - * IP definition 'SC MMU (1.0)' for IP 'bd_387c_s00mmu_0' (customized with software release 2022.1.1) has a different revision in the IP Catalog.
+.</td>
+<td align="left">Check the IP and the install area for the latest version of the IPs. For additional information about designing with IP - refer to <a href="http:///www.xilinx.com/support/documentation/sw_manuals/xilinx2019_2/ug896-vivado-ip.pdf">UG896</a>. In vivado you can run the report_ip_status Tcl command for additional information. In addition, <a href="file:////home/sail/lyf/pma_demo/stream/_x/link/vivado/vpl/link_ip_guidance.txt">report_ip_status</a> the can be viewed.</td>
+</tr>
+<tr>
+<td align="left">7</td>
+<td align="left">IP-LOCK-01</td>
+<td align="left">WARNING</td>
+<td align="left"><undefined></td>
+<td align="left">IP - Locked IP</td>
+<td align="left">System.Link.IP</td>
+<td align="left">In your vivado project:prj for design:dr the IP bd_387c_s00sic_0 is locked. The IP is locked for the following reason - * IP definition 'SC SI_CONVERTER (1.0)' for IP 'bd_387c_s00sic_0' (customized with software release 2022.1.1) has a different revision in the IP Catalog.
+.</td>
+<td align="left">Check the IP and the install area for the latest version of the IPs. For additional information about designing with IP - refer to <a href="http:///www.xilinx.com/support/documentation/sw_manuals/xilinx2019_2/ug896-vivado-ip.pdf">UG896</a>. In vivado you can run the report_ip_status Tcl command for additional information. In addition, <a href="file:////home/sail/lyf/pma_demo/stream/_x/link/vivado/vpl/link_ip_guidance.txt">report_ip_status</a> the can be viewed.</td>
+</tr>
+<tr>
+<td align="left">10</td>
+<td align="left">ACCELERATOR-SLR-01</td>
+<td align="left">WARNING</td>
+<td align="left"><undefined></td>
+<td align="left">SLR assignments and memory connectivity</td>
+<td align="left">Accelerator.System.Performance</td>
+<td align="left">The compute unit kernelApply_1 is located in SLR1 while its port kernelApply_1/m_axi_gmem1 is connected to a memory in SLR0.</td>
+<td align="left">Consider using a memory located in the same SLR, especially if not adjacent. In the [connectivity] section of your config file, use the 'slr' and 'sp' keywords (e.g., slr=vadd1:SLR0, sp=vadd1.a:DDR[0]).</td>
+</tr>
+<tr>
+<td align="left">1</td>
+<td align="left">IP-LOCK-01</td>
+<td align="left">WARNING</td>
+<td align="left"><undefined></td>
+<td align="left">IP - Locked IP</td>
+<td align="left">System.Link.IP</td>
+<td align="left">In your vivado project:prj for design:dr the IP pfm_top_axi_vip_0_0 is locked. The IP is locked for the following reason - * IP definition 'AXI Verification IP (1.1)' for IP 'pfm_top_axi_vip_0_0' (customized with software release 2022.1.1) has a different revision in the IP Catalog.
+.</td>
+<td align="left">Check the IP and the install area for the latest version of the IPs. For additional information about designing with IP - refer to <a href="http:///www.xilinx.com/support/documentation/sw_manuals/xilinx2019_2/ug896-vivado-ip.pdf">UG896</a>. In vivado you can run the report_ip_status Tcl command for additional information. In addition, <a href="file:////home/sail/lyf/pma_demo/stream/_x/link/vivado/vpl/link_ip_guidance.txt">report_ip_status</a> the can be viewed.</td>
+</tr>
+<tr>
 <td align="left">18</td>
 <td align="left">PROFILING-02</td>
 <td align="left">CRITICAL WARNING</td>
 <td align="left"><undefined></td>
 <td align="left">Maximum profile monitors</td>
 <td align="left">Accelerator.System.Performance</td>
-<td align="left">Unable to support 115 monitors. Limiting to 32.</td>
+<td align="left">Unable to support 104 monitors. Limiting to 32.</td>
 <td align="left">Request less monitors using [profile] section of config file. Avoid using data=all:all:all and instead specify critical elements, e.g., data=<kernel>:<compute unit>:<port>.</td>
 </tr>
 <tr>
@@ -3457,7 +3500,7 @@ window.onload = function () { addSorting(); }
 <td align="left">System.Link.IP</td>
 <td align="left">In your vivado project:prj for design:dr the IP pfm_top_connect_to_es_cu_0 is locked. The IP is locked for the following reason - * IP definition 'AXI Interconnect (2.1)' for IP 'pfm_top_connect_to_es_cu_0' (customized with software release 2022.1.1) has a different revision in the IP Catalog.
 .</td>
-<td align="left">Check the IP and the install area for the latest version of the IPs. For additional information about designing with IP - refer to <a href="http:///www.xilinx.com/support/documentation/sw_manuals/xilinx2019_2/ug896-vivado-ip.pdf">UG896</a>. In vivado you can run the report_ip_status Tcl command for additional information. In addition, <a href="file:////home/hpk/cloud_back_up/_x/link/vivado/vpl/link_ip_guidance.txt">report_ip_status</a> the can be viewed.</td>
+<td align="left">Check the IP and the install area for the latest version of the IPs. For additional information about designing with IP - refer to <a href="http:///www.xilinx.com/support/documentation/sw_manuals/xilinx2019_2/ug896-vivado-ip.pdf">UG896</a>. In vivado you can run the report_ip_status Tcl command for additional information. In addition, <a href="file:////home/sail/lyf/pma_demo/stream/_x/link/vivado/vpl/link_ip_guidance.txt">report_ip_status</a> the can be viewed.</td>
 </tr>
 <tr>
 <td align="left">19</td>
@@ -3479,7 +3522,7 @@ window.onload = function () { addSorting(); }
 <td align="left">In your vivado project:prj for design:dr the IP pfm_top_smartconnect_0_0 is locked. The IP is locked for the following reason - * IP definition 'AXI SmartConnect (1.0)' for IP 'pfm_top_smartconnect_0_0' (customized with software release 2022.1.1) has a different revision in the IP Catalog.
  * IP 'pfm_top_smartconnect_0_0' contains one or more locked subcores.* Target IP definition 'AXI SmartConnect (1.0)' requires a revision change. Please review the change log before upgrading the IP.
 .</td>
-<td align="left">Check the IP and the install area for the latest version of the IPs. For additional information about designing with IP - refer to <a href="http:///www.xilinx.com/support/documentation/sw_manuals/xilinx2019_2/ug896-vivado-ip.pdf">UG896</a>. In vivado you can run the report_ip_status Tcl command for additional information. In addition, <a href="file:////home/hpk/cloud_back_up/_x/link/vivado/vpl/link_ip_guidance.txt">report_ip_status</a> the can be viewed.</td>
+<td align="left">Check the IP and the install area for the latest version of the IPs. For additional information about designing with IP - refer to <a href="http:///www.xilinx.com/support/documentation/sw_manuals/xilinx2019_2/ug896-vivado-ip.pdf">UG896</a>. In vivado you can run the report_ip_status Tcl command for additional information. In addition, <a href="file:////home/sail/lyf/pma_demo/stream/_x/link/vivado/vpl/link_ip_guidance.txt">report_ip_status</a> the can be viewed.</td>
 </tr>
 <tr>
 <td align="left">4</td>
@@ -3490,7 +3533,7 @@ window.onload = function () { addSorting(); }
 <td align="left">System.Link.IP</td>
 <td align="left">In your vivado project:prj for design:dr the IP pfm_top_xbar_0 is locked. The IP is locked for the following reason - * IP definition 'AXI Crossbar (2.1)' for IP 'pfm_top_xbar_0' (customized with software release 2022.1.1) has a different revision in the IP Catalog.
 .</td>
-<td align="left">Check the IP and the install area for the latest version of the IPs. For additional information about designing with IP - refer to <a href="http:///www.xilinx.com/support/documentation/sw_manuals/xilinx2019_2/ug896-vivado-ip.pdf">UG896</a>. In vivado you can run the report_ip_status Tcl command for additional information. In addition, <a href="file:////home/hpk/cloud_back_up/_x/link/vivado/vpl/link_ip_guidance.txt">report_ip_status</a> the can be viewed.</td>
+<td align="left">Check the IP and the install area for the latest version of the IPs. For additional information about designing with IP - refer to <a href="http:///www.xilinx.com/support/documentation/sw_manuals/xilinx2019_2/ug896-vivado-ip.pdf">UG896</a>. In vivado you can run the report_ip_status Tcl command for additional information. In addition, <a href="file:////home/sail/lyf/pma_demo/stream/_x/link/vivado/vpl/link_ip_guidance.txt">report_ip_status</a> the can be viewed.</td>
 </tr>
 <tr>
 <td align="left">5</td>
@@ -3501,40 +3544,7 @@ window.onload = function () { addSorting(); }
 <td align="left">System.Link.IP</td>
 <td align="left">In your vivado project:prj for design:dr the IP bd_387c_one_0 is locked. The IP is locked for the following reason - * The IP Data in the repository is incompatible with the current instance (despite having identical Version and Revision). You will need to upgrade the IP before viewing the customization and generating outputs.
 .</td>
-<td align="left">Check the IP and the install area for the latest version of the IPs. For additional information about designing with IP - refer to <a href="http:///www.xilinx.com/support/documentation/sw_manuals/xilinx2019_2/ug896-vivado-ip.pdf">UG896</a>. In vivado you can run the report_ip_status Tcl command for additional information. In addition, <a href="file:////home/hpk/cloud_back_up/_x/link/vivado/vpl/link_ip_guidance.txt">report_ip_status</a> the can be viewed.</td>
-</tr>
-<tr>
-<td align="left">6</td>
-<td align="left">IP-LOCK-01</td>
-<td align="left">WARNING</td>
-<td align="left"><undefined></td>
-<td align="left">IP - Locked IP</td>
-<td align="left">System.Link.IP</td>
-<td align="left">In your vivado project:prj for design:dr the IP bd_387c_s00mmu_0 is locked. The IP is locked for the following reason - * IP definition 'SC MMU (1.0)' for IP 'bd_387c_s00mmu_0' (customized with software release 2022.1.1) has a different revision in the IP Catalog.
-.</td>
-<td align="left">Check the IP and the install area for the latest version of the IPs. For additional information about designing with IP - refer to <a href="http:///www.xilinx.com/support/documentation/sw_manuals/xilinx2019_2/ug896-vivado-ip.pdf">UG896</a>. In vivado you can run the report_ip_status Tcl command for additional information. In addition, <a href="file:////home/hpk/cloud_back_up/_x/link/vivado/vpl/link_ip_guidance.txt">report_ip_status</a> the can be viewed.</td>
-</tr>
-<tr>
-<td align="left">7</td>
-<td align="left">IP-LOCK-01</td>
-<td align="left">WARNING</td>
-<td align="left"><undefined></td>
-<td align="left">IP - Locked IP</td>
-<td align="left">System.Link.IP</td>
-<td align="left">In your vivado project:prj for design:dr the IP bd_387c_s00sic_0 is locked. The IP is locked for the following reason - * IP definition 'SC SI_CONVERTER (1.0)' for IP 'bd_387c_s00sic_0' (customized with software release 2022.1.1) has a different revision in the IP Catalog.
-.</td>
-<td align="left">Check the IP and the install area for the latest version of the IPs. For additional information about designing with IP - refer to <a href="http:///www.xilinx.com/support/documentation/sw_manuals/xilinx2019_2/ug896-vivado-ip.pdf">UG896</a>. In vivado you can run the report_ip_status Tcl command for additional information. In addition, <a href="file:////home/hpk/cloud_back_up/_x/link/vivado/vpl/link_ip_guidance.txt">report_ip_status</a> the can be viewed.</td>
-</tr>
-<tr>
-<td align="left">1</td>
-<td align="left">IP-LOCK-01</td>
-<td align="left">WARNING</td>
-<td align="left"><undefined></td>
-<td align="left">IP - Locked IP</td>
-<td align="left">System.Link.IP</td>
-<td align="left">In your vivado project:prj for design:dr the IP pfm_top_axi_vip_0_0 is locked. The IP is locked for the following reason - * IP definition 'AXI Verification IP (1.1)' for IP 'pfm_top_axi_vip_0_0' (customized with software release 2022.1.1) has a different revision in the IP Catalog.
-.</td>
-<td align="left">Check the IP and the install area for the latest version of the IPs. For additional information about designing with IP - refer to <a href="http:///www.xilinx.com/support/documentation/sw_manuals/xilinx2019_2/ug896-vivado-ip.pdf">UG896</a>. In vivado you can run the report_ip_status Tcl command for additional information. In addition, <a href="file:////home/hpk/cloud_back_up/_x/link/vivado/vpl/link_ip_guidance.txt">report_ip_status</a> the can be viewed.</td>
+<td align="left">Check the IP and the install area for the latest version of the IPs. For additional information about designing with IP - refer to <a href="http:///www.xilinx.com/support/documentation/sw_manuals/xilinx2019_2/ug896-vivado-ip.pdf">UG896</a>. In vivado you can run the report_ip_status Tcl command for additional information. In addition, <a href="file:////home/sail/lyf/pma_demo/stream/_x/link/vivado/vpl/link_ip_guidance.txt">report_ip_status</a> the can be viewed.</td>
 </tr>
 </table>
 <br>
@@ -3552,63 +3562,13 @@ window.onload = function () { addSorting(); }
 <th align="left" width="320">Rule Description</th>
 </tr>
 <tr>
-<td align="left">16</td>
-<td align="left">ACCELERATOR-SLR-01</td>
-<td align="left">SLR assignments and memory connectivity</td>
-<td align="left">Accelerator.System.Performance</td>
-<td align="left"></td>
-<td align="left"></td>
-<td align="left">The compute unit update_message_generator_1 is located in SLR0 while its port update_message_generator_1/m_axi_gmem0 is connected to a memory in SLR0.</td>
-<td align="left"></td>
-</tr>
-<tr>
-<td align="left">17</td>
-<td align="left">ACCELERATOR-SLR-01</td>
-<td align="left">SLR assignments and memory connectivity</td>
-<td align="left">Accelerator.System.Performance</td>
-<td align="left"></td>
-<td align="left"></td>
-<td align="left">The compute unit update_message_generator_1 is located in SLR0 while its port update_message_generator_1/m_axi_gmem1 is connected to a memory in SLR0.</td>
-<td align="left"></td>
-</tr>
-<tr>
-<td align="left">8</td>
-<td align="left">ACCELERATOR-SLR-01</td>
-<td align="left">SLR assignments and memory connectivity</td>
-<td align="left">Accelerator.System.Performance</td>
-<td align="left"></td>
-<td align="left"></td>
-<td align="left">The compute unit alloc_access_kernel_1 is located in SLR0 while its port alloc_access_kernel_1/m_axi_gmem0 is connected to a memory in SLR0.</td>
-<td align="left"></td>
-</tr>
-<tr>
-<td align="left">9</td>
-<td align="left">ACCELERATOR-SLR-01</td>
-<td align="left">SLR assignments and memory connectivity</td>
-<td align="left">Accelerator.System.Performance</td>
-<td align="left"></td>
-<td align="left"></td>
-<td align="left">The compute unit alloc_access_kernel_1 is located in SLR0 while its port alloc_access_kernel_1/m_axi_gmem1 is connected to a memory in SLR0.</td>
-<td align="left"></td>
-</tr>
-<tr>
-<td align="left">10</td>
-<td align="left">ACCELERATOR-SLR-01</td>
-<td align="left">SLR assignments and memory connectivity</td>
-<td align="left">Accelerator.System.Performance</td>
-<td align="left"></td>
-<td align="left"></td>
-<td align="left">The compute unit kernelHBMWrapper_1 is located in SLR0 while its port kernelHBMWrapper_1/m_axi_gmem1 is connected to a memory in SLR0.</td>
-<td align="left"></td>
-</tr>
-<tr>
 <td align="left">11</td>
 <td align="left">ACCELERATOR-SLR-01</td>
 <td align="left">SLR assignments and memory connectivity</td>
 <td align="left">Accelerator.System.Performance</td>
 <td align="left"></td>
 <td align="left"></td>
-<td align="left">The compute unit kernelHBMWrapper_1 is located in SLR0 while its port kernelHBMWrapper_1/m_axi_gmem2 is connected to a memory in SLR0.</td>
+<td align="left">The compute unit kernelHBMWrapper_1 is located in SLR0 while its port kernelHBMWrapper_1/m_axi_gmem1 is connected to a memory in SLR0.</td>
 <td align="left"></td>
 </tr>
 <tr>
@@ -3649,6 +3609,46 @@ window.onload = function () { addSorting(); }
 <td align="left"></td>
 <td align="left"></td>
 <td align="left">The compute unit update_message_generator_1 is located in SLR0 while its port update_message_generator_1/m_axi_gmem is connected to a memory in SLR0.</td>
+<td align="left"></td>
+</tr>
+<tr>
+<td align="left">16</td>
+<td align="left">ACCELERATOR-SLR-01</td>
+<td align="left">SLR assignments and memory connectivity</td>
+<td align="left">Accelerator.System.Performance</td>
+<td align="left"></td>
+<td align="left"></td>
+<td align="left">The compute unit update_message_generator_1 is located in SLR0 while its port update_message_generator_1/m_axi_gmem0 is connected to a memory in SLR0.</td>
+<td align="left"></td>
+</tr>
+<tr>
+<td align="left">17</td>
+<td align="left">ACCELERATOR-SLR-01</td>
+<td align="left">SLR assignments and memory connectivity</td>
+<td align="left">Accelerator.System.Performance</td>
+<td align="left"></td>
+<td align="left"></td>
+<td align="left">The compute unit update_message_generator_1 is located in SLR0 while its port update_message_generator_1/m_axi_gmem1 is connected to a memory in SLR0.</td>
+<td align="left"></td>
+</tr>
+<tr>
+<td align="left">8</td>
+<td align="left">ACCELERATOR-SLR-01</td>
+<td align="left">SLR assignments and memory connectivity</td>
+<td align="left">Accelerator.System.Performance</td>
+<td align="left"></td>
+<td align="left"></td>
+<td align="left">The compute unit alloc_access_kernel_1 is located in SLR0 while its port alloc_access_kernel_1/m_axi_gmem0 is connected to a memory in SLR0.</td>
+<td align="left"></td>
+</tr>
+<tr>
+<td align="left">9</td>
+<td align="left">ACCELERATOR-SLR-01</td>
+<td align="left">SLR assignments and memory connectivity</td>
+<td align="left">Accelerator.System.Performance</td>
+<td align="left"></td>
+<td align="left"></td>
+<td align="left">The compute unit alloc_access_kernel_1 is located in SLR0 while its port alloc_access_kernel_1/m_axi_gmem1 is connected to a memory in SLR0.</td>
 <td align="left"></td>
 </tr>
 </table>

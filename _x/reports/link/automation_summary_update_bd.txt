@@ -1,7 +1,7 @@
 ====================================================================
 Version:    xcd v2022.2 (64-bit)
 Copyright:  Copyright 1986-2022 Xilinx, Inc. All Rights Reserved.
-Created:    Sat Mar 21 15:05:57 2026
+Created:    Tue Mar 24 15:03:18 2026
 ====================================================================
 
 1. Kernel and compute unit information
@@ -67,11 +67,6 @@ Kernel: kernelLittleGSMerger
 Clock Pin: ap_clk
 Reset Pin: ap_rst_n
 
-Compute Unit: kernelBigGSMerger_1
-Kernel: kernelBigGSMerger
-Clock Pin: ap_clk
-Reset Pin: ap_rst_n
-
 Compute Unit: kernelApply_1
 Kernel: kernelApply
 Clock Pin: ap_clk
@@ -87,19 +82,11 @@ Kernel: littleKernelScatterGather
 Clock Pin: ap_clk
 Reset Pin: ap_rst_n
 
-Compute Unit: bigKernelScatterGather_1
-Kernel: bigKernelScatterGather
-Clock Pin: ap_clk
-Reset Pin: ap_rst_n
-
 2. Interface Connections
 ========================
 
 Compute Unit to Compute Unit
 ----------------------------
-Source Pin: bigKernelScatterGather_1/b_tmp_prop_stm
-Destination Pin: kernelBigGSMerger_1/b_tmp_prop_stm_1
-
 Source Pin: littleKernelScatterGather_1/l_ppb_request_stm
 Destination Pin: kernelHBMWrapper_1/l_ppb_request_stm_1
 
@@ -111,13 +98,13 @@ IP to Compute Unit
 Source Pin: buffer_pma_insert_edge_1_req_to_mem_alloc/M_AXIS
 Destination Pin: alloc_access_kernel_1/req_from_edge_1
 
-Source Pin: System_DPA/MON_AXIS10
+Source Pin: System_DPA/MON_AXIS9
 Destination Pin: alloc_access_kernel_1/req_from_edge_1
 
 Source Pin: buffer_pma_insert_edge_2_req_to_mem_alloc/M_AXIS
 Destination Pin: alloc_access_kernel_1/req_from_edge_2
 
-Source Pin: System_DPA/MON_AXIS21
+Source Pin: System_DPA/MON_AXIS19
 Destination Pin: alloc_access_kernel_1/req_from_edge_2
 
 Source Pin: buffer_pma_insert_vertex_1_req_to_mem_alloc/M_AXIS
@@ -144,91 +131,67 @@ Destination Pin: alloc_access_kernel_1/signal_stream
 Source Pin: System_DPA/MON_AXIS24
 Destination Pin: alloc_access_kernel_1/signal_stream
 
-Source Pin: buffer_kernelHBMWrapper_1_b_cacheline_response_stm_1/M_AXIS
-Destination Pin: bigKernelScatterGather_1/b_cacheline_response_stm
-
-Source Pin: System_DPA/MON_AXIS2
-Destination Pin: bigKernelScatterGather_1/b_cacheline_response_stm
-
-Source Pin: buffer_edgeReader_1_big_edge_burst_stm/M_AXIS
-Destination Pin: bigKernelScatterGather_1/part_edge_burst_stm
-
-Source Pin: System_DPA/MON_AXIS4
-Destination Pin: bigKernelScatterGather_1/part_edge_burst_stm
-
-Source Pin: buffer_edgeReader_1_big_edge_num_stm/M_AXIS
-Destination Pin: bigKernelScatterGather_1/part_edge_num_stm
-
-Source Pin: System_DPA/MON_AXIS5
-Destination Pin: bigKernelScatterGather_1/part_edge_num_stm
-
-Source Pin: slr1/M08_AXI
-Destination Pin: bigKernelScatterGather_1/s_axi_control
-
 Source Pin: buffer_pma_read_kernel_1_data_to_coo_stream/M_AXIS
 Destination Pin: edgeReader_1/coo_array_stm
 
-Source Pin: System_DPA/MON_AXIS8
+Source Pin: System_DPA/MON_AXIS1
 Destination Pin: edgeReader_1/coo_array_stm
 
-Source Pin: dwc_pma_read_kernel_1_coo_edge_count_stream/M_AXIS
+Source Pin: buffer_pma_read_kernel_1_coo_edge_count_stream/M_AXIS
 Destination Pin: edgeReader_1/little_coo_edge_num_stm
 
-Source Pin: System_DPA/MON_AXIS11
+Source Pin: System_DPA/MON_AXIS3
 Destination Pin: edgeReader_1/little_coo_edge_num_stm
 
 Source Pin: slr0/M06_AXI
 Destination Pin: edgeReader_1/s_axi_control
 
-Source Pin: buffer_kernelBigGSMerger_1_b_write_burst_stm/M_AXIS
-Destination Pin: kernelApply_1/b_merged_prop_stm
-
-Source Pin: System_DPA/MON_AXIS14
-Destination Pin: kernelApply_1/b_merged_prop_stm
-
 Source Pin: buffer_kernelLittleGSMerger_1_l_write_burst_stm/M_AXIS
 Destination Pin: kernelApply_1/l_merged_prop_stm
 
-Source Pin: System_DPA/MON_AXIS15
+Source Pin: System_DPA/MON_AXIS6
 Destination Pin: kernelApply_1/l_merged_prop_stm
 
-Source Pin: slr1/M07_AXI
+Source Pin: slr1/M05_AXI
 Destination Pin: kernelApply_1/s_axi_control
 
-Source Pin: System_DPA/MON_AXIS3
-Destination Pin: kernelBigGSMerger_1/b_tmp_prop_stm_1
+Source Pin: System_DPA/MON_S_AXI1
+Destination Pin: kernelApply_1/s_axi_control
 
-Source Pin: slr1/M06_AXI
-Destination Pin: kernelBigGSMerger_1/s_axi_control
-
-Source Pin: buffer_bigKernelScatterGather_1_b_cacheline_request_stm/M_AXIS
-Destination Pin: kernelHBMWrapper_1/b_cacheline_request_stm_1
-
-Source Pin: System_DPA/MON_AXIS18
-Destination Pin: kernelHBMWrapper_1/b_cacheline_request_stm_1
+Source Pin: System_DPA/MON_AXIS13
+Destination Pin: kernelHBMWrapper_1/l_ppb_request_stm_1
 
 Source Pin: buffer_kernelApply_1_prop_write_burst_stm/M_AXIS
+Destination Pin: kernelHBMWrapper_1/prop_write_burst_stm
+
+Source Pin: System_DPA/MON_AXIS10
 Destination Pin: kernelHBMWrapper_1/prop_write_burst_stm
 
 Source Pin: slr0/M07_AXI
 Destination Pin: kernelHBMWrapper_1/s_axi_control
 
-Source Pin: System_DPA/MON_S_AXI1
+Source Pin: System_DPA/MON_S_AXI2
 Destination Pin: kernelHBMWrapper_1/s_axi_control
 
 Source Pin: buffer_littleKernelScatterGather_1_l_tmp_prop_stm/M_AXIS
 Destination Pin: kernelLittleGSMerger_1/l_tmp_prop_stm_1
 
-Source Pin: slr1/M05_AXI
-Destination Pin: kernelLittleGSMerger_1/s_axi_control
+Source Pin: System_DPA/MON_AXIS11
+Destination Pin: kernelLittleGSMerger_1/l_tmp_prop_stm_1
 
-Source Pin: System_DPA/MON_AXIS20
+Source Pin: System_DPA/MON_AXIS8
 Destination Pin: littleKernelScatterGather_1/l_ppb_response_stm
 
 Source Pin: buffer_edgeReader_1_little_edge_burst_stm/M_AXIS
 Destination Pin: littleKernelScatterGather_1/part_edge_burst_stm
 
+Source Pin: System_DPA/MON_AXIS15
+Destination Pin: littleKernelScatterGather_1/part_edge_burst_stm
+
 Source Pin: buffer_edgeReader_1_little_edge_num_stm/M_AXIS
+Destination Pin: littleKernelScatterGather_1/part_edge_num_stm
+
+Source Pin: System_DPA/MON_AXIS16
 Destination Pin: littleKernelScatterGather_1/part_edge_num_stm
 
 Source Pin: slr0/M08_AXI
@@ -237,13 +200,25 @@ Destination Pin: littleKernelScatterGather_1/s_axi_control
 Source Pin: buffer_pma_insert_edge_1_data_to_mem_access/M_AXIS
 Destination Pin: mem_access_kernel_1/data_from_edge_1
 
+Source Pin: System_DPA/MON_AXIS17
+Destination Pin: mem_access_kernel_1/data_from_edge_1
+
 Source Pin: buffer_pma_insert_edge_2_data_to_mem_access/M_AXIS
+Destination Pin: mem_access_kernel_1/data_from_edge_2
+
+Source Pin: System_DPA/MON_AXIS18
 Destination Pin: mem_access_kernel_1/data_from_edge_2
 
 Source Pin: buffer_pma_insert_vertex_1_data_to_mem_access/M_AXIS
 Destination Pin: mem_access_kernel_1/data_from_vertex_1
 
+Source Pin: System_DPA/MON_AXIS20
+Destination Pin: mem_access_kernel_1/data_from_vertex_1
+
 Source Pin: buffer_pma_insert_vertex_2_data_to_mem_access/M_AXIS
+Destination Pin: mem_access_kernel_1/data_from_vertex_2
+
+Source Pin: System_DPA/MON_AXIS21
 Destination Pin: mem_access_kernel_1/data_from_vertex_2
 
 Source Pin: buffer_pma_insert_edge_1_req_to_mem_access/M_AXIS
@@ -401,83 +376,59 @@ Destination Pin: buffer_alloc_access_kernel_1_vec_info_to_vertex_2/S_AXIS
 Source Pin: alloc_access_kernel_1/vec_info_to_vertex_2
 Destination Pin: System_DPA/MON_AXIS
 
-Source Pin: bigKernelScatterGather_1/b_cacheline_request_stm
-Destination Pin: buffer_bigKernelScatterGather_1_b_cacheline_request_stm/S_AXIS
-
-Source Pin: bigKernelScatterGather_1/b_cacheline_request_stm
-Destination Pin: System_DPA/MON_AXIS1
-
-Source Pin: bigKernelScatterGather_1/b_tmp_prop_stm
-Destination Pin: System_DPA/MON_AXIS3
-
-Source Pin: edgeReader_1/big_edge_burst_stm
-Destination Pin: buffer_edgeReader_1_big_edge_burst_stm/S_AXIS
-
-Source Pin: edgeReader_1/big_edge_burst_stm
-Destination Pin: System_DPA/MON_AXIS6
-
-Source Pin: edgeReader_1/big_edge_num_stm
-Destination Pin: buffer_edgeReader_1_big_edge_num_stm/S_AXIS
-
-Source Pin: edgeReader_1/big_edge_num_stm
-Destination Pin: System_DPA/MON_AXIS7
-
 Source Pin: edgeReader_1/little_cmd_stm
 Destination Pin: buffer_edgeReader_1_little_cmd_stm/S_AXIS
 
 Source Pin: edgeReader_1/little_cmd_stm
-Destination Pin: System_DPA/MON_AXIS9
+Destination Pin: System_DPA/MON_AXIS2
 
 Source Pin: edgeReader_1/little_edge_burst_stm
 Destination Pin: buffer_edgeReader_1_little_edge_burst_stm/S_AXIS
 
 Source Pin: edgeReader_1/little_edge_burst_stm
-Destination Pin: System_DPA/MON_AXIS12
+Destination Pin: System_DPA/MON_AXIS4
 
 Source Pin: edgeReader_1/little_edge_num_stm
 Destination Pin: buffer_edgeReader_1_little_edge_num_stm/S_AXIS
 
 Source Pin: edgeReader_1/little_edge_num_stm
-Destination Pin: System_DPA/MON_AXIS13
+Destination Pin: System_DPA/MON_AXIS5
+
+Source Pin: kernelApply_1/m_axi_gmem1
+Destination Pin: hmss_0/S09_AXI
+
+Source Pin: kernelApply_1/m_axi_gmem1
+Destination Pin: System_DPA/MON_M_AXI2
 
 Source Pin: kernelApply_1/prop_write_burst_stm
 Destination Pin: buffer_kernelApply_1_prop_write_burst_stm/S_AXIS
 
 Source Pin: kernelApply_1/prop_write_burst_stm
-Destination Pin: System_DPA/MON_AXIS16
-
-Source Pin: kernelBigGSMerger_1/b_write_burst_stm
-Destination Pin: buffer_kernelBigGSMerger_1_b_write_burst_stm/S_AXIS
-
-Source Pin: kernelBigGSMerger_1/b_write_burst_stm
-Destination Pin: System_DPA/MON_AXIS17
-
-Source Pin: kernelHBMWrapper_1/b_cacheline_response_stm_1
-Destination Pin: buffer_kernelHBMWrapper_1_b_cacheline_response_stm_1/S_AXIS
-
-Source Pin: kernelHBMWrapper_1/b_cacheline_response_stm_1
-Destination Pin: System_DPA/MON_AXIS19
+Destination Pin: System_DPA/MON_AXIS7
 
 Source Pin: kernelHBMWrapper_1/l_ppb_response_stm_1
-Destination Pin: System_DPA/MON_AXIS20
+Destination Pin: System_DPA/MON_AXIS8
 
 Source Pin: kernelHBMWrapper_1/m_axi_gmem1
-Destination Pin: hmss_0/S09_AXI
-
-Source Pin: kernelHBMWrapper_1/m_axi_gmem1
-Destination Pin: System_DPA/MON_M_AXI2
-
-Source Pin: kernelHBMWrapper_1/m_axi_gmem2
 Destination Pin: hmss_0/S10_AXI
 
-Source Pin: kernelHBMWrapper_1/m_axi_gmem2
+Source Pin: kernelHBMWrapper_1/m_axi_gmem1
 Destination Pin: System_DPA/MON_M_AXI3
 
 Source Pin: kernelLittleGSMerger_1/l_write_burst_stm
 Destination Pin: buffer_kernelLittleGSMerger_1_l_write_burst_stm/S_AXIS
 
+Source Pin: kernelLittleGSMerger_1/l_write_burst_stm
+Destination Pin: System_DPA/MON_AXIS12
+
+Source Pin: littleKernelScatterGather_1/l_ppb_request_stm
+Destination Pin: System_DPA/MON_AXIS13
+
 Source Pin: littleKernelScatterGather_1/l_tmp_prop_stm
 Destination Pin: buffer_littleKernelScatterGather_1_l_tmp_prop_stm/S_AXIS
+
+Source Pin: littleKernelScatterGather_1/l_tmp_prop_stm
+Destination Pin: System_DPA/MON_AXIS14
 
 Source Pin: mem_access_kernel_1/data_to_edge_1
 Destination Pin: buffer_mem_access_kernel_1_data_to_edge_1/S_AXIS
@@ -614,12 +565,6 @@ Platform Clock Frequency: 300.000000 MHz
 Source Pin: kernel_clk/clk
 Destination Pin: alloc_access_kernel_1/ap_clk
 
-Compute Unit: bigKernelScatterGather_1
-Clock ID: 0
-Platform Clock Frequency: 300.000000 MHz
-Source Pin: kernel_clk/clk
-Destination Pin: bigKernelScatterGather_1/ap_clk
-
 Compute Unit: edgeReader_1
 Clock ID: 0
 Platform Clock Frequency: 300.000000 MHz
@@ -631,12 +576,6 @@ Clock ID: 0
 Platform Clock Frequency: 300.000000 MHz
 Source Pin: kernel_clk/clk
 Destination Pin: kernelApply_1/ap_clk
-
-Compute Unit: kernelBigGSMerger_1
-Clock ID: 0
-Platform Clock Frequency: 300.000000 MHz
-Source Pin: kernel_clk/clk
-Destination Pin: kernelBigGSMerger_1/ap_clk
 
 Compute Unit: kernelHBMWrapper_1
 Clock ID: 0
@@ -718,11 +657,6 @@ Source Pin: psr_kernel_clk_0/peripheral_aresetn
 Destination Pin: alloc_access_kernel_1/ap_rst_n
 Associated Clock Pin: alloc_access_kernel_1/ap_clk
 
-Compute Unit: bigKernelScatterGather_1
-Source Pin: psr_kernel_clk_0/peripheral_aresetn
-Destination Pin: bigKernelScatterGather_1/ap_rst_n
-Associated Clock Pin: bigKernelScatterGather_1/ap_clk
-
 Compute Unit: edgeReader_1
 Source Pin: psr_kernel_clk_0/peripheral_aresetn
 Destination Pin: edgeReader_1/ap_rst_n
@@ -732,11 +666,6 @@ Compute Unit: kernelApply_1
 Source Pin: psr_kernel_clk_0/peripheral_aresetn
 Destination Pin: kernelApply_1/ap_rst_n
 Associated Clock Pin: kernelApply_1/ap_clk
-
-Compute Unit: kernelBigGSMerger_1
-Source Pin: psr_kernel_clk_0/peripheral_aresetn
-Destination Pin: kernelBigGSMerger_1/ap_rst_n
-Associated Clock Pin: kernelBigGSMerger_1/ap_clk
 
 Compute Unit: kernelHBMWrapper_1
 Source Pin: psr_kernel_clk_0/peripheral_aresetn

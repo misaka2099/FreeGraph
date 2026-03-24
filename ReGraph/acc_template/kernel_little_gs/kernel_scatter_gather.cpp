@@ -22,10 +22,11 @@ extern "C" {
     {
         const int stream_depth = 8;
         const int large_stream_depth = 8;
-
+        
+        #pragma HLS protocol fixed
+        ap_wait();
         ap_axiu<32,0,0,0> part_edge_num_pkt = part_edge_num_stm.read();
         uint part_edge_num = part_edge_num_pkt.data;
-        ap_wait();
 #pragma HLS DATAFLOW
 
 #pragma HLS INTERFACE axis port=part_edge_burst_stm

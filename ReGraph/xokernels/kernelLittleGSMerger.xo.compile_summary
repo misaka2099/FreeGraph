@@ -1,6 +1,6 @@
 <ENTRY>
 {
- "thisFile": "/home/hpk/cloud_back_up/ReGraph/xokernels/kernelLittleGSMerger.xo.compile_summary",
+ "thisFile": "/home/sail/lyf/pma_demo/stream/ReGraph/xokernels/kernelLittleGSMerger.xo.compile_summary",
  "connectId": "",
  "serverToken": "",
  "timestamp": "0"
@@ -9,13 +9,13 @@
 <ENTRY>
 {
  "type": "ET_CmdStep",
- "dateTimestamp": "Sat Mar 21 14:09:44 2026",
- "timestampMillis": "1774073384543",
+ "dateTimestamp": "Tue Mar 24 11:01:09 2026",
+ "timestampMillis": "1774321269748",
  "buildStep": {
-  "cmdId": "66c799e8-e43a-420d-953e-03d20d1325bf",
+  "cmdId": "b0b9422a-9fd9-4537-b57f-c3d1455cc4b9",
   "name": "v++",
-  "logFile": "/home/hpk/cloud_back_up/ReGraph/_x/kernelLittleGSMerger/kernelLittleGSMerger.steps.log",
-  "commandLine": "/home/tools/Vitis/2022.2/bin/unwrapped/lnx64.o/v++  --vivado.prop \"run.__KERNEL__.{STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS}={-directive sdx_optimization_effort_high}\" --advanced.misc \"report=type report_timing_summary name impl_report_timing_summary_route_design_summary steps {route_design} runs {impl_1} options {-max_paths 10}\" --advanced.misc \"report=type report_timing_summary name impl_report_timing_summary_post_route_phys_opt_design_summary steps {post_route_phys_opt_design} runs {impl_1} options {-max_paths 10}\" -c -g -D LITTLE_KERNEL_DST_BUFFER_SIZE=65536 -D BIG_KERNEL_DST_BUFFER_SIZE=524288 -D PARTITION_SIZE=65536 -D SRC_BUFFER_SIZE=4096 -D LOG2_SRC_BUFFER_SIZE=12 -D VERTEX_REORDER_ENABLE=1 -D BIG_KERNEL_NUM=1 -D LITTLE_KERNEL_NUM=1 -t hw_emu -I /home/sail/lyf/pma_demo/stream/include -I /home/hpk/cloud_back_up/ReGraph/acc_template -I /home/hpk/cloud_back_up/ReGraph/acc_template/common -I /home/hpk/cloud_back_up/ReGraph/acc_template/edge_reader -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_apply -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_hbm_wrapper -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_big_gs -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_little_gs -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_big_gs_merger -I /home/hpk/cloud_back_up/ReGraph/acc_template/kernel_little_gs_merger -I /home/hpk/cloud_back_up/ReGraph/acc_udfs -I /home/hpk/cloud_back_up/ReGraph/acc_udfs/bfs --platform /opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm -k kernelLittleGSMerger -o xokernels/kernelLittleGSMerger.xo acc_template/kernel_little_gs_merger/kernel_little_gs_merger.cpp ",
+  "logFile": "/home/sail/lyf/pma_demo/stream/ReGraph/_x/kernelLittleGSMerger/kernelLittleGSMerger.steps.log",
+  "commandLine": "/home/tools/Vitis/2022.2/bin/unwrapped/lnx64.o/v++  --vivado.prop \"run.__KERNEL__.{STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS}={-directive sdx_optimization_effort_high}\" --advanced.misc \"report=type report_timing_summary name impl_report_timing_summary_route_design_summary steps {route_design} runs {impl_1} options {-max_paths 10}\" --advanced.misc \"report=type report_timing_summary name impl_report_timing_summary_post_route_phys_opt_design_summary steps {post_route_phys_opt_design} runs {impl_1} options {-max_paths 10}\" -c -g -D LITTLE_KERNEL_DST_BUFFER_SIZE=65536 -D BIG_KERNEL_DST_BUFFER_SIZE=524288 -D PARTITION_SIZE=65536 -D SRC_BUFFER_SIZE=4096 -D LOG2_SRC_BUFFER_SIZE=12 -D VERTEX_REORDER_ENABLE=1 -D BIG_KERNEL_NUM=0 -D LITTLE_KERNEL_NUM=1 -D HAVE_EDGE_PROP=0 -D HAVE_UNSIGNED_PROP=1 -D HAVE_APPLY=1 -D HAVE_APPLY_OUTDEG=0 -D HAVE_VERTEX_PROP=1 -DLITTLE_KERNEL_NUM=1 -DBIG_KERNEL_NUM=0 -DPARTITION_SIZE=65536 -DSRC_BUFFER_SIZE=4096 -DLOG2_SRC_BUFFER_SIZE=12 -DLITTLE_KERNEL_DST_BUFFER_SIZE=65536 -DBIG_KERNEL_DST_BUFFER_SIZE=524288 -DHAVE_APPLY=1 -DVERTEX_REORDER_ENABLE=1 -DALGO_CODE=0 -t hw_emu -I /home/sail/lyf/pma_demo/stream/include -I /home/sail/lyf/pma_demo/stream/ReGraph/acc_template -I /home/sail/lyf/pma_demo/stream/ReGraph/acc_template/common -I /home/sail/lyf/pma_demo/stream/ReGraph/acc_template/kernel_little_gs -I /home/sail/lyf/pma_demo/stream/ReGraph/acc_template/kernel_big_gs -I /home/sail/lyf/pma_demo/stream/ReGraph/acc_udfs -I /home/sail/lyf/pma_demo/stream/ReGraph/acc_udfs/bfs --platform /opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm -k kernelLittleGSMerger -o xokernels/kernelLittleGSMerger.xo acc_template/kernel_little_gs_merger/kernel_little_gs_merger.cpp ",
   "args": [
    "-c",
    "-g",
@@ -32,35 +32,45 @@
    "-D",
    "VERTEX_REORDER_ENABLE=1",
    "-D",
-   "BIG_KERNEL_NUM=1",
+   "BIG_KERNEL_NUM=0",
    "-D",
    "LITTLE_KERNEL_NUM=1",
+   "-D",
+   "HAVE_EDGE_PROP=0",
+   "-D",
+   "HAVE_UNSIGNED_PROP=1",
+   "-D",
+   "HAVE_APPLY=1",
+   "-D",
+   "HAVE_APPLY_OUTDEG=0",
+   "-D",
+   "HAVE_VERTEX_PROP=1",
+   "-DLITTLE_KERNEL_NUM=1",
+   "-DBIG_KERNEL_NUM=0",
+   "-DPARTITION_SIZE=65536",
+   "-DSRC_BUFFER_SIZE=4096",
+   "-DLOG2_SRC_BUFFER_SIZE=12",
+   "-DLITTLE_KERNEL_DST_BUFFER_SIZE=65536",
+   "-DBIG_KERNEL_DST_BUFFER_SIZE=524288",
+   "-DHAVE_APPLY=1",
+   "-DVERTEX_REORDER_ENABLE=1",
+   "-DALGO_CODE=0",
    "-t",
    "hw_emu",
    "-I",
    "/home/sail/lyf/pma_demo/stream/include",
    "-I",
-   "/home/hpk/cloud_back_up/ReGraph/acc_template",
+   "/home/sail/lyf/pma_demo/stream/ReGraph/acc_template",
    "-I",
-   "/home/hpk/cloud_back_up/ReGraph/acc_template/common",
+   "/home/sail/lyf/pma_demo/stream/ReGraph/acc_template/common",
    "-I",
-   "/home/hpk/cloud_back_up/ReGraph/acc_template/edge_reader",
+   "/home/sail/lyf/pma_demo/stream/ReGraph/acc_template/kernel_little_gs",
    "-I",
-   "/home/hpk/cloud_back_up/ReGraph/acc_template/kernel_apply",
+   "/home/sail/lyf/pma_demo/stream/ReGraph/acc_template/kernel_big_gs",
    "-I",
-   "/home/hpk/cloud_back_up/ReGraph/acc_template/kernel_hbm_wrapper",
+   "/home/sail/lyf/pma_demo/stream/ReGraph/acc_udfs",
    "-I",
-   "/home/hpk/cloud_back_up/ReGraph/acc_template/kernel_big_gs",
-   "-I",
-   "/home/hpk/cloud_back_up/ReGraph/acc_template/kernel_little_gs",
-   "-I",
-   "/home/hpk/cloud_back_up/ReGraph/acc_template/kernel_big_gs_merger",
-   "-I",
-   "/home/hpk/cloud_back_up/ReGraph/acc_template/kernel_little_gs_merger",
-   "-I",
-   "/home/hpk/cloud_back_up/ReGraph/acc_udfs",
-   "-I",
-   "/home/hpk/cloud_back_up/ReGraph/acc_udfs/bfs",
+   "/home/sail/lyf/pma_demo/stream/ReGraph/acc_udfs/bfs",
    "--platform",
    "/opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm",
    "-k",
@@ -70,17 +80,17 @@
    "acc_template/kernel_little_gs_merger/kernel_little_gs_merger.cpp"
   ],
   "iniFiles": [],
-  "cwd": "/home/hpk/cloud_back_up/ReGraph"
+  "cwd": "/home/sail/lyf/pma_demo/stream/ReGraph"
  }
 }
 </ENTRY>
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 14:09:44 2026",
- "timestampMillis": "1774073384544",
+ "dateTimestamp": "Tue Mar 24 11:01:09 2026",
+ "timestampMillis": "1774321269748",
  "status": {
-  "cmdId": "66c799e8-e43a-420d-953e-03d20d1325bf",
+  "cmdId": "b0b9422a-9fd9-4537-b57f-c3d1455cc4b9",
   "state": "CS_RUNNING"
  }
 }
@@ -88,8 +98,8 @@
 <ENTRY>
 {
  "type": "ET_FlowMetaData",
- "dateTimestamp": "Sat Mar 21 14:09:49 2026",
- "timestampMillis": "1774073389322",
+ "dateTimestamp": "Tue Mar 24 11:01:14 2026",
+ "timestampMillis": "1774321274746",
  "buildSummary": {
   "hardwarePlatform": "xilinx_u280_gen3x16_xdma_1_202211_1.xpfm",
   "hardwareDsa": "",
@@ -103,12 +113,12 @@
     "base": {
      "type": "KERNEL",
      "name": "kernelLittleGSMerger",
-     "file": "/home/hpk/cloud_back_up/ReGraph/xokernels/kernelLittleGSMerger.xo",
+     "file": "/home/sail/lyf/pma_demo/stream/ReGraph/xokernels/kernelLittleGSMerger.xo",
      "reports": [],
      "uuid": ""
     },
     "sources": [
-     "/home/hpk/cloud_back_up/ReGraph/acc_template/kernel_little_gs_merger/kernel_little_gs_merger.cpp"
+     "/home/sail/lyf/pma_demo/stream/ReGraph/acc_template/kernel_little_gs_merger/kernel_little_gs_merger.cpp"
     ],
     "psSources": [],
     "cuNames": [],
@@ -124,32 +134,32 @@
 <ENTRY>
 {
  "type": "ET_SubCmdStep",
- "dateTimestamp": "Sat Mar 21 14:09:49 2026",
- "timestampMillis": "1774073389325",
+ "dateTimestamp": "Tue Mar 24 11:01:14 2026",
+ "timestampMillis": "1774321274749",
  "buildStep": {
-  "cmdId": "f0bae26e-ee98-4642-9fba-2fc50584bbfe",
+  "cmdId": "8b8c03c0-811d-497b-b826-f5180cae1aa0",
   "name": "vitis_hls",
-  "logFile": "/home/hpk/cloud_back_up/ReGraph/_x/kernelLittleGSMerger/kernelLittleGSMerger/vitis_hls.log",
-  "commandLine": "vitis_hls -f /home/hpk/cloud_back_up/ReGraph/_x/kernelLittleGSMerger/kernelLittleGSMerger/kernelLittleGSMerger.tcl -messageDb vitis_hls.pb",
+  "logFile": "/home/sail/lyf/pma_demo/stream/ReGraph/_x/kernelLittleGSMerger/kernelLittleGSMerger/vitis_hls.log",
+  "commandLine": "vitis_hls -f /home/sail/lyf/pma_demo/stream/ReGraph/_x/kernelLittleGSMerger/kernelLittleGSMerger/kernelLittleGSMerger.tcl -messageDb vitis_hls.pb",
   "args": [
    "vitis_hls",
    "-f",
-   "/home/hpk/cloud_back_up/ReGraph/_x/kernelLittleGSMerger/kernelLittleGSMerger/kernelLittleGSMerger.tcl",
+   "/home/sail/lyf/pma_demo/stream/ReGraph/_x/kernelLittleGSMerger/kernelLittleGSMerger/kernelLittleGSMerger.tcl",
    "-messageDb",
    "vitis_hls.pb"
   ],
   "iniFiles": [],
-  "cwd": "/home/hpk/cloud_back_up/ReGraph"
+  "cwd": "/home/sail/lyf/pma_demo/stream/ReGraph"
  }
 }
 </ENTRY>
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 14:09:49 2026",
- "timestampMillis": "1774073389325",
+ "dateTimestamp": "Tue Mar 24 11:01:14 2026",
+ "timestampMillis": "1774321274750",
  "status": {
-  "cmdId": "f0bae26e-ee98-4642-9fba-2fc50584bbfe",
+  "cmdId": "8b8c03c0-811d-497b-b826-f5180cae1aa0",
   "state": "CS_RUNNING"
  }
 }
@@ -157,10 +167,10 @@
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 14:10:16 2026",
- "timestampMillis": "1774073416666",
+ "dateTimestamp": "Tue Mar 24 11:01:42 2026",
+ "timestampMillis": "1774321302670",
  "status": {
-  "cmdId": "f0bae26e-ee98-4642-9fba-2fc50584bbfe",
+  "cmdId": "8b8c03c0-811d-497b-b826-f5180cae1aa0",
   "state": "CS_PASSED"
  }
 }
@@ -168,10 +178,10 @@
 <ENTRY>
 {
  "type": "ET_Report",
- "dateTimestamp": "Sat Mar 21 14:10:16 2026",
- "timestampMillis": "1774073416675",
+ "dateTimestamp": "Tue Mar 24 11:01:42 2026",
+ "timestampMillis": "1774321302681",
  "report": {
-  "path": "/home/hpk/cloud_back_up/ReGraph/_x/kernelLittleGSMerger/kernelLittleGSMerger/kernelLittleGSMerger/solution/.autopilot/db/kernelLittleGSMerger.design.xml",
+  "path": "/home/sail/lyf/pma_demo/stream/ReGraph/_x/kernelLittleGSMerger/kernelLittleGSMerger/kernelLittleGSMerger/solution/.autopilot/db/kernelLittleGSMerger.design.xml",
   "name": "kernelLittleGSMerger",
   "fileType": "XML",
   "reportType": "KERNEL_HLS_REPORT",
@@ -182,10 +192,10 @@
 <ENTRY>
 {
  "type": "ET_Report",
- "dateTimestamp": "Sat Mar 21 14:10:16 2026",
- "timestampMillis": "1774073416676",
+ "dateTimestamp": "Tue Mar 24 11:01:42 2026",
+ "timestampMillis": "1774321302681",
  "report": {
-  "path": "/home/hpk/cloud_back_up/ReGraph/_x/kernelLittleGSMerger/kernelLittleGSMerger/kernelLittleGSMerger/solution/.autopilot/db/.message_syn.xml",
+  "path": "/home/sail/lyf/pma_demo/stream/ReGraph/_x/kernelLittleGSMerger/kernelLittleGSMerger/kernelLittleGSMerger/solution/.autopilot/db/.message_syn.xml",
   "name": "kernelLittleGSMerger",
   "fileType": "XML",
   "reportType": "KERNEL_HLS_DRC_SYNTHESIS",
@@ -196,10 +206,10 @@
 <ENTRY>
 {
  "type": "ET_Report",
- "dateTimestamp": "Sat Mar 21 14:10:16 2026",
- "timestampMillis": "1774073416677",
+ "dateTimestamp": "Tue Mar 24 11:01:42 2026",
+ "timestampMillis": "1774321302682",
  "report": {
-  "path": "/home/hpk/cloud_back_up/ReGraph/_x/reports/kernelLittleGSMerger/hls_reports/kernelLittleGSMerger_csynth.rpt",
+  "path": "/home/sail/lyf/pma_demo/stream/ReGraph/_x/reports/kernelLittleGSMerger/hls_reports/kernelLittleGSMerger_csynth.rpt",
   "name": "kernelLittleGSMerger",
   "fileType": "TEXT",
   "reportType": "KERNEL_HLS_CSYNTH",
@@ -210,10 +220,10 @@
 <ENTRY>
 {
  "type": "ET_Report",
- "dateTimestamp": "Sat Mar 21 14:10:16 2026",
- "timestampMillis": "1774073416677",
+ "dateTimestamp": "Tue Mar 24 11:01:42 2026",
+ "timestampMillis": "1774321302683",
  "report": {
-  "path": "/home/hpk/cloud_back_up/ReGraph/_x/kernelLittleGSMerger/kernelLittleGSMerger/kernelLittleGSMerger/solution/syn/report/kernelLittleGSMerger_csynth.xml",
+  "path": "/home/sail/lyf/pma_demo/stream/ReGraph/_x/kernelLittleGSMerger/kernelLittleGSMerger/kernelLittleGSMerger/solution/syn/report/kernelLittleGSMerger_csynth.xml",
   "name": "kernelLittleGSMerger",
   "fileType": "XML",
   "reportType": "KERNEL_HLS_CSYNTH",
@@ -224,10 +234,10 @@
 <ENTRY>
 {
  "type": "ET_Report",
- "dateTimestamp": "Sat Mar 21 14:10:16 2026",
- "timestampMillis": "1774073416680",
+ "dateTimestamp": "Tue Mar 24 11:01:42 2026",
+ "timestampMillis": "1774321302685",
  "report": {
-  "path": "/home/hpk/cloud_back_up/ReGraph/_x/reports/kernelLittleGSMerger/system_estimate_kernelLittleGSMerger.xtxt",
+  "path": "/home/sail/lyf/pma_demo/stream/ReGraph/_x/reports/kernelLittleGSMerger/system_estimate_kernelLittleGSMerger.xtxt",
   "name": "",
   "fileType": "TEXT",
   "reportType": "GLOBAL_SYSTEM_ESTIMATE",
@@ -238,10 +248,10 @@
 <ENTRY>
 {
  "type": "ET_Status",
- "dateTimestamp": "Sat Mar 21 14:10:16 2026",
- "timestampMillis": "1774073416731",
+ "dateTimestamp": "Tue Mar 24 11:01:42 2026",
+ "timestampMillis": "1774321302748",
  "status": {
-  "cmdId": "66c799e8-e43a-420d-953e-03d20d1325bf",
+  "cmdId": "b0b9422a-9fd9-4537-b57f-c3d1455cc4b9",
   "state": "CS_PASSED"
  }
 }
@@ -249,10 +259,10 @@
 <ENTRY>
 {
  "type": "ET_Report",
- "dateTimestamp": "Sat Mar 21 14:10:16 2026",
- "timestampMillis": "1774073416827",
+ "dateTimestamp": "Tue Mar 24 11:01:42 2026",
+ "timestampMillis": "1774321302863",
  "report": {
-  "path": "/home/hpk/cloud_back_up/ReGraph/_x/reports/kernelLittleGSMerger/v++_compile_kernelLittleGSMerger_guidance.html",
+  "path": "/home/sail/lyf/pma_demo/stream/ReGraph/_x/reports/kernelLittleGSMerger/v++_compile_kernelLittleGSMerger_guidance.html",
   "name": "",
   "fileType": "HTML",
   "reportType": "GLOBAL_RULECHECK_GUIDANCE",
@@ -263,10 +273,10 @@
 <ENTRY>
 {
  "type": "ET_Report",
- "dateTimestamp": "Sat Mar 21 14:10:16 2026",
- "timestampMillis": "1774073416828",
+ "dateTimestamp": "Tue Mar 24 11:01:42 2026",
+ "timestampMillis": "1774321302864",
  "report": {
-  "path": "/home/hpk/cloud_back_up/ReGraph/_x/v++_compile_kernelLittleGSMerger_guidance.pb3",
+  "path": "/home/sail/lyf/pma_demo/stream/ReGraph/_x/v++_compile_kernelLittleGSMerger_guidance.pb3",
   "name": "",
   "fileType": "BINARY_PROTOBUF",
   "reportType": "GLOBAL_RULECHECK_GUIDANCE",

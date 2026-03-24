@@ -94,8 +94,20 @@ int main(int argc, char** argv)
     partition_container_dt partition_container = partitionGraph(csr);
     partition_container.num_dense_partitions = 1;
     schedulePartitions(partition_container);
-
-
+    int max_print = 16;
+    std::cout << "[DBG] vProps[0.." << (max_print - 1) << "]: ";
+    for (int i = 0; i < csr->vertexNum && i < max_print; ++i) {
+        std::cout << csr->vProps[i] << " ";
+    }
+    for (int i = 0; i < partition_container.num_partitions && i < max_print; ++i) {
+        std::cout << "\n[DBG] Partition " << i << " edge count: " << partition_container.P[i].num_edges;
+        std::cout << "\n[DBG] Partition " << i << " first few edges: ";
+        for (int j = 0; j < partition_container.P[i].edge_array_host.size() / 2 && j < max_print; ++j) {
+            uint src = partition_container.P[i].edge_array_host[2 * j];
+            uint dst = partition_container.P[i].edge_array_host[2 * j + 1];
+            std::cout << "(" << src << "," << dst << ") ";
+        }
+    }
     // 基于操作序列构建期望图，用于后验验证
     // auto ensure_vertex = [&](int v)
     // {
@@ -202,7 +214,7 @@ int main(int argc, char** argv)
     //     const std::string name = "bigKernelScatterGather:{bigKernelScatterGather_" + cu_id + "}";
     //     big_kernels.emplace_back(device, uuid, name);
     // }
-    // auto little_merger_kernel = xrt::ip(device, uuid, "kernelLittleGSMerger:{kernelLittleGSMerger_1}");
+    // auto little_merger_kernel = xrt::kernel(device, uuid, "kernelLittleGSMerger:{kernelLittleGSMerger_1}");
     // auto big_merger_kernel = xrt::kernel(device, uuid, "kernelBigGSMerger:{kernelBigGSMerger_1}");
     auto hbm_kernel = xrt::kernel(device, uuid, "kernelHBMWrapper:{kernelHBMWrapper_1}");
     auto apply_kernel = xrt::kernel(device, uuid, "kernelApply:{kernelApply_1}");
@@ -246,6 +258,7 @@ int main(int argc, char** argv)
     auto run_alloc_access_kernel = xrt::run(alloc_access_kernel);
     auto run_mem_access_kernel_1 = xrt::run(mem_access_kernel_1);
     auto run_pma_read_kernel = xrt::run(pma_read_kernel);
+    // auto run_littile_gs_merger_kernel = xrt::run(little_merger_kernel);
     // auto run_update_message_generator_kernel = xrt::run(update_message_generator_kernel);
     // auto run_update_message_router_kernel = xrt::run(update_message_router_kernel);
     std::vector<xrt::run> run_pma_insert_vertex_kernels;
@@ -344,10 +357,13 @@ int main(int argc, char** argv)
     std::copy(partition_container.vertex_property.begin(),
               partition_container.vertex_property.end(),
               apply_src_prop);
+    for (size_t i = 0; i < 8; ++i) {
+        std::cout << "Initial property [" << i << "]: " << src_prop_1[i] << std::endl;
+    }
     std::cout << "[DBG] Property buffers allocated and initialized..." << std::endl;
-    bo_src_prop_1.sync(XCL_BO_SYNC_BO_TO_DEVICE);
-    bo_new_prop_1.sync(XCL_BO_SYNC_BO_TO_DEVICE);
-    bo_apply_src_prop.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+    // bo_src_prop_1.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+    // bo_new_prop_1.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+    // bo_apply_src_prop.sync(XCL_BO_SYNC_BO_TO_DEVICE);
 
 
 
@@ -872,13 +888,32 @@ int main(int argc, char** argv)
     const uint invalid_dst_offset = 0x80000000u;
     int num_super_step = 5;
     bool use_a_as_src = true;
+    
+    bo_src_prop_1.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+    bo_new_prop_1.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+    bo_apply_src_prop.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+    // run_littile_gs_merger_kernel.start();
     for (int super_step = 0; super_step < num_super_step; super_step++) {
         std::cout << "Super step " << super_step << std::endl;
         auto &src_prop_bo_1 = use_a_as_src ? bo_src_prop_1 : bo_new_prop_1;
         auto &dst_prop_bo_1 = use_a_as_src ? bo_new_prop_1 : bo_src_prop_1;
         auto *src_prop_ptr = use_a_as_src ? src_prop_1 : new_prop_1;
-        
-    
+
+        // std::cout << "[DBG] before kernel sync, sample src properties: ";
+        // for (size_t i = 0; i < 8 && i < prop_size; ++i) {
+        //     std::cout << src_prop_bo_1.map<uint*>()[i] << " ";
+        // }
+        // std::cout << std::endl;
+        // std::cout << "[DBG] before kernel sync, sample dst properties: ";
+        // for (size_t i = 0; i < 8 && i < prop_size; ++i) {
+        //     std::cout << dst_prop_bo_1.map<uint*>()[i] << " ";
+        // }
+        // std::cout << std::endl;
+        // std::cout << "[DBG] before kernel sync, sample src properties: ";
+        // for (size_t i = 0; i < 8 && i < prop_size; ++i) {
+        //     std::cout << src_prop_ptr[i] << " ";
+        // }
+        // std::cout << std::endl;
         auto run_hbm = xrt::run(hbm_kernel);
         run_hbm.set_arg(0, src_prop_bo_1);
         run_hbm.set_arg(1, dst_prop_bo_1);
@@ -890,14 +925,17 @@ int main(int argc, char** argv)
         run_apply.set_arg(1, static_cast<uint>(partition_container.num_dense_partitions));
         run_apply.set_arg(2, static_cast<uint>(partition_container.num_sparse_partitions));
         run_apply.set_arg(3, 0u);
-        std::copy(src_prop_ptr, src_prop_ptr + prop_size, apply_src_prop);
+
         auto run_edge_reader = xrt::run(edge_reader_kernel);
         run_edge_reader.set_arg(0,0);
         run_edge_reader.set_arg(1,super_step == 4);
         auto run_little_kernel = xrt::run(little_kernels[0]);
         run_little_kernel.set_arg(2,0);
+
+        std::copy(src_prop_ptr, src_prop_ptr + prop_size, apply_src_prop);
         bo_apply_src_prop.sync(XCL_BO_SYNC_BO_TO_DEVICE);
 
+        // Start kernels; host does not read back src/dst each iteration — just swap buffers
         run_hbm.start();
         run_apply.start();
         run_edge_reader.start();
@@ -905,14 +943,23 @@ int main(int argc, char** argv)
 
         run_edge_reader.wait();
         std::cout << "[DBG] edgeReader done" << std::endl;
-        
+
         run_little_kernel.wait();
         std::cout << "[DBG] little kernel done" << std::endl;
+
         run_apply.wait();
-
         run_hbm.wait();
-
+        
         dst_prop_bo_1.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+        // Print property values after this super step
+        {
+            auto *cur_prop = dst_prop_bo_1.map<uint *>();
+            std::cout << "Property after superstep " << super_step << ": ";
+            for (size_t i = 0; i < 8; ++i) {
+                std::cout << cur_prop[i] << " ";
+            }
+            std::cout << std::endl;
+        }
         use_a_as_src = !use_a_as_src;
     }
     // run_big_merger.wait();

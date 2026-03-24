@@ -1,7 +1,7 @@
 #ifndef __GRAPH_PREPROCESS_H__
 #define __GRAPH_PREPROCESS_H__
 
-#include "xcl2.hpp"
+// #include "xcl2.hpp"
 #include "host_data_types.h"
 #include "host_config.h"
 #include "graph.h"
