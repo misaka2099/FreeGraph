@@ -32,7 +32,6 @@ acc_descriptor_dt initAccelerator(std::string xcl_file) {
         
         OCL_CHECK(err, acc.apply_queue = cl::CommandQueue(acc.context, device, CL_QUEUE_PROFILING_ENABLE, &err));
         OCL_CHECK(err, acc.hbm_queue = cl::CommandQueue(acc.context, device, CL_QUEUE_PROFILING_ENABLE, &err));
-        OCL_CHECK(err, acc.edge_reader_queue = cl::CommandQueue(acc.context, device, CL_QUEUE_PROFILING_ENABLE, &err));
 
         std::cout << "Trying to program device[" << i << "]: " << device.getInfo<CL_DEVICE_NAME>() << std::endl;
         cl::Program program(acc.context, {device}, bins, nullptr, &err);
@@ -74,11 +73,6 @@ acc_descriptor_dt initAccelerator(std::string xcl_file) {
             std::string hbm_krnl_name_full = acc.hbm_kernel_name + ":{" + "kernelHBMWrapper_1}";
             printf("Creating the hbm kernel [%s] \n", hbm_krnl_name_full.c_str());
             OCL_CHECK(err, acc.hbm_krnl = cl::Kernel(program, hbm_krnl_name_full.c_str(), &err));
-
-            //create the edge reader kernel
-            std::string edge_reader_name_full = acc.edge_reader_kernel_name + ":{" + "edgeReader_1}";
-            printf("Creating the edge reader kernel [%s] \n", edge_reader_name_full.c_str());
-            OCL_CHECK(err, acc.edge_reader_krnl = cl::Kernel(program, edge_reader_name_full.c_str(), &err));
 
             valid_device = true;
             break; // we break because we found a valid device

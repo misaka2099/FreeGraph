@@ -87,19 +87,19 @@ int main(int argc, char** argv)
     graph_file.close();
 
     // // 拆分操作: 顶点插入单独计数，其余操作进入消息队列
-    // std::vector<Operation> edge_ops;
-    // size_t vertex_insert_count = 0;
-    // for (const auto &opr : operations)
-    // {
-    //     if (opr.opcode == PMA_INSERT_VERTEX)
-    //     {
-    //         vertex_insert_count++;
-    //     }
-    //     else
-    //     {
-    //         edge_ops.push_back(opr);
-    //     }
-    // }
+    std::vector<Operation> edge_ops;
+    size_t vertex_insert_count = 0;
+    for (const auto &opr : operations)
+    {
+        if (opr.opcode == PMA_INSERT_VERTEX)
+        {
+            vertex_insert_count++;
+        }
+        else
+        {
+            edge_ops.push_back(opr);
+        }
+    }
 
     // 基于操作序列构建期望图，用于后验验证
     std::vector<std::vector<int>> Graph;
@@ -175,7 +175,8 @@ int main(int argc, char** argv)
     int max_vertex_idx = static_cast<int>(Graph.size()) - 1;
     size_t buffer_len = std::max<size_t>(1, Graph.size() * Graph.size()); // 预留足够大
     int static_max_vertex = max_vertex_idx;
-    std::vector<std::vector<int>> BaseGraph = Graph;
+    // BaseGraph置空，所有操作都作为增量在FPGA上执行
+    std::vector<std::vector<int>> BaseGraph;
 
     std::cout << "Operations read from the file: " << operations.size() << std::endl;
 
@@ -187,11 +188,8 @@ int main(int argc, char** argv)
     auto device = xrt::device(0);
     auto uuid = device.load_xclbin(xclbin);
 
-    // auto allocate_kernel = xrt::kernel(device, uuid, "allocate_kernel");
-    // auto free_kernel = xrt::kernel(device, uuid, "free_kernel");
     auto alloc_access_kernel = xrt::kernel(device, uuid, "alloc_access_kernel:{alloc_access_kernel_1}");
     auto mem_access_kernel_1 = xrt::kernel(device, uuid, "mem_access_kernel:{mem_access_kernel_1}");
-    // auto app_mem_middle_ware_kernel = xrt::kernel(device, uuid, "app_mem_middle_ware");
     auto pma_read_kernel = xrt::kernel(device, uuid, "pma_read_kernel");
     auto update_message_generator_kernel = xrt::kernel(device, uuid, "update_message_generator");
     auto update_message_router_kernel = xrt::kernel(device, uuid, "update_message_router");
@@ -227,12 +225,8 @@ int main(int argc, char** argv)
     auto check_kernel = xrt::kernel(device, uuid, "check_kernel");
     auto signal_kernel = xrt::kernel(device, uuid, "signal_kernel:{signal_kernel_1}");
     std::cout << "Kernels loaded successfully." << std::endl;
-    // auto run_allocate_kernel = xrt::run(allocate_kernel);
-    // auto run_free_kernel = xrt::run(free_kernel);
     auto run_alloc_access_kernel = xrt::run(alloc_access_kernel);
     auto run_mem_access_kernel_1 = xrt::run(mem_access_kernel_1);
-    // auto run_app_mem_middle_ware_kernel = xrt::run(app_mem_middle_ware_kernel);
-    // auto run_memalloc_kernel = xrt::run(memalloc_kernel);
     auto run_pma_read_kernel = xrt::run(pma_read_kernel);
     auto run_update_message_generator_kernel = xrt::run(update_message_generator_kernel);
     auto run_update_message_router_kernel = xrt::run(update_message_router_kernel);
@@ -281,15 +275,15 @@ int main(int argc, char** argv)
     std::fill_n(pos_vec_info_ptr, MAX_PMA_NUM, 0);
 
     // 修改 bo_src 和 bo_dst 的分配，确保使用 update_message_generator_kernel 的 group_id
-    // size_t edge_buffer_len = std::max<size_t>(edge_ops.size(), 1);
-    // printf("edge_size %zu\n", edge_ops.size());
-    // auto bo_src = xrt::bo(device, sizeof(int) * edge_buffer_len, update_message_generator_kernel.group_id(4));
-    // auto bo_dst = xrt::bo(device, sizeof(int) * edge_buffer_len, update_message_generator_kernel.group_id(5));
-    // auto bo_opcode = xrt::bo(device, sizeof(int) * edge_buffer_len, update_message_generator_kernel.group_id(6));
+    size_t edge_buffer_len = std::max<size_t>(edge_ops.size(), 1);
+    printf("edge_size %zu\n", edge_ops.size());
+    auto bo_src = xrt::bo(device, sizeof(int) * edge_buffer_len, update_message_generator_kernel.group_id(4));
+    auto bo_dst = xrt::bo(device, sizeof(int) * edge_buffer_len, update_message_generator_kernel.group_id(5));
+    auto bo_opcode = xrt::bo(device, sizeof(int) * edge_buffer_len, update_message_generator_kernel.group_id(6));
 
-    // int* src_ptr = bo_src.map<int*>();
-    // int* dst_ptr = bo_dst.map<int*>();
-    // int* opcode_ptr = bo_opcode.map<int*>();
+    int* src_ptr = bo_src.map<int*>();
+    int* dst_ptr = bo_dst.map<int*>();
+    int* opcode_ptr = bo_opcode.map<int*>();
 
     // 边数据按阶段写入，初始不填充
 
@@ -331,8 +325,6 @@ int main(int argc, char** argv)
 
     std::cout << "Buffers allocated and initialized." << std::endl;
 
-    // run_allocate_kernel.set_arg(0, bo_valid_array);
-    // run_free_kernel.set_arg(0, bo_valid_array);
     // Mem Access Kernel Args
     for (int i = 0; i < CHANNEL_NUM; ++i)
     {
@@ -611,75 +603,75 @@ int main(int argc, char** argv)
     // std::cout << "Incremental edge/vertex ops (non-insert-vertex): " << incremental_edges << std::endl;
     std::cout << "Expected max vertex after update: " << (max_vertex_idx + 1) << std::endl;
 
-    // auto load_edge_batch = [&](const std::vector<Operation>& batch_ops) -> int {
-    //     size_t edge_idx = 0;
-    //     for (const auto &op : batch_ops)
-    //     {
-    //         if (op.opcode == PMA_INSERT_VERTEX)
-    //         {
-    //             continue;
-    //         }
-    //         if (edge_idx >= edge_buffer_len)
-    //         {
-    //             std::cerr << "Edge buffer overflow in batch load." << std::endl;
-    //             return -1;
-    //         }
-    //         src_ptr[edge_idx] = op.src;
-    //         dst_ptr[edge_idx] = op.dst;
-    //         opcode_ptr[edge_idx] = op.opcode;
-    //         ++edge_idx;
-    //     }
-    //     if (edge_idx > 0)
-    //     {
-    //         bo_src.sync(XCL_BO_SYNC_BO_TO_DEVICE);
-    //         bo_dst.sync(XCL_BO_SYNC_BO_TO_DEVICE);
-    //         bo_opcode.sync(XCL_BO_SYNC_BO_TO_DEVICE);
-    //     }
-    //     return static_cast<int>(edge_idx);
-    // };
+    auto load_edge_batch = [&](const std::vector<Operation>& batch_ops) -> int {
+        size_t edge_idx = 0;
+        for (const auto &op : batch_ops)
+        {
+            if (op.opcode == PMA_INSERT_VERTEX)
+            {
+                continue;
+            }
+            if (edge_idx >= edge_buffer_len)
+            {
+                std::cerr << "Edge buffer overflow in batch load." << std::endl;
+                return -1;
+            }
+            src_ptr[edge_idx] = op.src;
+            dst_ptr[edge_idx] = op.dst;
+            opcode_ptr[edge_idx] = op.opcode;
+            ++edge_idx;
+        }
+        if (edge_idx > 0)
+        {
+            bo_src.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+            bo_dst.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+            bo_opcode.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        }
+        return static_cast<int>(edge_idx);
+    };
 
-    // auto run_update_batch = [&](int new_vertex_count, int edge_count, const std::string& label, bool last) -> long long {
-    //     if (edge_count == 0 && new_vertex_count == 0) {
-    //         std::cout << label << ": vertices=0, edges=0, time=0 ms" << std::endl;
-    //         return 0;
-    //     }
+    auto run_update_batch = [&](int new_vertex_count, int edge_count, const std::string& label, bool last) -> long long {
+        if (edge_count == 0 && new_vertex_count == 0) {
+            std::cout << label << ": vertices=0, edges=0, time=0 ms" << std::endl;
+            return 0;
+        }
 
-    //     run_update_message_generator_kernel.set_arg(0, new_vertex_count);                   // add_vertex_num
-    //     run_update_message_generator_kernel.set_arg(1, edge_count);                         // add_edge_num
-    //     run_update_message_generator_kernel.set_arg(2, 0);                                  // delete_vertex_num
-    //     run_update_message_generator_kernel.set_arg(3, 0);                                  // delete_edge_num
-    //     run_update_message_generator_kernel.set_arg(4, bo_src);                              // src
-    //     run_update_message_generator_kernel.set_arg(5, bo_dst);                              // dst
-    //     run_update_message_generator_kernel.set_arg(6, bo_opcode);                           // opcode
-    //     run_update_message_generator_kernel.set_arg(7, static_cast<int>(last));             // last flag
+        run_update_message_generator_kernel.set_arg(0, new_vertex_count);                   // add_vertex_num
+        run_update_message_generator_kernel.set_arg(1, edge_count);                         // add_edge_num
+        run_update_message_generator_kernel.set_arg(2, 0);                                  // delete_vertex_num
+        run_update_message_generator_kernel.set_arg(3, 0);                                  // delete_edge_num
+        run_update_message_generator_kernel.set_arg(4, bo_src);                              // src
+        run_update_message_generator_kernel.set_arg(5, bo_dst);                              // dst
+        run_update_message_generator_kernel.set_arg(6, bo_opcode);                           // opcode
+        run_update_message_generator_kernel.set_arg(7, static_cast<int>(last));             // last flag
 
-    //     auto phase_start = std::chrono::high_resolution_clock::now();
+        auto phase_start = std::chrono::high_resolution_clock::now();
 
-    //     // Router and Consumer kernels are already running (Keep Alive).
-    //     // Only start the Generator for this batch.
-    //     run_update_message_generator_kernel.start();
+        // Router and Consumer kernels are already running (Keep Alive).
+        // Only start the Generator for this batch.
+        run_update_message_generator_kernel.start();
 
-    //     // Generator waits for ACK from Router internally, so when it finishes, 
-    //     // the batch is guaranteed to be processed by downstream kernels.
-    //     run_update_message_generator_kernel.wait();
+        // Generator waits for ACK from Router internally, so when it finishes, 
+        // the batch is guaranteed to be processed by downstream kernels.
+        run_update_message_generator_kernel.wait();
 
-    //     auto phase_end = std::chrono::high_resolution_clock::now();
-    //     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(phase_end - phase_start).count();
-    //     std::cout << label << ": vertices=" << new_vertex_count << ", edges=" << edge_count
-    //               << ", time=" << elapsed << " ms" << std::endl;
-    //     return elapsed;
-    // };
+        auto phase_end = std::chrono::high_resolution_clock::now();
+        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(phase_end - phase_start).count();
+        std::cout << label << ": vertices=" << new_vertex_count << ", edges=" << edge_count
+                  << ", time=" << elapsed << " ms" << std::endl;
+        return elapsed;
+    };
 
     // 1. Start Long-Running (Keep Alive) Kernels ONCE before the batch loop
-    // for (auto &r : run_pma_insert_vertex_kernels)
-    // {
-    //     r.start();
-    // }
-    // for (auto &r : run_pma_insert_edge_kernels)
-    // {
-    //     r.start();
-    // }
-    // run_update_message_router_kernel.start();
+    for (auto &r : run_pma_insert_vertex_kernels)
+    {
+        r.start();
+    }
+    for (auto &r : run_pma_insert_edge_kernels)
+    {
+        r.start();
+    }
+    run_update_message_router_kernel.start();
 
 
     run_mem_access_kernel_1.start();
@@ -691,9 +683,9 @@ int main(int argc, char** argv)
     add_base_graph_to_hbm(static_max_vertex + 1, full_edge_count);
     std::cout << "Base graph loaded into HBM." << std::endl;
     bo_pos_vec_info.sync(XCL_BO_SYNC_BO_TO_DEVICE);
-    // bo_src.sync(XCL_BO_SYNC_BO_TO_DEVICE);
-    // bo_dst.sync(XCL_BO_SYNC_BO_TO_DEVICE);
-    // bo_opcode.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+    bo_src.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+    bo_dst.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+    bo_opcode.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     for (auto &bo : bo_hbm_base_addr)
     {
         bo.sync(XCL_BO_SYNC_BO_TO_DEVICE);
@@ -724,98 +716,98 @@ int main(int argc, char** argv)
     long long incremental_phase_ms = 0;
     std::mt19937 rng(static_cast<unsigned>(std::chrono::high_resolution_clock::now().time_since_epoch().count()));
 
-    // for (size_t idx = 0; idx < operations.size(); )
-    // {
-    //     long long current_ts = operations[idx].timestamp;
-    //     std::vector<Operation> batch_ops;
-    //     while (idx < operations.size() && operations[idx].timestamp == current_ts)
-    //     {
-    //         batch_ops.push_back(operations[idx]);
-    //         ++idx;
-    //     }
+    for (size_t idx = 0; idx < operations.size(); )
+    {
+        long long current_ts = operations[idx].timestamp;
+        std::vector<Operation> batch_ops;
+        while (idx < operations.size() && operations[idx].timestamp == current_ts)
+        {
+            batch_ops.push_back(operations[idx]);
+            ++idx;
+        }
 
-    //     if (batch_ops.size() > 1)
-    //     {
-    //         std::shuffle(batch_ops.begin(), batch_ops.end(), rng); // shuffle the whole operation tuple (src, dst, opcode) within same timestamp
-    //     }
+        // if (batch_ops.size() > 1)
+        // {
+        //     std::shuffle(batch_ops.begin(), batch_ops.end(), rng); // shuffle the whole operation tuple (src, dst, opcode) within same timestamp
+        // }
 
-    //     int new_vertex_count = 0;
-    //     for (const auto &op : batch_ops)
-    //     {
-    //         if (op.opcode == PMA_INSERT_VERTEX)
-    //         {
-    //             new_vertex_count += 1;
-    //         }
-    //     }
+        int new_vertex_count = 0;
+        for (const auto &op : batch_ops)
+        {
+            if (op.opcode == PMA_INSERT_VERTEX)
+            {
+                new_vertex_count += 1;
+            }
+        }
 
-    //     int edge_count = load_edge_batch(batch_ops);
-    //     if (edge_count < 0)
-    //     {
-    //         break;
-    //     }
+        int edge_count = load_edge_batch(batch_ops);
+        if (edge_count < 0)
+        {
+            break;
+        }
 
-    //     bool last = (idx == operations.size());
-    //     incremental_phase_ms += run_update_batch(new_vertex_count, edge_count, "ts_" + std::to_string(current_ts), last);
+        bool last = (idx == operations.size());
+        incremental_phase_ms += run_update_batch(new_vertex_count, edge_count, "ts_" + std::to_string(current_ts), last);
 
-    //     for (const auto &op : batch_ops)
+        for (const auto &op : batch_ops)
 
-    //     {
-    //         switch (op.opcode)
-    //         {
-    //             case PMA_INSERT_VERTEX:
-    //                 ensure_runtime_vertex(op.src >= 0 ? op.src : op.dst);
-    //                 break;
-    //             case PMA_INSERT_EDGE:
-    //                 ensure_runtime_vertex(op.src);
-    //                 ensure_runtime_vertex(op.dst);
-    //                 if (op.src >= 0 && op.src < static_cast<int>(runtime_graph.size()))
-    //                 {
-    //                     runtime_graph[op.src].push_back(op.dst);
-    //                     normalize_neighbors(op.src);
-    //                 }
-    //                 break;
-    //             case PMA_DELETE_EDGE:
-    //                 ensure_runtime_vertex(op.src);
-    //                 ensure_runtime_vertex(op.dst);
-    //                 if (op.src >= 0 && op.src < static_cast<int>(runtime_graph.size()))
-    //                 {
-    //                     auto &nbrs = runtime_graph[op.src];
-    //                     nbrs.erase(std::remove(nbrs.begin(), nbrs.end(), op.dst), nbrs.end());
-    //                 }
-    //                 break;
-    //             case PMA_DELETE_VERTEX:
-    //                 ensure_runtime_vertex(op.src);
-    //                 if (op.src >= 0 && op.src < static_cast<int>(runtime_graph.size()))
-    //                 {
-    //                     runtime_graph[op.src].clear();
-    //                 }
-    //                 // for (auto &nbrs : runtime_graph)
-    //                 // {
-    //                 //     nbrs.erase(std::remove(nbrs.begin(), nbrs.end(), op.src), nbrs.end());
-    //                 // }
-    //                 break;
-    //             default:
-    //                 break;
-    //         }
-    //     }
+        {
+            switch (op.opcode)
+            {
+                case PMA_INSERT_VERTEX:
+                    ensure_runtime_vertex(op.src >= 0 ? op.src : op.dst);
+                    break;
+                case PMA_INSERT_EDGE:
+                    ensure_runtime_vertex(op.src);
+                    ensure_runtime_vertex(op.dst);
+                    if (op.src >= 0 && op.src < static_cast<int>(runtime_graph.size()))
+                    {
+                        runtime_graph[op.src].push_back(op.dst);
+                        normalize_neighbors(op.src);
+                    }
+                    break;
+                case PMA_DELETE_EDGE:
+                    ensure_runtime_vertex(op.src);
+                    ensure_runtime_vertex(op.dst);
+                    if (op.src >= 0 && op.src < static_cast<int>(runtime_graph.size()))
+                    {
+                        auto &nbrs = runtime_graph[op.src];
+                        nbrs.erase(std::remove(nbrs.begin(), nbrs.end(), op.dst), nbrs.end());
+                    }
+                    break;
+                case PMA_DELETE_VERTEX:
+                    ensure_runtime_vertex(op.src);
+                    if (op.src >= 0 && op.src < static_cast<int>(runtime_graph.size()))
+                    {
+                        runtime_graph[op.src].clear();
+                    }
+                    // for (auto &nbrs : runtime_graph)
+                    // {
+                    //     nbrs.erase(std::remove(nbrs.begin(), nbrs.end(), op.src), nbrs.end());
+                    // }
+                    break;
+                default:
+                    break;
+            }
+        }
 
-    //     int current_max_vertex = static_cast<int>(runtime_graph.size()) - 1;
-    //     if (!runtime_graph.empty())
-    //     {
-    //         verify_graph(runtime_graph, current_max_vertex, "after_ts_" + std::to_string(current_ts));
-    //     }
-    // }
+        int current_max_vertex = static_cast<int>(runtime_graph.size()) - 1;
+        if (!runtime_graph.empty())
+        {
+            verify_graph(runtime_graph, current_max_vertex, "after_ts_" + std::to_string(current_ts));
+        }
+    }
 
-    // std::cout << "Waiting for long-running kernels to finish..." << std::endl;
-    // run_update_message_router_kernel.wait();
-    // for (auto &r : run_pma_insert_edge_kernels)
-    // {
-    //     r.wait();
-    // }
-    // for (auto &r : run_pma_insert_vertex_kernels)
-    // {
-    //     r.wait();
-    // }
+    std::cout << "Waiting for long-running kernels to finish..." << std::endl;
+    run_update_message_router_kernel.wait();
+    for (auto &r : run_pma_insert_edge_kernels)
+    {
+        r.wait();
+    }
+    for (auto &r : run_pma_insert_vertex_kernels)
+    {
+        r.wait();
+    }
 
     std::cout << "GRAPH UPDATED. total_time=" << (base_phase_ms + incremental_phase_ms)
               << " ms" << std::endl;

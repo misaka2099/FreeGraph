@@ -106,20 +106,13 @@ extern "C"
         ap_uint<32> prev_src_buffer = (ap_uint<32>)0xFFFFFFFF;
 
         edge_burst_dt little_burst;
-        edge_burst_dt big_burst;
         init_dummy_burst(little_burst);
-        init_dummy_burst(big_burst);
         ap_wait();
         ap_uint<32> little_edge_count = 0;
-        ap_uint<32> big_edge_count = 0;
         ap_uint<32> little_fill = 0;
-        ap_uint<32> big_fill = 0;
         ap_uint<32> little_last_src = 0;
-        ap_uint<32> big_last_src = 0;
         ap_uint<32> little_prev_src = (ap_uint<32>)0xFFFFFFFF;
-        ap_uint<32> big_prev_src = (ap_uint<32>)0xFFFFFFFF;
         bool little_has_edge = false;
-        bool big_has_edge = false;
 
         // READ_COMMAND_STREAM cmd;
         // cmd.data = PMA_GET_ALL_OUT_EDGE_COO;
@@ -128,22 +121,36 @@ extern "C"
 
 
         // 第一步：先请求边数目
-        READ_COMMAND_STREAM count_cmd = {};
-        count_cmd.data.range(31, 0)  = PMA_GET_EDGE_COUNT_RANGE;
-        count_cmd.data.range(63, 32) = 0;           // start_v = 0
-        count_cmd.data.range(95, 64) = 0xFFFFFFFF;  // end_v = 全量
-        count_cmd.last = 0;
-        little_cmd_stm.write(count_cmd);
-        #pragma HLS protocol fixed
-        ap_wait();
-        // 等 pma_read_kernel 把边总数写到 coo_edge_count_stream
-        auto little_edge_num = little_coo_edge_num_stm.read();
+        int src_idx = 0;
+        bool edge_count_last = false;
+        int total_edge_count_after_padding = 0;
+        int total_edge_count = 0;
+        do 
+        {    
+            READ_COMMAND_STREAM count_cmd = {};
+            count_cmd.data.range(31, 0)  = PMA_GET_EDGE_COUNT_RANGE;
+            count_cmd.data.range(63, 32) = src_idx;           // start_v = 0
+            count_cmd.data.range(95, 64) = src_idx + SRC_BUFFER_SIZE;  // end_v = 全量
+            count_cmd.last = 0;
+            little_cmd_stm.write(count_cmd);
+            #pragma HLS protocol fixed
+            ap_wait();
+            // 等 pma_read_kernel 把边总数写到 coo_edge_count_stream
+            auto edge_num = little_coo_edge_num_stm.read();
+            edge_count_last = edge_num.last;
+            int padding_count = edge_num.data;
+            total_edge_count += edge_num.data;
+            // 向上取8的标准写法
+            padding_count = ((padding_count + 7) / 8) * 8;
+            total_edge_count_after_padding += padding_count;
+            src_idx += SRC_BUFFER_SIZE;
+        }
+        while (!edge_count_last);
+        total_edge_count_after_padding = (total_edge_count_after_padding / 8 + 1) * 8;
+        // 向上8对齐边数量后再转发给 little GS kernel, 如果正好8对齐还要再额外发一个包
 
-        // 向上8对齐边数量后再转发给 little GS kernel
-        ap_axiu<32,0,0,0> aligned_edge_num = little_edge_num;
-        ap_uint<32> cnt = aligned_edge_num.data;
-        cnt = (cnt + (ap_uint<32>)7) & ~((ap_uint<32>)7);
-        aligned_edge_num.data = cnt;
+        
+        ap_axiu<32,0,0,0> aligned_edge_num = {total_edge_count_after_padding};
         little_edge_num_stm.write(aligned_edge_num);  // 转发给 little GS kernel（已向上8对齐）
 
         // 第二步：再请求 COO 边数据
@@ -153,7 +160,7 @@ extern "C"
         little_cmd_stm.write(coo_cmd);
         ap_uint<32> idx = 0;
         int last_src = 0;
-        for (int i = 0 ; i < little_edge_num.data; i++)
+        for (int i = 0 ; i < total_edge_count; i++)
         {
         #pragma HLS PIPELINE II=1
 
@@ -205,7 +212,24 @@ extern "C"
         }
         coo_array_stm.read();
 
-        if (little_edge_num.data % 8 == 0)
+
+        while (little_fill != 0)
+        {
+            little_burst.edges[little_fill].src = little_last_src;
+            little_burst.edges[little_fill].dst =
+                (ap_uint<32>)ENDFLAG | (ap_uint<32>)0x80000000;
+
+            little_fill++;
+            little_edge_count++;
+
+            if (little_fill == NUM_EDGE_PER_BURST)
+            {
+                write_to_stream(little_edge_burst_stm, little_burst);
+                init_dummy_burst(little_burst);
+                little_fill = 0;
+            }
+        }
+        if (little_edge_count % 8 == 0)
         {
             // no edges: emit a single dummy burst
             for (int i = 0; i < NUM_EDGE_PER_BURST; ++i)
@@ -216,11 +240,6 @@ extern "C"
             }
             write_to_stream(little_edge_burst_stm, little_burst);
             little_edge_count = NUM_EDGE_PER_BURST;
-        }
-        else
-        {
-            // there were edges: pad the last partial burst (if any) to NUM_EDGE_PER_BURST
-            pad_to_burst(little_burst, little_edge_burst_stm, little_last_src, little_fill, little_edge_count, true);
         }
         READ_COMMAND_STREAM stop_pkt = {};
         stop_pkt.data = (ap_uint<64>)PMA_STOP;

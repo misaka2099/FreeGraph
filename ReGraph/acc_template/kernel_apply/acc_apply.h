@@ -1,13 +1,10 @@
 #include <hls_stream.h>
 #include <string.h>
-#include <stdint.h>
 #include "acc_config.h"
 #include "l1_api.h"
 #include "l2.h"
 #include "acc_data_types.h"
 #include <ap_axi_sdata.h>
-
-typedef unsigned int uint;
 
 void uramrow2writeburst(
 				hls::stream<l_tmp_prop_pkt>      	&l_merged_prop_stm,

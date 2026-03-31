@@ -270,9 +270,9 @@ void  accScatter(
         last_cacheline_idx[j] = 0x0;
     }
 
-#ifdef SW_EMU
+// #ifdef SW_EMU
     int cnt = 0;
-#endif
+// #endif
     scatterLoop: 
     for(int i = 0; i < (part_edge_num >> LOG2_NUM_EDGE_PER_BURST); i ++) {
         

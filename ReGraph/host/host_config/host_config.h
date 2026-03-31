@@ -37,6 +37,3 @@ typedef  int               prop_t;
 #endif
 
 #endif /* __HOST_CONFIG_H__ */
-
-
-

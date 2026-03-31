@@ -15,8 +15,6 @@ WHOLE_SYSTEM_XCLBIN := $(TARGET)_whole_system.xclbin
 WHOLE_SYSTEM_XO_FILE := $(MEM_XO_FILES) $(WHOLE_PMA_XO_FILES) $(REGRAPH_XO_FILES)
 CONFIG_FILES := system.cfg profile.cfg
 all: subdirs $(XCLBIN_FILE)
-WHOLE_HOST_INCLUDES := -I$(XILINX_XRT)/include -I$(XILINX_VITIS_HLS)/include \
-	-IReGraph/acc_udfs/bfs -IReGraph -IReGraph/acc_template -IReGraph/acc_template/common -IReGraph/utils/common/includes -IReGraph/utils/common/includes/xcl2 $(shell find ReGraph/host -type d | sed 's|^|-I|g' | tr '\n' ' ')
 
 # Compilation-time algorithm selection (default bfs). Usage: `make whole_host ALGO=pr` or `ALGO=cc`
 ALGO ?= bfs
@@ -27,6 +25,8 @@ ALGO_CODE = 2
 else
 ALGO_CODE = 0
 endif
+WHOLE_HOST_INCLUDES := -I$(XILINX_XRT)/include -I$(XILINX_VITIS_HLS)/include \
+	-IReGraph/acc_udfs/$(ALGO) -IReGraph -IReGraph/acc_template -IReGraph/acc_template/common -IReGraph/utils/common/includes -IReGraph/utils/common/includes/xcl2 $(shell find ReGraph/host -type d | sed 's|^|-I|g' | tr '\n' ' ')
 
 # Pass important ReGraph configuration macros to host compiler
 WHOLE_HOST_DEFINES := -DLITTLE_KERNEL_NUM=$(LITTLE_KERNEL_NUM) -DBIG_KERNEL_NUM=$(BIG_KERNEL_NUM) \
@@ -57,22 +57,32 @@ $(WHOLE_SYSTEM_XCLBIN): $(WHOLE_XO_FILES)
 	@echo "---- Linking whole system kernels to create $(WHOLE_SYSTEM_XCLBIN) ----"
 	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --config whole_system.cfg --config profile.cfg -o $@ $(WHOLE_SYSTEM_XO_FILE)
 	@echo "---- Link done: $@ ----"
-
-whole_system:
+DUMMY_XCLBIN := dummy.xclbin
+DUMMT_KERNEL_XO := $(wildcard ReGraph/dummykernels/*.xo)
+$(DUMMY_XCLBIN): $(DUMMT_KERNEL_XO)
+	@echo "---- Linking dummy kernel to create $(DUMMY_XCLBIN) ----"
+	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --config dummy.cfg -o $@ $^
+	@echo "---- Link done: $@ ----"
+whole_system: $(WHOLE_SYSTEM_XCLBIN)
 	$(MAKE) -C memkernel all TARGET=$(TARGET)
 	$(MAKE) -C pma_kernel all TARGET=$(TARGET)
 	$(MAKE) -C ReGraph -f makekernel.mk all TARGET=$(TARGET) WHOLE_HOST_DEFINES="$(WHOLE_HOST_DEFINES)" ALGO=$(ALGO)
 	$(MAKE) $(WHOLE_SYSTEM_XCLBIN)
 whole_host: whole_host.cpp
 	g++ -std=c++17 $(INCLUDES) $(WHOLE_HOST_INCLUDES) $(WHOLE_HOST_DEFINES) -L${XILINX_XRT}/lib -o $@ whole_host.cpp $(HOST_SRCS) $(UDFS_SRCS) -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
-
+dummy_system:
+	$(MAKE) -C ReGraph -f makedummy.mk all TARGET=$(TARGET) WHOLE_HOST_DEFINES="$(WHOLE_HOST_DEFINES)" ALGO=$(ALGO)
+	$(MAKE) $(DUMMY_XCLBIN)
 host: host.cpp
 	g++ -std=c++17 $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
 real_host: real_host.cpp
 	g++ -std=c++17 $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
 test_host: test_host.cpp
 	g++ -std=c++17 $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
-
+dummy_host: dummy_host.cpp
+	g++ -std=c++17 $(INCLUDES) $(WHOLE_HOST_INCLUDES) $(WHOLE_HOST_DEFINES) -L${XILINX_XRT}/lib -o $@ dummy_host.cpp $(HOST_SRCS) $(UDFS_SRCS) -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
+test_read_kernel: test_read_kernel.cpp
+	g++ -std=c++17 $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
 clean:
 	$(MAKE) -C memkernel clean
 	$(MAKE) -C pma_kernel clean

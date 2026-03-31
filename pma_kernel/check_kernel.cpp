@@ -161,6 +161,9 @@ extern "C"
         {
             READ_COMMAND_STREAM count_cmd;
             count_cmd.data = PMA_GET_EDGE_COUNT_RANGE;
+            count_cmd.data.range(63,32) = 0;
+            count_cmd.data.range(95,64) = vertex_to_check;
+
             count_cmd.last = 0;
             cmd_to_read.write(count_cmd);
             #pragma HLS protocol fixed

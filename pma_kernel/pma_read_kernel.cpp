@@ -11,7 +11,7 @@ template<int D>
 struct internal_axis {
     ap_uint<D> data;
     ap_uint<D/8> keep;
-    ap_uint<D/8> strb;
+    ap_uint<D/8> find_end;
     ap_uint<1> last;
 };
 
@@ -267,6 +267,7 @@ static void merger_unified(
 
         int worker_idx = 0;
 
+        bool count_end = false;
         while (!(worker_done[0] && worker_done[1]))
         {
             #pragma HLS PIPELINE II=1
@@ -323,6 +324,10 @@ static void merger_unified(
                 else if (cmd.mode == PMA_GET_EDGE_COUNT_RANGE)  // edge count
                 {
                     total_edge_count += pkt.data;
+                    if (pkt.find_end == 0)
+                    {
+                        count_end = true;
+                    }
                 }
             }
 
@@ -339,7 +344,7 @@ static void merger_unified(
             o.data = total_edge_count;
             o.keep = 0xFF;
             o.strb = 0xFF;
-            o.last = 1;
+            o.last = count_end;
             out_edge_count.write(o);
         }
     }
@@ -361,11 +366,11 @@ static void read_worker(
 
         // Dummy packets for control
         internal_axis<64> pkt_finish = {};
-        pkt_finish.data=0; pkt_finish.keep=0; pkt_finish.strb=0; pkt_finish.last=1;
+        pkt_finish.data=0; pkt_finish.keep=0; pkt_finish.find_end=0; pkt_finish.last=1;
         internal_axis<64> pkt_separator = {};
         pkt_separator.data = 0;
         pkt_separator.keep = 0xff;
-        pkt_separator.strb = 0;
+        pkt_separator.find_end = 0;
         pkt_separator.last = 1;
         switch (cmd.mode) // Single
         {
@@ -425,7 +430,7 @@ static void read_worker(
                         internal_axis<64> out_pkt = {};
                         out_pkt.data = (ap_uint<32>)neighbor;
                         out_pkt.keep = (ap_uint<8>)0xFF;
-                        out_pkt.strb = (ap_uint<8>)0xFF;
+                        out_pkt.find_end = (ap_uint<8>)0xFF;
                         out_pkt.last = 0;
                         unified_out_stream.write(out_pkt);
                     }
@@ -492,7 +497,7 @@ static void read_worker(
                                 internal_axis<64> out_pkt = {};
                                 out_pkt.data = ((ap_uint<64>)src << 32) | (ap_uint<32>)neighbor;
                                 out_pkt.keep = (ap_uint<8>)0xFF;
-                                out_pkt.strb = (ap_uint<8>)0xFF;
+                                out_pkt.find_end = (ap_uint<8>)0xFF;
                                 out_pkt.last = 0;
                                 unified_out_stream.write(out_pkt);
                             }
@@ -512,44 +517,86 @@ static void read_worker(
                 int pma_idx = WORKER_ID;
 
                 int total_sum = 0;
+                int start_v = cmd.src_idx;
+                int end_v   = cmd.end_src_idx;
 
-                while (true)
+                int pma_start = start_v / VERTEX_PER_PMA;
+                int pma_end   = end_v   / VERTEX_PER_PMA;
+                bool find_empty = false;
+                for (int idx = pma_idx ; idx <= pma_end; idx += READ_WORKERS)
                 {
+                    if (idx < pma_start) {
+                        continue;
+                    }
                     VEC_INFO vec_info;
                     MEMORY_INFO_ACCESS_COMMAND access_command = {};
                     access_command.command_type = VEC_INFO_READ;
-                    access_command.pma_idx = pma_idx;
+                    access_command.pma_idx = idx;
                     access_command.last = 0;
                     req_to_mem_access_ch.write(access_command);
                     #pragma HLS protocol fixed
                     ap_wait();
-                    vec_info = vec_info_back_stream_ch.read().data;       
+                    vec_info = vec_info_back_stream_ch.read().data;
                     if (vec_info == 0)
+                    {
+                        find_empty = true;
                         break;
-
+                    }
                     int header_start = vec_info.range(31,0);
 
+                    
                     PMA_HEADER pma_header;
 
                     read_header(header_start,
-                                req_to_mem_access_ch,
-                                data_from_mem_access_ch,
-                                pma_header);
+                        req_to_mem_access_ch,
+                        data_from_mem_access_ch,
+                        pma_header
+                    );
+                    int local_start = (idx == pma_start) ? (start_v % VERTEX_PER_PMA) : 0;
+                    int local_end   = (idx == pma_end)   ? (end_v   % VERTEX_PER_PMA) : (VERTEX_PER_PMA - 1);
 
-                    for (int i = 0;
-                        i < VERTEX_PER_PMA;
-                        ++i)
+                    for (int i = local_start; i <= local_end; ++i)
                     {
                         total_sum += pma_header.edge_count[i];
                     }
-
-                    pma_idx += READ_WORKERS;
                 }
+                // while (true)
+                // {
+                //     VEC_INFO vec_info;
+                //     MEMORY_INFO_ACCESS_COMMAND access_command = {};
+                //     access_command.command_type = VEC_INFO_READ;
+                //     access_command.pma_idx = pma_idx;
+                //     access_command.last = 0;
+                //     req_to_mem_access_ch.write(access_command);
+                //     #pragma HLS protocol fixed
+                //     ap_wait();
+                //     vec_info = vec_info_back_stream_ch.read().data;       
+                //     if (vec_info == 0)
+                //         break;
+
+                //     int header_start = vec_info.range(31,0);
+
+                //     PMA_HEADER pma_header;
+
+                //     read_header(header_start,
+                //                 req_to_mem_access_ch,
+                //                 data_from_mem_access_ch,
+                //                 pma_header);
+
+                //     for (int i = 0;
+                //         i < VERTEX_PER_PMA;
+                //         ++i)
+                //     {
+                //         total_sum += pma_header.edge_count[i];
+                //     }
+
+                //     pma_idx += READ_WORKERS;
+                // }
 
                 internal_axis<64> cnt_pkt = {};
                 cnt_pkt.data = total_sum;
                 cnt_pkt.keep = 0xFF;
-                cnt_pkt.strb = 0xFF;
+                cnt_pkt.find_end = find_empty ? 0 : 0xFF; // If we find an empty PMA, it means all subsequent PMAs are also empty, so we can set keep to 0 to indicate the count is not valid
                 cnt_pkt.last = 0;
 
                 unified_out_stream.write(cnt_pkt);

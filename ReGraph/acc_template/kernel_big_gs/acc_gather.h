@@ -275,13 +275,13 @@ void accGather(
 #pragma HLS BIND_STORAGE variable = dst_tmp_prop_buffer type = RAM_2P impl = URAM
 #pragma HLS dependence variable=dst_tmp_prop_buffer inter false
 
-#ifdef SW_EMU
+// #ifdef SW_EMU
     for (int i = 0; i < ((BIG_KERNEL_DST_BUFFER_SIZE >> 1) >> LOG2_GATHER_PE_NUM); i ++){
     #pragma HLS UNROLL factor=1
             dst_tmp_prop_buffer[i].range(31,0) = 0;
             dst_tmp_prop_buffer[i].range(63,32) = 0;
     }
-#endif
+// #endif
 
     ap_uint<64> last_value[L + 1]; // we do not init it at this version. 
     uint last_index[L + 1];     // we do not init it at this version. 
