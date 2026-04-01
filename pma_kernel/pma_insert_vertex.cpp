@@ -100,7 +100,7 @@ void write_hbm(
     hls::stream<INTRA_PMA_UPDATE_MESSAGE>& cmd_in,
     hls::stream<VEC_INFO_STREAM> &vec_info_back_stream,
     hls::stream<PMA_HEADER>& header_in,
-    hls::stream<COMMAND_STREAM>& ack_back_to_router,
+    hls::stream<VERTEX_ACK>& ack_back_to_router,
     hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access,
     hls::stream<ap_axiu<512, 0, 0, 0>> &data_to_mem_access
 )
@@ -215,7 +215,7 @@ extern "C"
         //mem operation
         hls::stream<MEMORY_ALLOC_FREE_REQUEST> &req_to_mem_alloc,
         hls::stream<VEC_INFO_STREAM> &vec_info_back_stream,
-        hls::stream<COMMAND_STREAM> &ack_back_to_router,
+        hls::stream<VERTEX_ACK> &ack_back_to_router,
         hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access,
         hls::stream<ap_axiu<512, 0, 0, 0>> &data_to_mem_access
     )
@@ -227,6 +227,12 @@ extern "C"
         #pragma HLS INTERFACE axis port=req_to_mem_access
         #pragma HLS INTERFACE axis port=data_to_mem_access
 
+        #pragma HLS STREAM variable= cmd_stream depth=16
+        #pragma HLS STREAM variable=req_to_mem_alloc depth=16
+        #pragma HLS STREAM variable=vec_info_back_stream depth=16
+        #pragma HLS STREAM variable=ack_back_to_router depth=1
+        #pragma HLS STREAM variable=req_to_mem_access depth=16
+        #pragma HLS STREAM variable=data_to_mem_access depth=16
 
         hls::stream<INTRA_PMA_UPDATE_MESSAGE> cmd_to_alloc("cmd_to_alloc");
         hls::stream<INTRA_PMA_UPDATE_MESSAGE> cmd_to_header("cmd_to_header");

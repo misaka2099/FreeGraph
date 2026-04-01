@@ -141,9 +141,9 @@ extern "C"
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_2,
         hls::stream<COMMAND_STREAM> &ack_from_insert_edge_1,
         hls::stream<COMMAND_STREAM> &ack_from_insert_edge_2,
-        hls::stream<COMMAND_STREAM> &ack_from_insert_vertex_1,
-        hls::stream<COMMAND_STREAM> &ack_from_insert_vertex_2,
-        hls::stream<COMMAND_STREAM> &ack_to_generator
+        hls::stream<VERTEX_ACK> &ack_from_insert_vertex_1,
+        hls::stream<VERTEX_ACK> &ack_from_insert_vertex_2,
+        hls::stream<WHOLE_ACK> &ack_to_generator
         // hls::stream<VERTEX_ATTR_STREAM_TYPE> &attr_from_generator,
         // hls::stream<VERTEX_ATTR_STREAM_TYPE> &attr_to_pma,
         // hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_attr_updater,
@@ -161,18 +161,17 @@ extern "C"
         #pragma HLS INTERFACE axis port=ack_from_insert_vertex_1
         #pragma HLS INTERFACE axis port=ack_from_insert_vertex_2
         #pragma HLS INTERFACE axis port=ack_to_generator
-        // #pragma HLS INTERFACE axis port=attr_from_generator
-        // #pragma HLS INTERFACE axis port=attr_to_pma
-        // #pragma HLS INTERFACE axis port=cmd_to_attr_updater
-        // #pragma HLS INTERFACE axis port=ack_from_attr_updater
-        // #pragma HLS INTERFACE axis port=clear_message_from_generator
-        // int processing_pma_idx[MAX_WORKERS] = {-1};
-        // #pragma HLS ARRAY_PARTITION variable=processing_pma_idx complete
-        // for (int i = 0 ; i < MAX_WORKERS ; i++)
-        // {
-        //     #pragma HLS UNROLL
-        //     processing_pma_idx[i] = -1;
-        // }
+
+        #pragma HLS STREAM variable=cmd_from_generator depth=16
+        #pragma HLS STREAM variable=cmd_to_insert_vertex_1 depth=16
+        #pragma HLS STREAM variable=cmd_to_insert_vertex_2 depth=16
+        #pragma HLS STREAM variable=cmd_to_insert_edge_1 depth=16
+        #pragma HLS STREAM variable=cmd_to_insert_edge_2 depth=16
+        #pragma HLS STREAM variable=ack_from_insert_edge_1 depth=16
+        #pragma HLS STREAM variable=ack_from_insert_edge_2 depth=16
+        #pragma HLS STREAM variable=ack_from_insert_vertex_1 depth=16
+        #pragma HLS STREAM variable=ack_from_insert_vertex_2 depth=16
+        #pragma HLS STREAM variable=ack_to_generator depth=16   
         ap_uint<128> msg_buffer[MAX_COMMAND_BUFFER_NUM][MAX_COMMAND_BUFFER_LENGTH];
         #pragma HLS BIND_STORAGE variable=msg_buffer type=RAM_2P impl=URAM
         int count[MAX_COMMAND_BUFFER_NUM]; 
@@ -238,7 +237,7 @@ extern "C"
                     while (true)
                     {
                         bool all_done = true;
-                        COMMAND_STREAM tmp;
+                        VERTEX_ACK tmp;
                         if (!acked[0] && ack_from_insert_vertex_1.read_nb(tmp)) { acked[0] = true; }
                         if (!acked[1] && ack_from_insert_vertex_2.read_nb(tmp)) { acked[1] = true; }
                         for (int w = 0; w < ROUTER_WORKERS; ++w)
@@ -303,7 +302,7 @@ extern "C"
                                 );
                             }
                             // If this batch is the final (last==1), send an ACK back to the generator to notify completion
-                            COMMAND_STREAM ack_pkt;
+                            WHOLE_ACK ack_pkt;
                             ack_pkt.data = 1;
                             ack_pkt.keep = (ap_uint<4>)0xF;
                             ack_pkt.strb = (ap_uint<4>)0xF;

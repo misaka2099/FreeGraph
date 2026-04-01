@@ -17,12 +17,12 @@ extern "C"
         // int src_attr_change_num,
         int last,
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_router,
-        hls::stream<COMMAND_STREAM> &ack_from_router
+        hls::stream<WHOLE_ACK> &ack_from_router
         // hls::stream<VERTEX_ATTR_STREAM_TYPE> &attr_to_pma
         // hls::stream<CLEAR_ICON> &clear_message_to_router
     )
     {
-        #pragma HLS INTERFACE s_axilite port=add_vertex_num
+        #pragma HLS INTERFACE s_axilite port=add_vertex_num 
         #pragma HLS INTERFACE s_axilite port=add_edge_num
         #pragma HLS INTERFACE m_axi port=src bundle=gmem0
         #pragma HLS INTERFACE m_axi port=dst bundle=gmem1
@@ -30,8 +30,8 @@ extern "C"
         // #pragma HLS INTERFACE m_axi port=attr_to_change bundle=gmem3
         // #pragma HLS INTERFACE s_axilite port=src_attr_change_num
         #pragma HLS INTERFACE s_axilite port=return
-        #pragma HLS INTERFACE axis port=cmd_to_router
-        #pragma HLS INTERFACE axis port=ack_from_router
+        #pragma HLS INTERFACE axis port=cmd_to_router depth=64
+        #pragma HLS INTERFACE axis port=ack_from_router depth=64
         // #pragma HLS INTERFACE axis port=clear_message_to_router
         // static int total_vertex_num_in = 0;
         //(66,66) for direction (65,64) for command type (63,32) for dst (31,0) for src
@@ -119,7 +119,7 @@ extern "C"
         HERE
         cmd_to_router.write({.data = -1, .last = last});
         // If this is the final batch, wait for ACK from router indicating completion
-        COMMAND_STREAM ack_pkt;
+        WHOLE_ACK ack_pkt;
         // blocking read to ensure router processed the whole batch
         ack_from_router.read(ack_pkt);
         // optionally we could check ack_pkt.data

@@ -355,7 +355,7 @@ static void read_worker(
     hls::stream<READ_COMMAND>& cmd_stream,
     hls::stream<internal_axis<64>> &unified_out_stream,
     hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch,
-    hls::stream<VEC_INFO_STREAM> &vec_info_back_stream_ch,
+    // hls::stream<VEC_INFO_STREAM> &vec_info_back_stream_ch,
     hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch
 )
 {
@@ -391,7 +391,7 @@ static void read_worker(
                 req_to_mem_access_ch.write(access_command);
                 #pragma HLS protocol fixed
                 ap_wait();
-                vec_info = vec_info_back_stream_ch.read().data;       
+                vec_info = data_from_mem_access_ch.read().data.range(63,0);       
                 if (vec_info == 0)
                 {
                     unified_out_stream.write(pkt_separator);
@@ -454,7 +454,7 @@ static void read_worker(
                     req_to_mem_access_ch.write(access_command);
                     #pragma HLS protocol fixed
                     ap_wait();
-                    vec_info = vec_info_back_stream_ch.read().data;       
+                    vec_info = data_from_mem_access_ch.read().data.range(63,0);    
                     if (vec_info == 0)
                     {
                         break;
@@ -536,7 +536,7 @@ static void read_worker(
                     req_to_mem_access_ch.write(access_command);
                     #pragma HLS protocol fixed
                     ap_wait();
-                    vec_info = vec_info_back_stream_ch.read().data;
+                    vec_info = data_from_mem_access_ch.read().data.range(63,0);   
                     if (vec_info == 0)
                     {
                         find_empty = true;
@@ -560,38 +560,6 @@ static void read_worker(
                         total_sum += pma_header.edge_count[i];
                     }
                 }
-                // while (true)
-                // {
-                //     VEC_INFO vec_info;
-                //     MEMORY_INFO_ACCESS_COMMAND access_command = {};
-                //     access_command.command_type = VEC_INFO_READ;
-                //     access_command.pma_idx = pma_idx;
-                //     access_command.last = 0;
-                //     req_to_mem_access_ch.write(access_command);
-                //     #pragma HLS protocol fixed
-                //     ap_wait();
-                //     vec_info = vec_info_back_stream_ch.read().data;       
-                //     if (vec_info == 0)
-                //         break;
-
-                //     int header_start = vec_info.range(31,0);
-
-                //     PMA_HEADER pma_header;
-
-                //     read_header(header_start,
-                //                 req_to_mem_access_ch,
-                //                 data_from_mem_access_ch,
-                //                 pma_header);
-
-                //     for (int i = 0;
-                //         i < VERTEX_PER_PMA;
-                //         ++i)
-                //     {
-                //         total_sum += pma_header.edge_count[i];
-                //     }
-
-                //     pma_idx += READ_WORKERS;
-                // }
 
                 internal_axis<64> cnt_pkt = {};
                 cnt_pkt.data = total_sum;
@@ -619,10 +587,10 @@ extern "C"
         // hls::stream<ap_axiu<32,0,0,0>> &data_to_csr_row_ptr_stream,
         hls::stream<ap_axiu<32,0,0,0>> &coo_edge_count_stream,
         hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch1,
-        hls::stream<VEC_INFO_STREAM> &vec_info_back_stream_ch1,
+        // hls::stream<VEC_INFO_STREAM> &vec_info_back_stream_ch1,
         hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch1,
         hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access_ch2,
-        hls::stream<VEC_INFO_STREAM> &vec_info_back_stream_ch2,
+        // hls::stream<VEC_INFO_STREAM> &vec_info_back_stream_ch2,
         hls::stream<ap_axiu<512,0,0,0>> &data_from_mem_access_ch2
     )
     {
@@ -633,11 +601,21 @@ extern "C"
         // #pragma HLS INTERFACE axis port=data_to_csr_row_ptr_stream
         #pragma HLS INTERFACE axis port=coo_edge_count_stream
         #pragma HLS INTERFACE axis port=req_to_mem_access_ch1
-        #pragma HLS INTERFACE axis port=vec_info_back_stream_ch1
+        // #pragma HLS INTERFACE axis port=vec_info_back_stream_ch1
         #pragma HLS INTERFACE axis port=data_from_mem_access_ch1
         #pragma HLS INTERFACE axis port=req_to_mem_access_ch2
-        #pragma HLS INTERFACE axis port=vec_info_back_stream_ch2
+        // #pragma HLS INTERFACE axis port=vec_info_back_stream_ch2
         #pragma HLS INTERFACE axis port=data_from_mem_access_ch2
+
+        #pragma HLS STREAM variable=cmd_stream depth=16
+        #pragma HLS STREAM variable=data_to_coo_stream depth=16
+        #pragma HLS STREAM variable=coo_edge_count_stream depth=16
+        #pragma HLS STREAM variable=req_to_mem_access_ch1 depth=16
+        // #pragma HLS STREAM variable=vec_info_back_stream_ch1 depth=16
+        #pragma HLS STREAM variable=data_from_mem_access_ch1 depth=16
+        #pragma HLS STREAM variable=req_to_mem_access_ch2 depth=16
+        // #pragma HLS STREAM variable=vec_info_back_stream_ch2 depth=16
+        #pragma HLS STREAM variable=data_from_mem_access_ch2 depth=16
         hls::stream<READ_COMMAND> worker_cmd_0;
         hls::stream<READ_COMMAND> worker_cmd_1;
         
@@ -660,8 +638,8 @@ extern "C"
             worker_cmd_0, worker_cmd_1,
             merger_cmd);
             
-        read_worker<0>(worker_cmd_0, u_stream_0, req_to_mem_access_ch1, vec_info_back_stream_ch1, data_from_mem_access_ch1);
-        read_worker<1>(worker_cmd_1, u_stream_1, req_to_mem_access_ch2, vec_info_back_stream_ch2, data_from_mem_access_ch2);
+        read_worker<0>(worker_cmd_0, u_stream_0, req_to_mem_access_ch1, data_from_mem_access_ch1);
+        read_worker<1>(worker_cmd_1, u_stream_1, req_to_mem_access_ch2, data_from_mem_access_ch2);
         
         merger_unified(merger_cmd, 
             u_stream_0, u_stream_1,

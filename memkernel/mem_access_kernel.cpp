@@ -90,8 +90,8 @@ void process_req(
     hls::stream<ap_axiu<512,0,0, 0>> &data_from_edge,
     hls::stream<ap_axiu<512,0,0, 0>> &data_to_edge,
     hls::stream<ap_axiu<512,0,0, 0>> &data_to_read,
-    hls::stream<VEC_INFO_STREAM>& vec_info_to_edge,
-    hls::stream<VEC_INFO_STREAM>& vec_info_to_read,
+    // hls::stream<VEC_INFO_STREAM>& vec_info_to_edge,
+    // hls::stream<VEC_INFO_STREAM>& vec_info_to_read,
     hls::stream<COMMAND> &stop_signal
 )
 {
@@ -183,9 +183,9 @@ void process_req(
                 ap_wait();
                 VEC_INFO vec_info_pkt = vec_info_from_merger.read();
                 if (turn == 1)
-                    vec_info_to_edge.write({.data = vec_info_pkt});
+                    data_to_edge.write({.data = vec_info_pkt});
                 else if (turn == 2)
-                    vec_info_to_read.write({.data = vec_info_pkt});
+                    data_to_read.write({.data = vec_info_pkt});
                 break;
             }
             default:
@@ -225,6 +225,8 @@ extern "C"
         hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_vertex_2,
         hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_edge_1,
         hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_edge_2,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_read_1,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_read_2,
         hls::stream<ap_axiu<512, 0, 0, 0>> &data_from_vertex_1,
         hls::stream<ap_axiu<512, 0, 0, 0>> &data_from_vertex_2,
         hls::stream<ap_axiu<512, 0, 0, 0>> &data_from_edge_1,
@@ -233,12 +235,10 @@ extern "C"
         hls::stream<ap_axiu<512, 0, 0, 0>> &data_to_edge_2,
         hls::stream<ap_axiu<512, 0, 0, 0>> &data_to_read_1,
         hls::stream<ap_axiu<512, 0, 0, 0>> &data_to_read_2,
-        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_read_1,
-        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_read_2,
-        hls::stream<VEC_INFO_STREAM>& vec_info_to_edge_1,
-        hls::stream<VEC_INFO_STREAM>& vec_info_to_edge_2,
-        hls::stream<VEC_INFO_STREAM>& vec_info_to_read_1,
-        hls::stream<VEC_INFO_STREAM>& vec_info_to_read_2,
+        // hls::stream<VEC_INFO_STREAM>& vec_info_to_edge_1,
+        // hls::stream<VEC_INFO_STREAM>& vec_info_to_edge_2,
+        // hls::stream<VEC_INFO_STREAM>& vec_info_to_read_1,
+        // hls::stream<VEC_INFO_STREAM>& vec_info_to_read_2,
         hls::stream<COMMAND_STREAM>& signal_stream
     )
     {
@@ -255,24 +255,24 @@ extern "C"
         // #pragma HLS INTERFACE s_axilite port=neg_pma_addrs bundle=control
         #pragma HLS INTERFACE s_axilite port=return bundle=control
 
-        #pragma HLS INTERFACE axis port=req_from_vertex_1
-        #pragma HLS INTERFACE axis port=req_from_vertex_2
-        #pragma HLS INTERFACE axis port=req_from_edge_1
-        #pragma HLS INTERFACE axis port=req_from_edge_2
-        #pragma HLS INTERFACE axis port=req_from_read_1
-        #pragma HLS INTERFACE axis port=req_from_read_2
-        #pragma HLS INTERFACE axis port=data_from_vertex_1
-        #pragma HLS INTERFACE axis port=data_from_vertex_2
-        #pragma HLS INTERFACE axis port=data_from_edge_1
-        #pragma HLS INTERFACE axis port=data_from_edge_2
-        #pragma HLS INTERFACE axis port=data_to_edge_1
-        #pragma HLS INTERFACE axis port=data_to_edge_2
-        #pragma HLS INTERFACE axis port=data_to_read_1
-        #pragma HLS INTERFACE axis port=data_to_read_2
-        #pragma HLS INTERFACE axis port=vec_info_to_edge_1
-        #pragma HLS INTERFACE axis port=vec_info_to_edge_2
-        #pragma HLS INTERFACE axis port=vec_info_to_read_1
-        #pragma HLS INTERFACE axis port=vec_info_to_read_2
+        #pragma HLS INTERFACE axis port=req_from_vertex_1 depth=4
+        #pragma HLS INTERFACE axis port=req_from_vertex_2 depth=4
+        #pragma HLS INTERFACE axis port=req_from_edge_1 depth=4
+        #pragma HLS INTERFACE axis port=req_from_edge_2 depth=4
+        #pragma HLS INTERFACE axis port=req_from_read_1 depth=4
+        #pragma HLS INTERFACE axis port=req_from_read_2 depth=4
+        #pragma HLS INTERFACE axis port=data_from_vertex_1 depth=16
+        #pragma HLS INTERFACE axis port=data_from_vertex_2 depth=16
+        #pragma HLS INTERFACE axis port=data_from_edge_1 depth=16
+        #pragma HLS INTERFACE axis port=data_from_edge_2 depth=16
+        #pragma HLS INTERFACE axis port=data_to_edge_1 depth=16
+        #pragma HLS INTERFACE axis port=data_to_edge_2 depth=16
+        #pragma HLS INTERFACE axis port=data_to_read_1 depth=16
+        #pragma HLS INTERFACE axis port=data_to_read_2 depth=16
+        // #pragma HLS INTERFACE axis port=vec_info_to_edge_1 depth=4
+        // #pragma HLS INTERFACE axis port=vec_info_to_edge_2 depth=4
+        // #pragma HLS INTERFACE axis port=vec_info_to_read_1 depth=4
+        // #pragma HLS INTERFACE axis port=vec_info_to_read_2 depth=4
         #pragma HLS INTERFACE axis port=signal_stream
         #pragma HLS DATAFLOW 
         ap_uint<512>* hbm_ptrs[MEM_CHANNELS] = {
@@ -299,12 +299,12 @@ extern "C"
         hls::stream<ap_axiu<512, 0, 0, 0>>* data_to_read[MEM_CHANNELS] = {
             &data_to_read_1, &data_to_read_2
         };
-        hls::stream<VEC_INFO_STREAM>* vec_info_to_edge[MEM_CHANNELS] = {
-            &vec_info_to_edge_1, &vec_info_to_edge_2
-        };
-        hls::stream<VEC_INFO_STREAM>* vec_info_to_read[MEM_CHANNELS] = {
-            &vec_info_to_read_1, &vec_info_to_read_2
-        };
+        // hls::stream<VEC_INFO_STREAM>* vec_info_to_edge[MEM_CHANNELS] = {
+        //     &vec_info_to_edge_1, &vec_info_to_edge_2
+        // };
+        // hls::stream<VEC_INFO_STREAM>* vec_info_to_read[MEM_CHANNELS] = {
+        //     &vec_info_to_read_1, &vec_info_to_read_2
+        // };
 
         hls::stream<vec_info_access_command> vec_info_to_merger[MEM_CHANNELS];
         #pragma HLS stream variable=vec_info_to_merger depth=32
@@ -329,8 +329,8 @@ extern "C"
                 *data_from_edge[i],
                 *data_to_edge[i],
                 *data_to_read[i],
-                *vec_info_to_edge[i],
-                *vec_info_to_read[i],
+                // *vec_info_to_edge[i],
+                // *vec_info_to_read[i],
                 signal_to_worker[i]
             );
         }

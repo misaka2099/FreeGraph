@@ -19,6 +19,7 @@ static void set_bits(int start, int len, BYTE* bitmap)
     #pragma HLS INLINE off
     for (int i = start; i < start + len; i++)
     {
+        #pragma HLS UNROLL factor=1
         bitmap[i / 8] |= ((BYTE)1 << (i % 8));
     }
 }
@@ -28,6 +29,7 @@ static bool is_free(int start, int len, int &first_set, BYTE* bitmap)
     #pragma HLS INLINE off
     for (int i = start; i < start + len; i++)
     {
+        #pragma HLS UNROLL factor=1
         if (bitmap[i / 8] & (1 << (i % 8)))
         {
             first_set = i;
@@ -45,6 +47,7 @@ static void allocate(int &start, int len, BYTE* bitmap)
     int first_set = -1;
     for (int i = 0 ; i < TOTAL_BLOCKS ; i++)
     {
+        #pragma HLS UNROLL factor=1
         if (is_free(i, len, first_set, bitmap))
         {
             start = i;
@@ -63,6 +66,7 @@ static void reset_bits(int start, int len, BYTE* bitmap)
     #pragma HLS INLINE off
     for (int i = start; i < start + len; i++)
     {
+        #pragma HLS UNROLL factor=1
         bitmap[i / 8] &= ~((BYTE)1 << (i % 8));
     }
 }
@@ -94,7 +98,7 @@ static void alloc_free_worker_tagged(
 
     while (true)
     {
-        #pragma HLS PIPELINE II=1
+        #pragma HLS PIPELINE II=2
         MERGED_ALLOC_REQUEST pending_info;
         if (!req_in.read_nb(pending_info))
         {
@@ -148,6 +152,7 @@ static void alloc_free_worker_tagged(
             for (int i = 0 ; i < BITMAP_SIZE ; i++)
             {
                 #pragma HLS PIPELINE II=1
+                #pragma HLS UNROLL factor=1
                 storage[i] = bm_in_hbm[i];
             }
         }
@@ -273,7 +278,15 @@ extern "C"
         #pragma HLS INTERFACE axis port=vec_info_to_vertex_2
         #pragma HLS INTERFACE axis port=vec_info_to_edge_1
         #pragma HLS INTERFACE axis port=vec_info_to_edge_2
-
+        #pragma HLS STREAM variable=signal_stream depth=4
+        #pragma HLS STREAM variable=req_from_vertex_1 depth=16
+        #pragma HLS STREAM variable=req_from_vertex_2 depth=16
+        #pragma HLS STREAM variable=req_from_edge_1 depth=16
+        #pragma HLS STREAM variable=req_from_edge_2 depth=16
+        #pragma HLS STREAM variable=vec_info_to_vertex_1 depth=4
+        #pragma HLS STREAM variable=vec_info_to_vertex_2 depth=4
+        #pragma HLS STREAM variable=vec_info_to_edge_1 depth=4
+        #pragma HLS STREAM variable=vec_info_to_edge_2 depth=4
 
         #pragma HLS DATAFLOW
 

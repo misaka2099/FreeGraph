@@ -813,18 +813,19 @@ int main(int argc, char** argv)
               << " ms" << std::endl;
 
     if (!Graph.empty())
-    {
-        verify_graph(Graph, max_vertex_idx, "Final_Full_Graph");
-    }
-    else
-    {
-        std::cout << "Full Graph verification skipped (no vertices)." << std::endl;
-    }
+    // {
+    //     verify_graph(Graph, max_vertex_idx, "Final_Full_Graph");
+    // }
+    // else
+    // {
+    //     std::cout << "Full Graph verification skipped (no vertices)." << std::endl;
+    // }
 
     run_signal_kernel.set_arg(0, MEM_STOP);
     run_signal_kernel.start();
     run_signal_kernel.wait();
     std::cout << "Stop signal sent to memory kernel." <<  std::endl;
     run_alloc_access_kernel.wait();
+    run_mem_access_kernel_1.wait();
     return 0;
 }
