@@ -5,9 +5,9 @@
 #include "ap_int.h"
 #include "ap_axi_sdata.h"
 // typedef  ap_uint<8> BYTE_STREAM;
-typedef ap_axiu<1,0,0,0> VERTEX_ACK;
-typedef ap_axiu<1,0,0,0> WHOLE_ACK;
-#define CHANNEL_CAPACITY (1*1024*1024)
+typedef ap_axiu<8,0,0,0> VERTEX_ACK;
+typedef ap_axiu<8,0,0,0> WHOLE_ACK;
+#define CHANNEL_CAPACITY (250*1024*1024)
 // #define CHANNEL_CAPACITY (64*1024*1024)
 #define CHANNEL_NUM 2
 typedef ap_axiu<8,0,0,0> BYTE_STREAM ;

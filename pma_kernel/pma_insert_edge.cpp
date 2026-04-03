@@ -1047,156 +1047,6 @@ void redistribute(
     }
 }
 
-// void rebalance_cu(
-//     // ap_uint<512>* hbm_ptr,
-//     hls::stream<MEMORY_INFO_ACCESS_COMMAND>& memory_access_stream,
-//     hls::stream<ap_uint<512>>& data_to_mem,
-//     hls::stream<ap_uint<512>>& data_from_mem,
-//     hls::stream<PMA_HEADER>& old_pma_header_in,
-//     hls::stream<PMA_HEADER>& pma_header_in,
-//     hls::stream<VEC_INFO>& old_pma_addr_in,
-//     hls::stream<VEC_INFO>& pma_addr_in,
-//     hls::stream<pma_idx_info>& pma_idx,
-//     hls::stream<inserted_seg>& inserted_seg_info,
-//     hls::stream<COMMAND_STREAM>& ack_back_to_router,
-//     hls::stream<MEMORY_ALLOC_FREE_REQUEST_INTERNAL>& free_request_stream
-// )
-// {
-        
-//     printf("REBALANCE\n");
-//     while (true)
-//     {
-//         auto signal = pma_idx.read();
-//         if (signal.last == 1)
-//         {
-//             MEMORY_INFO_ACCESS_COMMAND x = {};
-//             x.pma_idx = 0;
-//             x.start = 0;
-//             x.len = 0;
-//             x.command_type = MEMORY_READ;
-//             x.last = 1;
-//             memory_access_stream.write(x);
-//             data_to_mem.write(0);
-//             MEMORY_ALLOC_FREE_REQUEST_INTERNAL finish_req = 0;
-//             finish_req.range(67,64) = REQ_TYPE_FINISH;
-//             free_request_stream.write(finish_req);
-//             // ack_back_to_router.write(pma_idx);
-//             break;
-//         }
-//         PMA_HEADER pma_header = pma_header_in.read();
-//         PMA_HEADER old_pma_header = old_pma_header_in.read();
-
-//         VEC_INFO pma_addr = pma_addr_in.read();
-//         VEC_INFO old_pma_addr = old_pma_addr_in.read();
-
-//         auto to_check = inserted_seg_info.read();
-//         // int seg_count = pma_header.vertex_range[15];
-
-//         const int pma_data_base_addr = pma_addr.range(31,0) + sizeof(PMA_HEADER);
-//         const int old_pma_data_base_addr = old_pma_addr.range(31,0) + sizeof(PMA_HEADER);
-//         // const int pma_data_size_bytes = pma_addr.range(63,32) - sizeof(PMA_HEADER);
-
-//         if (pma_data_base_addr != old_pma_data_base_addr)
-//         {
-//             // Enlarged
-//             hls::print("PMA Enlarged, Redistributing...\n");
-//             for (int v = 0 ; v < VERTEX_PER_PMA ; v++)
-//             {
-//                 int old_seg_start = (v == 0) ? 0 : old_pma_header.vertex_range[v-1];
-//                 int old_seg_end = old_pma_header.vertex_range[v];
-//                 int new_seg_start = (v == 0) ? 0 : pma_header.vertex_range[v-1];
-//                 int new_seg_end = pma_header.vertex_range[v];
-
-//                 int total_valid_count = old_pma_header.edge_count[v];
-                
-//                 redistribute(old_seg_start, old_seg_end, new_seg_start, new_seg_end, 
-//                     memory_access_stream, data_to_mem, data_from_mem, 
-//                     old_pma_data_base_addr, pma_data_base_addr, total_valid_count);
-//             }
-//             MEMORY_ALLOC_FREE_REQUEST_INTERNAL free_command = 0;
-//             free_command.range(67,64) = REQ_TYPE_FREE;
-//             free_command.range(63,0) = old_pma_addr.range(63,0);
-//             free_command.range(64,64) = 1; // free
-//             free_request_stream.write(free_command);
-//         }
-//         else
-//         {
-//             ap_uint<64> rebalance_ops[16];
-//             int rebalance_count = 0;
-//             int last_vertex = -1;
-//             int last_reletive_seg = -1;
-//             for (int i = 0 ; i < 16 ; i++)//去除重复判定
-//             {
-//                 if (
-//                     to_check.old_vertex_relative_seg_number[i] == last_reletive_seg &&
-//                     to_check.vertex_number[i] == last_vertex
-//                 )
-//                 {
-//                     to_check.old_vertex_relative_seg_number[i] = -1;
-//                 }
-//                 else  
-//                 {
-//                     last_vertex = to_check.vertex_number[i];
-//                     last_reletive_seg = to_check.old_vertex_relative_seg_number[i];
-//                 }
-//             }
-//             for (int i = 0 ; i < 16 ; i++)
-//             {
-//                 if (to_check.vertex_number[i] == -1) continue;
-//                 int v = to_check.vertex_number[i];
-//                 int relative_seg_num = to_check.old_vertex_relative_seg_number[i];
-
-//                 int seg_start = (v == 0) ? 0 : pma_header.vertex_range[v-1];
-//                 int seg_end = pma_header.vertex_range[v];
-//                 int seg_num = seg_end - seg_start; // 当前vertex的segment数
-//                 int total_valid_count = 0;
-//                 int seg_idx = relative_seg_num;
-//                 total_valid_count = valid_count(seg_idx + seg_start, seg_idx + seg_start+ 1, memory_access_stream, data_from_mem, pma_data_base_addr);
-//                 int last_left = seg_idx + seg_start;
-//                 int last_right = seg_idx + seg_start + 1 ;
-//                 int max_edge = SEGMENT_SIZE * DENSITY_BOUND;
-//                 if (total_valid_count < max_edge) continue;
-//                 for (int cur_seg_num = 2 ; cur_seg_num <= seg_num ; cur_seg_num *= 2)
-//                 {
-//                     int left = seg_start + int(seg_idx / cur_seg_num) * cur_seg_num;
-//                     int right = seg_start + (int(seg_idx / cur_seg_num) + 1) * cur_seg_num;
-//                     // int valid = valid_count(left, right);
-//                     if (left < last_left) {
-//                         total_valid_count += valid_count(left, last_left, memory_access_stream, data_from_mem, pma_data_base_addr);
-//                     }
-//                     else if (right > last_right) {
-//                         total_valid_count += valid_count(last_right, right, memory_access_stream, data_from_mem, pma_data_base_addr);
-//                     }
-
-//                     max_edge = (right - left) * SEGMENT_SIZE * DENSITY_BOUND; 
-//                     if (total_valid_count <= max_edge)
-//                     {
-//                         rebalance_ops[rebalance_count] = ((ap_uint<64>(left) << 32) | right);
-//                         rebalance_count++;
-//                         break;
-//                     }
-//                     last_left = left;
-//                     last_right = right;
-//                 }
-//             }
-//             hls::print("Rebalance Ops Count: %d\n", rebalance_count);
-//             for (int i = 0 ; i < rebalance_count ; i++)
-//             {
-//                 hls::print("Rebalancing Segment [%d,", int(rebalance_ops[i].range(63,32)));
-//                 hls::print("%d)\n", int(rebalance_ops[i].range(31,0)));
-//                 #pragma HLS PIPELINE II=1
-//                 int left = rebalance_ops[i].range(63,32);
-//                 int right = rebalance_ops[i].range(31,0);
-//                 redistribute(left, right, left, right, 
-//                     memory_access_stream, data_to_mem, data_from_mem, 
-//                     pma_data_base_addr, pma_data_base_addr, right * SEGMENT_SIZE * DENSITY_BOUND);
-//             }
-//         }
-        
-//         ack_back_to_router.write({.data=signal.pma_idx});
-//     }
-// }   
-
 void rebalance_cu(
     // ap_uint<512>* hbm_ptr,
     hls::stream<MEMORY_INFO_ACCESS_COMMAND>& memory_access_stream,
@@ -1271,10 +1121,29 @@ void rebalance_cu(
         }
         else
         {
+            ap_uint<64> rebalance_ops[16];
+            int rebalance_count = 0;
+            int last_vertex = -10;
+            int last_reletive_seg = -10;
+            for (int i = 0 ; i < 16 ; i++)//去除重复判定
+            {
+                if (
+                    to_check.old_vertex_relative_seg_number[i] == last_reletive_seg &&
+                    to_check.vertex_number[i] == last_vertex
+                )
+                {
+                    to_check.old_vertex_relative_seg_number[i] = -1;
+                    to_check.vertex_number[i] = -1;
+                }
+                else  
+                {
+                    last_vertex = to_check.vertex_number[i];
+                    last_reletive_seg = to_check.old_vertex_relative_seg_number[i];
+                }
+            }
             for (int i = 0 ; i < 16 ; i++)
             {
                 if (to_check.vertex_number[i] == -1) continue;
-
                 int v = to_check.vertex_number[i];
                 int relative_seg_num = to_check.old_vertex_relative_seg_number[i];
 
@@ -1286,8 +1155,6 @@ void rebalance_cu(
                 total_valid_count = valid_count(seg_idx + seg_start, seg_idx + seg_start+ 1, memory_access_stream, data_from_mem, pma_data_base_addr);
                 int last_left = seg_idx + seg_start;
                 int last_right = seg_idx + seg_start + 1 ;
-
-
                 int max_edge = SEGMENT_SIZE * DENSITY_BOUND;
                 if (total_valid_count < max_edge) continue;
                 for (int cur_seg_num = 2 ; cur_seg_num <= seg_num ; cur_seg_num *= 2)
@@ -1305,30 +1172,164 @@ void rebalance_cu(
                     max_edge = (right - left) * SEGMENT_SIZE * DENSITY_BOUND; 
                     if (total_valid_count <= max_edge)
                     {
-                        redistribute(left, right, left, right, memory_access_stream, data_to_mem, data_from_mem, pma_data_base_addr, pma_data_base_addr, total_valid_count);
+                        rebalance_ops[rebalance_count] = ((ap_uint<64>(left) << 32) | right);
+                        rebalance_count++;
                         break;
                     }
                     last_left = left;
                     last_right = right;
                 }
             }
-            // hls::print("Rebalance Ops Count: %d\n", rebalance_count);
-            // for (int i = 0 ; i < rebalance_count ; i++)
-            // {
-            //     hls::print("Rebalancing Segment [%d,", int(rebalance_ops[i].range(63,32)));
-            //     hls::print("%d)\n", int(rebalance_ops[i].range(31,0)));
-            //     #pragma HLS PIPELINE II=1
-            //     int left = rebalance_ops[i].range(63,32);
-            //     int right = rebalance_ops[i].range(31,0);
-            //     redistribute(left, right, left, right, 
-            //         memory_access_stream, data_to_mem, data_from_mem, 
-            //         pma_data_base_addr, pma_data_base_addr, right * SEGMENT_SIZE * DENSITY_BOUND);
-            // }
+            hls::print("Rebalance Ops Count: %d\n", rebalance_count);
+            for (int i = 0 ; i < rebalance_count ; i++)
+            {
+                hls::print("Rebalancing Segment [%d,", int(rebalance_ops[i].range(63,32)));
+                hls::print("%d)\n", int(rebalance_ops[i].range(31,0)));
+                #pragma HLS PIPELINE II=1
+                int left = rebalance_ops[i].range(63,32);
+                int right = rebalance_ops[i].range(31,0);
+                redistribute(left, right, left, right, 
+                    memory_access_stream, data_to_mem, data_from_mem, 
+                    pma_data_base_addr, pma_data_base_addr, right * SEGMENT_SIZE * DENSITY_BOUND);
+            }
         }
         
         ack_back_to_router.write({.data=signal.pma_idx});
     }
 }   
+
+// void rebalance_cu(
+//     // ap_uint<512>* hbm_ptr,
+//     hls::stream<MEMORY_INFO_ACCESS_COMMAND>& memory_access_stream,
+//     hls::stream<ap_uint<512>>& data_to_mem,
+//     hls::stream<ap_uint<512>>& data_from_mem,
+//     hls::stream<PMA_HEADER>& old_pma_header_in,
+//     hls::stream<PMA_HEADER>& pma_header_in,
+//     hls::stream<VEC_INFO>& old_pma_addr_in,
+//     hls::stream<VEC_INFO>& pma_addr_in,
+//     hls::stream<pma_idx_info>& pma_idx,
+//     hls::stream<inserted_seg>& inserted_seg_info,
+//     hls::stream<COMMAND_STREAM>& ack_back_to_router,
+//     hls::stream<MEMORY_ALLOC_FREE_REQUEST_INTERNAL>& free_request_stream
+// )
+// {
+        
+//     printf("REBALANCE\n");
+//     while (true)
+//     {
+//         auto signal = pma_idx.read();
+//         if (signal.last == 1)
+//         {
+//             MEMORY_INFO_ACCESS_COMMAND x = {};
+//             x.pma_idx = 0;
+//             x.start = 0;
+//             x.len = 0;
+//             x.command_type = MEMORY_READ;
+//             x.last = 1;
+//             memory_access_stream.write(x);
+//             data_to_mem.write(0);
+//             MEMORY_ALLOC_FREE_REQUEST_INTERNAL finish_req = 0;
+//             finish_req.range(67,64) = REQ_TYPE_FINISH;
+//             free_request_stream.write(finish_req);
+//             // ack_back_to_router.write(pma_idx);
+//             break;
+//         }
+//         PMA_HEADER pma_header = pma_header_in.read();
+//         PMA_HEADER old_pma_header = old_pma_header_in.read();
+
+//         VEC_INFO pma_addr = pma_addr_in.read();
+//         VEC_INFO old_pma_addr = old_pma_addr_in.read();
+
+//         auto to_check = inserted_seg_info.read();
+//         // int seg_count = pma_header.vertex_range[15];
+
+//         const int pma_data_base_addr = pma_addr.range(31,0) + sizeof(PMA_HEADER);
+//         const int old_pma_data_base_addr = old_pma_addr.range(31,0) + sizeof(PMA_HEADER);
+//         // const int pma_data_size_bytes = pma_addr.range(63,32) - sizeof(PMA_HEADER);
+
+//         if (pma_data_base_addr != old_pma_data_base_addr)
+//         {
+//             // Enlarged
+//             hls::print("PMA Enlarged, Redistributing...\n");
+//             for (int v = 0 ; v < VERTEX_PER_PMA ; v++)
+//             {
+//                 int old_seg_start = (v == 0) ? 0 : old_pma_header.vertex_range[v-1];
+//                 int old_seg_end = old_pma_header.vertex_range[v];
+//                 int new_seg_start = (v == 0) ? 0 : pma_header.vertex_range[v-1];
+//                 int new_seg_end = pma_header.vertex_range[v];
+
+//                 int total_valid_count = old_pma_header.edge_count[v];
+                
+//                 redistribute(old_seg_start, old_seg_end, new_seg_start, new_seg_end, 
+//                     memory_access_stream, data_to_mem, data_from_mem, 
+//                     old_pma_data_base_addr, pma_data_base_addr, total_valid_count);
+//             }
+//             MEMORY_ALLOC_FREE_REQUEST_INTERNAL free_command = 0;
+//             free_command.range(67,64) = REQ_TYPE_FREE;
+//             free_command.range(63,0) = old_pma_addr.range(63,0);
+//             free_command.range(64,64) = 1; // free
+//             free_request_stream.write(free_command);
+//         }
+//         else
+//         {
+//             for (int i = 0 ; i < 16 ; i++)
+//             {
+//                 if (to_check.vertex_number[i] == -1) continue;
+
+//                 int v = to_check.vertex_number[i];
+//                 int relative_seg_num = to_check.old_vertex_relative_seg_number[i];
+
+//                 int seg_start = (v == 0) ? 0 : pma_header.vertex_range[v-1];
+//                 int seg_end = pma_header.vertex_range[v];
+//                 int seg_num = seg_end - seg_start; // 当前vertex的segment数
+//                 int total_valid_count = 0;
+//                 int seg_idx = relative_seg_num;
+//                 total_valid_count = valid_count(seg_idx + seg_start, seg_idx + seg_start+ 1, memory_access_stream, data_from_mem, pma_data_base_addr);
+//                 int last_left = seg_idx + seg_start;
+//                 int last_right = seg_idx + seg_start + 1 ;
+
+
+//                 int max_edge = SEGMENT_SIZE * DENSITY_BOUND;
+//                 if (total_valid_count < max_edge) continue;
+//                 for (int cur_seg_num = 2 ; cur_seg_num <= seg_num ; cur_seg_num *= 2)
+//                 {
+//                     int left = seg_start + int(seg_idx / cur_seg_num) * cur_seg_num;
+//                     int right = seg_start + (int(seg_idx / cur_seg_num) + 1) * cur_seg_num;
+//                     // int valid = valid_count(left, right);
+//                     if (left < last_left) {
+//                         total_valid_count += valid_count(left, last_left, memory_access_stream, data_from_mem, pma_data_base_addr);
+//                     }
+//                     else if (right > last_right) {
+//                         total_valid_count += valid_count(last_right, right, memory_access_stream, data_from_mem, pma_data_base_addr);
+//                     }
+
+//                     max_edge = (right - left) * SEGMENT_SIZE * DENSITY_BOUND; 
+//                     if (total_valid_count <= max_edge)
+//                     {
+//                         redistribute(left, right, left, right, memory_access_stream, data_to_mem, data_from_mem, pma_data_base_addr, pma_data_base_addr, total_valid_count);
+//                         break;
+//                     }
+//                     last_left = left;
+//                     last_right = right;
+//                 }
+//             }
+//             // hls::print("Rebalance Ops Count: %d\n", rebalance_count);
+//             // for (int i = 0 ; i < rebalance_count ; i++)
+//             // {
+//             //     hls::print("Rebalancing Segment [%d,", int(rebalance_ops[i].range(63,32)));
+//             //     hls::print("%d)\n", int(rebalance_ops[i].range(31,0)));
+//             //     #pragma HLS PIPELINE II=1
+//             //     int left = rebalance_ops[i].range(63,32);
+//             //     int right = rebalance_ops[i].range(31,0);
+//             //     redistribute(left, right, left, right, 
+//             //         memory_access_stream, data_to_mem, data_from_mem, 
+//             //         pma_data_base_addr, pma_data_base_addr, right * SEGMENT_SIZE * DENSITY_BOUND);
+//             // }
+//         }
+        
+//         ack_back_to_router.write({.data=signal.pma_idx});
+//     }
+// }   
 
 
 

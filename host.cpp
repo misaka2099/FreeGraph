@@ -173,7 +173,9 @@ int main(int argc, char** argv)
     }
 
     int max_vertex_idx = static_cast<int>(Graph.size()) - 1;
-    size_t buffer_len = std::max<size_t>(1, Graph.size() * Graph.size()); // 预留足够大
+    // Avoid O(V^2) host/device allocation. Verification buffers only need to cover
+    // expected COO/CSR payload scale, which is bounded by operation/edge volume.
+    size_t buffer_len = std::max<size_t>(1, edge_ops.size() * 2 + Graph.size() + 1024);
     int static_max_vertex = max_vertex_idx;
     // BaseGraph置空，所有操作都作为增量在FPGA上执行
     std::vector<std::vector<int>> BaseGraph;
@@ -188,8 +190,44 @@ int main(int argc, char** argv)
     auto device = xrt::device(0);
     auto uuid = device.load_xclbin(xclbin);
 
-    auto alloc_access_kernel = xrt::kernel(device, uuid, "alloc_access_kernel:{alloc_access_kernel_1}");
-    auto mem_access_kernel_1 = xrt::kernel(device, uuid, "mem_access_kernel:{mem_access_kernel_1}");
+    // auto alloc_access_kernel_1 = xrt::kernel(device, uuid, "alloc_access_kernel:{alloc_access_kernel_1}");
+    // auto alloc_access_kernel_2 = xrt::kernel(device, uuid, "alloc_access_kernel:{alloc_access_kernel_2}");
+    // xrt::kernel alloc_access_kernels[CHANNEL_NUM] = {
+    //     alloc_access_kernel_1,
+    //     alloc_access_kernel_2
+    // };
+    std::vector<xrt::kernel> alloc_access_kernels;
+    alloc_access_kernels.reserve(CHANNEL_NUM);
+    for (int i = 1; i <= CHANNEL_NUM; ++i)
+    {
+        try {
+            alloc_access_kernels.emplace_back(device, uuid, "alloc_access_kernel:{alloc_access_kernel_" + std::to_string(i) + "}");
+        } catch (const std::runtime_error &e) {
+            std::string msg = e.what();
+            if (msg.find("No compute units matching") != std::string::npos) {
+                break;
+            }
+        }
+    }
+    // auto mem_access_kernel_1 = xrt::kernel(device, uuid, "mem_access_kernel:{mem_access_kernel_1}");
+    // auto mem_access_kernel_2 = xrt::kernel(device, uuid, "mem_access_kernel:{mem_access_kernel_2}");
+    // xrt::kernel mem_access_kernels[CHANNEL_NUM] = {
+    //     mem_access_kernel_1,
+    //     mem_access_kernel_2
+    // };
+    std::vector<xrt::kernel> mem_access_kernels;
+    mem_access_kernels.reserve(CHANNEL_NUM);
+    for (int i = 1; i <= CHANNEL_NUM; ++i)
+    {
+        try {
+            mem_access_kernels.emplace_back(device, uuid, "mem_access_kernel:{mem_access_kernel_" + std::to_string(i) + "}");
+        } catch (const std::runtime_error &e) {
+            std::string msg = e.what();
+            if (msg.find("No compute units matching") != std::string::npos) {
+                break;
+            }
+        }
+    }
     auto pma_read_kernel = xrt::kernel(device, uuid, "pma_read_kernel");
     auto update_message_generator_kernel = xrt::kernel(device, uuid, "update_message_generator");
     auto update_message_router_kernel = xrt::kernel(device, uuid, "update_message_router");
@@ -225,34 +263,63 @@ int main(int argc, char** argv)
     auto check_kernel = xrt::kernel(device, uuid, "check_kernel");
     auto signal_kernel = xrt::kernel(device, uuid, "signal_kernel:{signal_kernel_1}");
     std::cout << "Kernels loaded successfully." << std::endl;
-    auto run_alloc_access_kernel = xrt::run(alloc_access_kernel);
-    auto run_mem_access_kernel_1 = xrt::run(mem_access_kernel_1);
+    std::cout << "Loaded alloc kernels: " << alloc_access_kernels.size()
+              << ", mem kernels: " << mem_access_kernels.size() << std::endl;
+    if (alloc_access_kernels.size() < static_cast<size_t>(CHANNEL_NUM) ||
+        mem_access_kernels.size() < static_cast<size_t>(CHANNEL_NUM))
+    {
+        std::cerr << "Kernel loading incomplete; aborting before launch to avoid out-of-range access." << std::endl;
+        return 1;
+    }
+    std::vector<xrt::run> run_alloc_kernels;
+    run_alloc_kernels.reserve(CHANNEL_NUM);
+    std::vector<xrt::run> run_mem_access_kernels;
+    run_mem_access_kernels.reserve(CHANNEL_NUM);
+    std::cout << "Launching kernels..." << std::endl;
+    for (size_t i = 0; i < static_cast<size_t>(CHANNEL_NUM); ++i)
+    {
+        std::cout << "LOOP " << i << std::endl;
+        run_alloc_kernels.emplace_back(alloc_access_kernels[i]);
+        run_mem_access_kernels.emplace_back(mem_access_kernels[i]);
+    }
+    std::cout << "Memory access kernels are launched..." << std::endl;
+    // auto run_alloc_access_kernel = xrt::run(alloc_access_kernel_1);
+    // auto run_alloc_access_kernel_2 = xrt::run(alloc_access_kernel_2);
+    // auto run_mem_access_kernel_1 = xrt::run(mem_access_kernel_1);
+    // auto run_mem_access_kernel_2 = xrt::run(mem_access_kernel_2);
     auto run_pma_read_kernel = xrt::run(pma_read_kernel);
-    auto run_update_message_generator_kernel = xrt::run(update_message_generator_kernel);
+    std::cout << "Memory access kernels are launched..." << std::endl;
     auto run_update_message_router_kernel = xrt::run(update_message_router_kernel);
+    std::cout << "Update message router kernel is launched..." << std::endl;
     std::vector<xrt::run> run_pma_insert_vertex_kernels;
     run_pma_insert_vertex_kernels.reserve(pma_insert_vertex_kernels.size());
+
     for (auto &k : pma_insert_vertex_kernels)
     {
         run_pma_insert_vertex_kernels.emplace_back(k);
     }
+    std::cout << "PMA insert vertex kernels are launched..." << std::endl;
     std::vector<xrt::run> run_pma_insert_edge_kernels;
     run_pma_insert_edge_kernels.reserve(pma_insert_edge_kernels.size());
     for (auto &k : pma_insert_edge_kernels)
     {
         run_pma_insert_edge_kernels.emplace_back(k);
     }
-    auto run_check_kernel = xrt::run(check_kernel);
+    std::cout << "PMA insert edge kernels are launched..." << std::endl;
     auto run_signal_kernel = xrt::run(signal_kernel);
     std::cout << "Kernels are created..." << std::endl;
 
     auto start_buffer = std::chrono::high_resolution_clock::now();
 
     std::vector<xrt::bo> bo_hbm_base_addr;
+    std::vector<xrt::bo> bo_vec_info;
     bo_hbm_base_addr.reserve(CHANNEL_NUM);
-    for (int i = 0; i < CHANNEL_NUM; ++i)
+    bo_vec_info.reserve(CHANNEL_NUM);
+    for (int i = 0 ; i < CHANNEL_NUM; ++i)
     {
-        bo_hbm_base_addr.emplace_back(device, sizeof(BYTE) * (size_t)CHANNEL_CAPACITY, mem_access_kernel_1.group_id(i));
+        bo_hbm_base_addr.emplace_back(device, sizeof(BYTE) * (size_t)CHANNEL_CAPACITY, mem_access_kernels[i].group_id(0));
+        bo_vec_info.emplace_back(device, sizeof(VEC_INFO) * MAX_PMA_NUM,
+                                 mem_access_kernels[i].group_id(1));
     }
     // auto bo_valid_array = xrt::bo(device, sizeof(BYTE) * ((size_t)CHANNEL_CAPACITY * CHANNEL_NUM / 8), allocate_kernel.group_id(0));
 
@@ -270,9 +337,15 @@ int main(int argc, char** argv)
 
     // std::fill_n(valid_array, CHANNEL_CAPACITY / 8, 0);
 
-    auto bo_pos_vec_info = xrt::bo(device, sizeof(VEC_INFO) * MAX_PMA_NUM, mem_access_kernel_1.group_id(CHANNEL_NUM));
-    auto pos_vec_info_ptr = bo_pos_vec_info.map<VEC_INFO*>();
-    std::fill_n(pos_vec_info_ptr, MAX_PMA_NUM, 0);
+    // auto bo_pos_vec_info = xrt::bo(device, sizeof(VEC_INFO) * MAX_PMA_NUM, mem_access_kernel_1.group_id(CHANNEL_NUM));
+    // auto pos_vec_info_ptr = bo_pos_vec_info.map<VEC_INFO*>();
+    std::vector<VEC_INFO*> vec_info_ptrs;
+    vec_info_ptrs.reserve(CHANNEL_NUM);
+    for (auto &bo : bo_vec_info)
+    {
+        vec_info_ptrs.push_back(bo.map<VEC_INFO*>());
+        std::fill_n(vec_info_ptrs.back(), MAX_PMA_NUM, 0);
+    }
 
     // 修改 bo_src 和 bo_dst 的分配，确保使用 update_message_generator_kernel 的 group_id
     size_t edge_buffer_len = std::max<size_t>(edge_ops.size(), 1);
@@ -311,12 +384,16 @@ int main(int argc, char** argv)
     bitmap_ptrs.reserve(CHANNEL_NUM);
     for (int i = 0; i < CHANNEL_NUM; ++i)
     {
-        bo_bitmap.emplace_back(device,
-            sizeof(BYTE) * ((size_t)CHANNEL_CAPACITY * CHANNEL_NUM / INIT_VEC_LEN_IN_BYTE / 8),
-            alloc_access_kernel.group_id(i));
-        auto bitmap_ptr = bo_bitmap.back().map<BYTE*>();
-        bitmap_ptrs.push_back(bitmap_ptr);
-        std::fill_n(bitmap_ptr, (size_t)CHANNEL_CAPACITY * CHANNEL_NUM / 8 / INIT_VEC_LEN_IN_BYTE, 0);
+      bo_bitmap.emplace_back(device,
+                             sizeof(BYTE) *
+                                 ((size_t)CHANNEL_CAPACITY * CHANNEL_NUM /
+                                  INIT_VEC_LEN_IN_BYTE / 8),
+                             alloc_access_kernels[i].group_id(0));
+      auto bitmap_ptr = bo_bitmap.back().map<BYTE *>();
+      bitmap_ptrs.push_back(bitmap_ptr);
+      std::fill_n(
+          bitmap_ptr,
+          (size_t)CHANNEL_CAPACITY * CHANNEL_NUM / 8 / INIT_VEC_LEN_IN_BYTE, 0);
     }
 
     auto end_buffer = std::chrono::high_resolution_clock::now();
@@ -328,13 +405,16 @@ int main(int argc, char** argv)
     // Mem Access Kernel Args
     for (int i = 0; i < CHANNEL_NUM; ++i)
     {
-        run_mem_access_kernel_1.set_arg(i, bo_hbm_base_addr[i]);
+        // run_mem_access_kernel_1.set_arg(i, bo_hbm_base_addr[i]);
+        run_mem_access_kernels[i].set_arg(0, bo_hbm_base_addr[i]);
+        run_mem_access_kernels[i].set_arg(1, bo_vec_info[i]);
     }
-    run_mem_access_kernel_1.set_arg(CHANNEL_NUM, bo_pos_vec_info);
+    // run_mem_access_kernel_1.set_arg(CHANNEL_NUM, bo_pos_vec_info);
 
     for (int i = 0; i < CHANNEL_NUM; ++i)
     {
-        run_alloc_access_kernel.set_arg(i, bo_bitmap[i]);
+        // run_alloc_access_kernel.set_arg(i, bo_bitmap[i]);
+        run_alloc_kernels[i].set_arg(0, bo_bitmap[i]);
     }
 
     auto verify_graph = [&](const std::vector<std::vector<int>>& expected_graph, int current_max_vertex, const std::string& label) {
@@ -351,6 +431,7 @@ int main(int argc, char** argv)
         bo_check_src.sync(XCL_BO_SYNC_BO_TO_DEVICE);
         bo_check_dst.sync(XCL_BO_SYNC_BO_TO_DEVICE);
         
+        auto run_check_kernel = xrt::run(check_kernel);
         run_check_kernel.set_arg(0, bo_check_src);
         run_check_kernel.set_arg(1, bo_check_dst);
         run_check_kernel.set_arg(2, bo_coo_src);
@@ -432,18 +513,32 @@ int main(int argc, char** argv)
         std::cout << "Verification time for " << label << ": " << elapsed_verify.count() << " s" << std::endl;
     };
 
-    auto add_base_graph_to_hbm = [&](int vertex_num, int edge_num) ->void
+    auto add_base_graph_to_hbm = [&](int vertex_num, int edge_num) -> bool
     {
         auto start_cpu_preprocess = std::chrono::high_resolution_clock::now();
-        std::vector<std::vector<int>> adj_pos(vertex_num+1); // src -> dst
-        adj_pos = BaseGraph;
+        const int total_pma_num = (vertex_num + VERTEX_PER_PMA - 1) / VERTEX_PER_PMA;
+        if (total_pma_num > MAX_PMA_NUM)
+        {
+            std::cerr << "PMA count overflow: required=" << total_pma_num
+                      << ", MAX_PMA_NUM=" << MAX_PMA_NUM << std::endl;
+            return false;
+        }
+        std::vector<std::vector<int>> adj_pos(vertex_num + 1); // src -> dst
+        if (!BaseGraph.empty())
+        {
+            adj_pos = BaseGraph;
+            if (adj_pos.size() < static_cast<size_t>(vertex_num + 1))
+            {
+                adj_pos.resize(vertex_num + 1);
+            }
+        }
         // std::vector<std::vector<int>> adj_neg(vertex_num+1); // dst -> src
 
         // Base graph currently empty; no edges to preload.
 
         // 2. 对邻居进行排序
         for(auto& neighbors : adj_pos) std::sort(neighbors.begin(), neighbors.end());
-        for (int i = 0 ; i <= vertex_num; ++i) 
+        for (int i = 0 ; i < vertex_num; ++i)
         {
             std::cout << "Vertex " << i << " has " << adj_pos[i].size() << " neighbors." << std::endl;
             for (int j = 0; j < adj_pos[i].size(); ++j) 
@@ -461,10 +556,11 @@ int main(int argc, char** argv)
         // std::ofstream debug_pma("debug_pma_content.txt");
 
         // 3. 构建 PMA 结构
-        for (int pma_idx = 0; pma_idx < (vertex_num + VERTEX_PER_PMA - 1) / VERTEX_PER_PMA; ++pma_idx) 
+        for (int pma_idx = 0; pma_idx < total_pma_num; ++pma_idx)
         {
             BYTE* current_base_addr = hbm_base_addresses[pma_idx % CHANNEL_NUM];
             int* current_offset = &current_addr_offset[pma_idx % CHANNEL_NUM];
+            int channel = pma_idx % CHANNEL_NUM;
             // POS Direction
             {
                 PMA_HEADER pos_header = {0};
@@ -514,14 +610,23 @@ int main(int argc, char** argv)
                 }
                 
                 // Write to HBM
-                memcpy(current_base_addr + *current_offset, &pos_header, sizeof(PMA_HEADER));
-                memcpy(current_base_addr + *current_offset + sizeof(PMA_HEADER), pos_data.data(), pos_data.size() * sizeof(int));
-
-                
                 int total_len = sizeof(PMA_HEADER) + pos_data.size() * sizeof(int);
                 int aligned_len = total_len;
                 if (aligned_len % INIT_VEC_LEN_IN_BYTE != 0) aligned_len += (INIT_VEC_LEN_IN_BYTE - (aligned_len % INIT_VEC_LEN_IN_BYTE));
-                pos_vec_info_ptr[pma_idx] = (ap_uint<64>(total_len) << 32) | *current_offset;
+                if (*current_offset < 0 || static_cast<size_t>(*current_offset) + static_cast<size_t>(aligned_len) > static_cast<size_t>(CHANNEL_CAPACITY))
+                {
+                    std::cerr << "HBM capacity overflow on channel " << channel
+                              << ": offset=" << *current_offset
+                              << ", write_bytes=" << aligned_len
+                              << ", capacity=" << CHANNEL_CAPACITY << std::endl;
+                    return false;
+                }
+
+                memcpy(current_base_addr + *current_offset, &pos_header, sizeof(PMA_HEADER));
+                memcpy(current_base_addr + *current_offset + sizeof(PMA_HEADER), pos_data.data(), pos_data.size() * sizeof(int));
+
+                // pos_vec_info_ptr[pma_idx] = (ap_uint<64>(total_len) << 32) | *current_offset;
+                vec_info_ptrs[channel][pma_idx] = (ap_uint<64>(total_len) << 32) | *current_offset;
                 
                 *current_offset += aligned_len;
                 // Align to 64 bytes
@@ -537,9 +642,9 @@ int main(int argc, char** argv)
         for (int i = 0 ; i < 10 ; i++)
         {
             int corresponding_channel = i % CHANNEL_NUM;
-            if (pos_vec_info_ptr[i] == 0) break;
-            int start = pos_vec_info_ptr[i].range(31,0);
-            int len =  pos_vec_info_ptr[i].range(63,32);
+            if (vec_info_ptrs[i % CHANNEL_NUM][i] == 0) break;
+            int start = vec_info_ptrs[i % CHANNEL_NUM][i].range(31,0);
+            int len =  vec_info_ptrs[i % CHANNEL_NUM][i].range(63,32);
             std::cout << "PMA " << i << " ADDR START FROM " << start << " LEN " << len << std::endl; 
             PMA_HEADER header;
             memcpy(&header, hbm_base_addresses[corresponding_channel] + start, sizeof(PMA_HEADER));
@@ -591,6 +696,7 @@ int main(int argc, char** argv)
         run_signal_kernel.set_arg(0, LOAD_BITMAP);
         run_signal_kernel.start();
         run_signal_kernel.wait();
+        return true;
     };
 
     // bo_valid_array.sync(XCL_BO_SYNC_BO_TO_DEVICE);
@@ -630,12 +736,14 @@ int main(int argc, char** argv)
         return static_cast<int>(edge_idx);
     };
 
-    auto run_update_batch = [&](int new_vertex_count, int edge_count, const std::string& label, bool last) -> long long {
+    auto run_update_batch = [&](int new_vertex_count, int edge_count, const std::string& label, bool last) -> double {
         if (edge_count == 0 && new_vertex_count == 0) {
-            std::cout << label << ": vertices=0, edges=0, time=0 ms" << std::endl;
+            std::cout << label << ": vertices=0, edges=0, time=0 s" << std::endl;
             return 0;
         }
-
+        auto run_update_message_generator_kernel = xrt::run(update_message_generator_kernel);
+        std::cout << "Update message generator kernel is launched..." << std::endl;
+    
         run_update_message_generator_kernel.set_arg(0, new_vertex_count);                   // add_vertex_num
         run_update_message_generator_kernel.set_arg(1, edge_count);                         // add_edge_num
         run_update_message_generator_kernel.set_arg(2, 0);                                  // delete_vertex_num
@@ -656,10 +764,10 @@ int main(int argc, char** argv)
         run_update_message_generator_kernel.wait();
 
         auto phase_end = std::chrono::high_resolution_clock::now();
-        auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(phase_end - phase_start).count();
+        std::chrono::duration<double> elapsed = phase_end - phase_start;
         std::cout << label << ": vertices=" << new_vertex_count << ", edges=" << edge_count
-                  << ", time=" << elapsed << " ms" << std::endl;
-        return elapsed;
+                  << ", time=" << elapsed.count() << " s" << std::endl;
+        return elapsed.count();
     };
 
     // 1. Start Long-Running (Keep Alive) Kernels ONCE before the batch loop
@@ -674,19 +782,35 @@ int main(int argc, char** argv)
     run_update_message_router_kernel.start();
 
 
-    run_mem_access_kernel_1.start();
-    run_alloc_access_kernel.start();
+    // run_mem_access_kernel_1.start();
+    // run_alloc_access_kernel.start();
+    for (auto &r : run_mem_access_kernels)
+    {
+        r.start();
+    }
+    for (auto &r : run_alloc_kernels)
+    {
+        r.start();
+    }
     // run_app_mem_middle_ware_kernel.start();
     // run_memalloc_kernel.start();
     
 
-    add_base_graph_to_hbm(static_max_vertex + 1, full_edge_count);
+    if (!add_base_graph_to_hbm(static_max_vertex + 1, full_edge_count))
+    {
+        std::cerr << "Failed to build/load base graph into HBM due to capacity/index overflow." << std::endl;
+        return 1;
+    }
     std::cout << "Base graph loaded into HBM." << std::endl;
-    bo_pos_vec_info.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+    // bo_pos_vec_info.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     bo_src.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     bo_dst.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     bo_opcode.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     for (auto &bo : bo_hbm_base_addr)
+    {
+        bo.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+    }
+    for (auto &bo : bo_vec_info)
     {
         bo.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     }
@@ -712,8 +836,8 @@ int main(int argc, char** argv)
         nbrs.erase(std::unique(nbrs.begin(), nbrs.end()), nbrs.end());
     };
 
-    long long base_phase_ms = 0;
-    long long incremental_phase_ms = 0;
+    double base_phase_s = 0;
+    double incremental_phase_s = 0;
     std::mt19937 rng(static_cast<unsigned>(std::chrono::high_resolution_clock::now().time_since_epoch().count()));
 
     for (size_t idx = 0; idx < operations.size(); )
@@ -747,7 +871,7 @@ int main(int argc, char** argv)
         }
 
         bool last = (idx == operations.size());
-        incremental_phase_ms += run_update_batch(new_vertex_count, edge_count, "ts_" + std::to_string(current_ts), last);
+        incremental_phase_s += run_update_batch(new_vertex_count, edge_count, "ts_" + std::to_string(current_ts), last);
 
         for (const auto &op : batch_ops)
 
@@ -809,8 +933,8 @@ int main(int argc, char** argv)
         r.wait();
     }
 
-    std::cout << "GRAPH UPDATED. total_time=" << (base_phase_ms + incremental_phase_ms)
-              << " ms" << std::endl;
+    std::cout << "GRAPH UPDATED. total_time=" << (base_phase_s + incremental_phase_s)
+              << " s" << std::endl;
 
     if (!Graph.empty())
     // {
@@ -825,7 +949,15 @@ int main(int argc, char** argv)
     run_signal_kernel.start();
     run_signal_kernel.wait();
     std::cout << "Stop signal sent to memory kernel." <<  std::endl;
-    run_alloc_access_kernel.wait();
-    run_mem_access_kernel_1.wait();
+    // run_alloc_access_kernel.wait();
+    // run_mem_access_kernel_1.wait();
+    for (auto &r : run_alloc_kernels)
+    {
+        r.wait();
+    }
+    for (auto &r : run_mem_access_kernels)
+    {
+        r.wait();
+    }
     return 0;
 }
