@@ -228,7 +228,15 @@ int main(int argc, char** argv)
             }
         }
     }
-    auto pma_read_kernel = xrt::kernel(device, uuid, "pma_read_kernel");
+    auto pma_read_router_kernel = xrt::kernel(device, uuid, "pma_read_router_kernel:{pma_read_router_kernel_1}");
+    std::vector<xrt::kernel> pma_read_worker_kernels;
+    pma_read_worker_kernels.reserve(CHANNEL_NUM);
+    for (int i = 1; i <= CHANNEL_NUM; ++i)
+    {
+        pma_read_worker_kernels.emplace_back(device, uuid,
+            "pma_read_worker_kernel:{pma_read_worker_kernel_" + std::to_string(i) + "}");
+    }
+    auto pma_read_merger_kernel = xrt::kernel(device, uuid, "pma_read_merger_kernel:{pma_read_merger_kernel_1}");
     auto update_message_generator_kernel = xrt::kernel(device, uuid, "update_message_generator");
     auto update_message_router_kernel = xrt::kernel(device, uuid, "update_message_router");
     auto try_add_kernel = [&](std::vector<xrt::kernel> &kernels, const std::string &name) -> bool {
@@ -287,7 +295,14 @@ int main(int argc, char** argv)
     // auto run_alloc_access_kernel_2 = xrt::run(alloc_access_kernel_2);
     // auto run_mem_access_kernel_1 = xrt::run(mem_access_kernel_1);
     // auto run_mem_access_kernel_2 = xrt::run(mem_access_kernel_2);
-    auto run_pma_read_kernel = xrt::run(pma_read_kernel);
+    auto run_pma_read_router_kernel = xrt::run(pma_read_router_kernel);
+    std::vector<xrt::run> run_pma_read_worker_kernels;
+    run_pma_read_worker_kernels.reserve(pma_read_worker_kernels.size());
+    for (auto &k : pma_read_worker_kernels)
+    {
+        run_pma_read_worker_kernels.emplace_back(k);
+    }
+    auto run_pma_read_merger_kernel = xrt::run(pma_read_merger_kernel);
     std::cout << "Memory access kernels are launched..." << std::endl;
     auto run_update_message_router_kernel = xrt::run(update_message_router_kernel);
     std::cout << "Update message router kernel is launched..." << std::endl;
@@ -445,7 +460,17 @@ int main(int argc, char** argv)
         run_check_kernel.set_arg(9, 3); 
         run_check_kernel.set_arg(10, 0);
         
-        run_pma_read_kernel.start();
+        for (int i = 0; i < static_cast<int>(run_pma_read_worker_kernels.size()); ++i)
+        {
+            run_pma_read_worker_kernels[i].set_arg(0, i);
+        }
+
+        for (auto &run_worker : run_pma_read_worker_kernels)
+        {
+            run_worker.start();
+        }
+        run_pma_read_merger_kernel.start();
+        run_pma_read_router_kernel.start();
         run_check_kernel.start();
         run_check_kernel.wait();
 
@@ -456,7 +481,13 @@ int main(int argc, char** argv)
         run_check_kernel.set_arg(9, 1); 
         run_check_kernel.set_arg(10, 1);
         run_check_kernel.start();
-        run_pma_read_kernel.wait();
+        run_check_kernel.wait();
+        run_pma_read_router_kernel.wait();
+        for (auto &run_worker : run_pma_read_worker_kernels)
+        {
+            run_worker.wait();
+        }
+        run_pma_read_merger_kernel.wait();
 
         // Retrieve edge count and COO arrays written back by check_kernel
         bo_num_edges.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
@@ -538,14 +569,14 @@ int main(int argc, char** argv)
 
         // 2. 对邻居进行排序
         for(auto& neighbors : adj_pos) std::sort(neighbors.begin(), neighbors.end());
-        for (int i = 0 ; i < vertex_num; ++i)
-        {
-            std::cout << "Vertex " << i << " has " << adj_pos[i].size() << " neighbors." << std::endl;
-            for (int j = 0; j < adj_pos[i].size(); ++j) 
-            {
-                std::cout<< adj_pos[i][j] << std::endl;
-            }
-        }
+        // for (int i = 0 ; i < vertex_num; ++i)
+        // {
+        //     std::cout << "Vertex " << i << " has " << adj_pos[i].size() << " neighbors." << std::endl;
+        //     for (int j = 0; j < adj_pos[i].size(); ++j) 
+        //     {
+        //         std::cout<< adj_pos[i][j] << std::endl;
+        //     }
+        // }
         // for(auto& neighbors : adj_neg) std::sort(neighbors.begin(), neighbors.end());
 
         int current_addr_offset[CHANNEL_NUM];
@@ -850,10 +881,10 @@ int main(int argc, char** argv)
             ++idx;
         }
 
-        // if (batch_ops.size() > 1)
-        // {
-        //     std::shuffle(batch_ops.begin(), batch_ops.end(), rng); // shuffle the whole operation tuple (src, dst, opcode) within same timestamp
-        // }
+        if (batch_ops.size() > 1)
+        {
+            std::shuffle(batch_ops.begin(), batch_ops.end(), rng); // shuffle the whole operation tuple (src, dst, opcode) within same timestamp
+        }
 
         int new_vertex_count = 0;
         for (const auto &op : batch_ops)

@@ -140,9 +140,8 @@ static void distributor(
             
             // switch (pma_idx % READ_WORKERS)
             // {
-            worker_0_cmd.write(rc); break;
-            worker_1_cmd.write(rc); break;
-            // }
+            worker_0_cmd.write(rc); 
+            worker_1_cmd.write(rc);
             
             merger_cmd.write(rc);
         }
@@ -472,7 +471,6 @@ static void read_worker(
                         local_v < VERTEX_PER_PMA;
                         ++local_v)
                     {
-                        
                         int vertex_range_start = local_v == 0 ? 0 : pma_header.vertex_range[local_v - 1];
                         int vertex_range_end = pma_header.vertex_range[local_v];
                         int src = pma_idx * VERTEX_PER_PMA + local_v;

@@ -8,7 +8,7 @@
 #define MAX_INFLIGHT_NUM 16
 #endif
 // static int task_tag = 0;
-#define ROUTER_WORKERS 2
+#define ROUTER_WORKERS 4
 void flush_buffer_aux(
     int buffer_idx,
     hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_pma,
@@ -70,11 +70,15 @@ void check_ack_back(
     int *in_flight_arr,
     int &in_flight_count,
     hls::stream<COMMAND_STREAM>& ack_from_insert_edge_1,
-    hls::stream<COMMAND_STREAM>& ack_from_insert_edge_2
+    hls::stream<COMMAND_STREAM>& ack_from_insert_edge_2,
+    hls::stream<COMMAND_STREAM>& ack_from_insert_edge_3,
+    hls::stream<COMMAND_STREAM>& ack_from_insert_edge_4
 )
 {
     update_inflight_from_ack(in_flight_arr, in_flight_count, ack_from_insert_edge_1);
     update_inflight_from_ack(in_flight_arr, in_flight_count, ack_from_insert_edge_2);
+    update_inflight_from_ack(in_flight_arr, in_flight_count, ack_from_insert_edge_3);
+    update_inflight_from_ack(in_flight_arr, in_flight_count, ack_from_insert_edge_4);
 }
 void add_inflight(
     int *in_flight_arr,
@@ -101,8 +105,12 @@ void flush_and_add_inflight(
     int &in_flight_count,
     hls::stream<COMMAND_STREAM>& ack_from_insert_edge_1,
     hls::stream<COMMAND_STREAM>& ack_from_insert_edge_2,
+    hls::stream<COMMAND_STREAM>& ack_from_insert_edge_3,
+    hls::stream<COMMAND_STREAM>& ack_from_insert_edge_4,
     hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_1,
     hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_2,
+    hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_3,
+    hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_4,
     ap_uint<128> msg_buffer[MAX_COMMAND_BUFFER_NUM][MAX_COMMAND_BUFFER_LENGTH],
     int *count_arr
 )
@@ -114,7 +122,9 @@ void flush_and_add_inflight(
             in_flight_arr,
             in_flight_count,
             ack_from_insert_edge_1,
-            ack_from_insert_edge_2
+            ack_from_insert_edge_2,
+            ack_from_insert_edge_3,
+            ack_from_insert_edge_4
         );
     }
     // 只有 buffer 有数据时才 flush
@@ -124,6 +134,8 @@ void flush_and_add_inflight(
         {
             case 0: flush_buffer_aux(hash, cmd_to_insert_edge_1, msg_buffer, count_arr); break;
             case 1: flush_buffer_aux(hash, cmd_to_insert_edge_2, msg_buffer, count_arr); break;
+            case 2: flush_buffer_aux(hash, cmd_to_insert_edge_3, msg_buffer, count_arr); break;
+            case 3: flush_buffer_aux(hash, cmd_to_insert_edge_4, msg_buffer, count_arr); break;
             default: break;
         }
         add_inflight(in_flight_arr, in_flight_count, pma_idx);
@@ -137,12 +149,20 @@ extern "C"
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_from_generator,
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_vertex_1,
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_vertex_2,
+        hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_vertex_3,
+        hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_vertex_4,
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_1,
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_2,
+        hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_3,
+        hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_4,
         hls::stream<COMMAND_STREAM> &ack_from_insert_edge_1,
         hls::stream<COMMAND_STREAM> &ack_from_insert_edge_2,
+        hls::stream<COMMAND_STREAM> &ack_from_insert_edge_3,
+        hls::stream<COMMAND_STREAM> &ack_from_insert_edge_4,
         hls::stream<VERTEX_ACK> &ack_from_insert_vertex_1,
         hls::stream<VERTEX_ACK> &ack_from_insert_vertex_2,
+        hls::stream<VERTEX_ACK> &ack_from_insert_vertex_3,
+        hls::stream<VERTEX_ACK> &ack_from_insert_vertex_4,
         hls::stream<WHOLE_ACK> &ack_to_generator
         // hls::stream<VERTEX_ATTR_STREAM_TYPE> &attr_from_generator,
         // hls::stream<VERTEX_ATTR_STREAM_TYPE> &attr_to_pma,
@@ -154,23 +174,39 @@ extern "C"
         #pragma HLS INTERFACE axis port=cmd_from_generator
         #pragma HLS INTERFACE axis port=cmd_to_insert_vertex_1
         #pragma HLS INTERFACE axis port=cmd_to_insert_vertex_2
+        #pragma HLS INTERFACE axis port=cmd_to_insert_vertex_3
+        #pragma HLS INTERFACE axis port=cmd_to_insert_vertex_4
         #pragma HLS INTERFACE axis port=cmd_to_insert_edge_1
         #pragma HLS INTERFACE axis port=cmd_to_insert_edge_2
+        #pragma HLS INTERFACE axis port=cmd_to_insert_edge_3
+        #pragma HLS INTERFACE axis port=cmd_to_insert_edge_4
         #pragma HLS INTERFACE axis port=ack_from_insert_edge_1
         #pragma HLS INTERFACE axis port=ack_from_insert_edge_2
+        #pragma HLS INTERFACE axis port=ack_from_insert_edge_3
+        #pragma HLS INTERFACE axis port=ack_from_insert_edge_4
         #pragma HLS INTERFACE axis port=ack_from_insert_vertex_1
         #pragma HLS INTERFACE axis port=ack_from_insert_vertex_2
+        #pragma HLS INTERFACE axis port=ack_from_insert_vertex_3
+        #pragma HLS INTERFACE axis port=ack_from_insert_vertex_4
         #pragma HLS INTERFACE axis port=ack_to_generator
 
         #pragma HLS STREAM variable=cmd_from_generator depth=16
         #pragma HLS STREAM variable=cmd_to_insert_vertex_1 depth=16
         #pragma HLS STREAM variable=cmd_to_insert_vertex_2 depth=16
+        #pragma HLS STREAM variable=cmd_to_insert_vertex_3 depth=16
+        #pragma HLS STREAM variable=cmd_to_insert_vertex_4 depth=16
         #pragma HLS STREAM variable=cmd_to_insert_edge_1 depth=16
         #pragma HLS STREAM variable=cmd_to_insert_edge_2 depth=16
+        #pragma HLS STREAM variable=cmd_to_insert_edge_3 depth=16
+        #pragma HLS STREAM variable=cmd_to_insert_edge_4 depth=16
         #pragma HLS STREAM variable=ack_from_insert_edge_1 depth=16
         #pragma HLS STREAM variable=ack_from_insert_edge_2 depth=16
+        #pragma HLS STREAM variable=ack_from_insert_edge_3 depth=16
+        #pragma HLS STREAM variable=ack_from_insert_edge_4 depth=16
         #pragma HLS STREAM variable=ack_from_insert_vertex_1 depth=16
         #pragma HLS STREAM variable=ack_from_insert_vertex_2 depth=16
+        #pragma HLS STREAM variable=ack_from_insert_vertex_3 depth=16
+        #pragma HLS STREAM variable=ack_from_insert_vertex_4 depth=16
         #pragma HLS STREAM variable=ack_to_generator depth=16   
         ap_uint<128> msg_buffer[MAX_COMMAND_BUFFER_NUM][MAX_COMMAND_BUFFER_LENGTH];
         #pragma HLS BIND_STORAGE variable=msg_buffer type=RAM_2P impl=URAM
@@ -211,6 +247,8 @@ extern "C"
                             // msg.last = 1;
                             cmd_to_insert_vertex_1.write(msg);
                             cmd_to_insert_vertex_2.write(msg);
+                            cmd_to_insert_vertex_3.write(msg);
+                            cmd_to_insert_vertex_4.write(msg);
                             break;
                         }
                         int src = msg.data.range(31,0);  
@@ -220,6 +258,8 @@ extern "C"
                         {
                             case 0: cmd_to_insert_vertex_1.write(msg); break;
                             case 1: cmd_to_insert_vertex_2.write(msg); break;
+                            case 2: cmd_to_insert_vertex_3.write(msg); break;
+                            case 3: cmd_to_insert_vertex_4.write(msg); break;
                             default: break;
                         }
                     }
@@ -240,6 +280,8 @@ extern "C"
                         VERTEX_ACK tmp;
                         if (!acked[0] && ack_from_insert_vertex_1.read_nb(tmp)) { acked[0] = true; }
                         if (!acked[1] && ack_from_insert_vertex_2.read_nb(tmp)) { acked[1] = true; }
+                        if (!acked[2] && ack_from_insert_vertex_3.read_nb(tmp)) { acked[2] = true; }
+                        if (!acked[3] && ack_from_insert_vertex_4.read_nb(tmp)) { acked[3] = true; }
                         for (int w = 0; w < ROUTER_WORKERS; ++w)
                         {
                             all_done = all_done && acked[w];
@@ -257,7 +299,9 @@ extern "C"
                         in_flight,
                         in_flight_count,
                         ack_from_insert_edge_1,
-                        ack_from_insert_edge_2
+                        ack_from_insert_edge_2,
+                        ack_from_insert_edge_3,
+                        ack_from_insert_edge_4
                     );
                     if(cmd_from_generator.read_nb(msg))
                     {
@@ -276,8 +320,12 @@ extern "C"
                                     in_flight, in_flight_count,
                                     ack_from_insert_edge_1,
                                     ack_from_insert_edge_2,
+                                    ack_from_insert_edge_3,
+                                    ack_from_insert_edge_4,
                                     cmd_to_insert_edge_1,
                                     cmd_to_insert_edge_2,
+                                    cmd_to_insert_edge_3,
+                                    cmd_to_insert_edge_4,
                                     msg_buffer, count
                                 );
                             }
@@ -285,6 +333,8 @@ extern "C"
                             {
                                 cmd_to_insert_edge_1.write(msg);
                                 cmd_to_insert_edge_2.write(msg);
+                                cmd_to_insert_edge_3.write(msg);
+                                cmd_to_insert_edge_4.write(msg);
                                 quit = true;
                                 stage++;
                             }
@@ -298,7 +348,9 @@ extern "C"
                                     in_flight,
                                     in_flight_count,
                                     ack_from_insert_edge_1,
-                                    ack_from_insert_edge_2
+                                    ack_from_insert_edge_2,
+                                    ack_from_insert_edge_3,
+                                    ack_from_insert_edge_4
                                 );
                             }
                             // If this batch is the final (last==1), send an ACK back to the generator to notify completion
@@ -330,7 +382,9 @@ extern "C"
                                     in_flight,
                                     in_flight_count,
                                     ack_from_insert_edge_1,
-                                    ack_from_insert_edge_2
+                                    ack_from_insert_edge_2,
+                                    ack_from_insert_edge_3,
+                                    ack_from_insert_edge_4
                                 );
                             }
 
@@ -339,6 +393,8 @@ extern "C"
                             {
                                 case 0: cmd_to_insert_edge_1.write(msg); break;
                                 case 1: cmd_to_insert_edge_2.write(msg); break;
+                                case 2: cmd_to_insert_edge_3.write(msg); break;
+                                case 3: cmd_to_insert_edge_4.write(msg); break;
                                 default: break;
                             }
                             add_inflight(in_flight, in_flight_count, pma_idx);
@@ -366,8 +422,12 @@ extern "C"
                                     in_flight, in_flight_count,
                                     ack_from_insert_edge_1,
                                     ack_from_insert_edge_2,
+                                    ack_from_insert_edge_3,
+                                    ack_from_insert_edge_4,
                                     cmd_to_insert_edge_1,
                                     cmd_to_insert_edge_2,
+                                    cmd_to_insert_edge_3,
+                                    cmd_to_insert_edge_4,
                                     msg_buffer, count
                                 );
                                 msg_buffer[hash][count[hash]] = msg.data;
@@ -382,8 +442,12 @@ extern "C"
                                 in_flight, in_flight_count,
                                 ack_from_insert_edge_1,
                                 ack_from_insert_edge_2,
+                                ack_from_insert_edge_3,
+                                ack_from_insert_edge_4,
                                 cmd_to_insert_edge_1,
                                 cmd_to_insert_edge_2,
+                                cmd_to_insert_edge_3,
+                                cmd_to_insert_edge_4,
                                 msg_buffer, count
                             );
                             msg_buffer[hash][count[hash]] = msg.data;

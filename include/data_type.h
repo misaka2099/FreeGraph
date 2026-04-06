@@ -9,7 +9,7 @@ typedef ap_axiu<8,0,0,0> VERTEX_ACK;
 typedef ap_axiu<8,0,0,0> WHOLE_ACK;
 #define CHANNEL_CAPACITY (250*1024*1024)
 // #define CHANNEL_CAPACITY (64*1024*1024)
-#define CHANNEL_NUM 2
+#define CHANNEL_NUM 4
 typedef ap_axiu<8,0,0,0> BYTE_STREAM ;
 typedef ap_axiu<32,3,0,0> COMMAND_STREAM;
 typedef ap_uint<32> COMMAND;
