@@ -365,15 +365,29 @@ extern "C"
                         int src = msg.data.range(31,0);  
                         int opcode = msg.data.range(127,96);
                         int pma_idx = src / VERTEX_PER_PMA;
-                        int hash = pma_idx % (MAX_COMMAND_BUFFER_NUM);
-                        // if (msg.data.range(98,98) == OUT_DIRECTION)
-                        // {
-                        //     hash += MAX_COMMAND_BUFFER_NUM / 2;
-                        // }
+                        // Use the raw source vertex ID as the buffer hash, decoupled from the
+                        // PMA worker routing (worker = pma_idx % ROUTER_WORKERS).  This spreads
+                        // incoming messages across buffer slots independently of the worker
+                        // assignment, so the routing requirement
+                        //   PMA_IDX % WORKER_NUM == WORKER_IDX
+                        // is fully preserved by the flush path which always derives the worker
+                        // from the pma_idx stored in the buffer, not from the hash.
+                        int hash = src % MAX_COMMAND_BUFFER_NUM;
                         if (opcode == PMA_DELETE_VERTEX)
                         {
-                            // Drop any buffered commands for this hash because they occurred before delete-vertex
-                            count[hash] = 0;
+                            // With a src-based hash, messages for the same pma_idx may reside in
+                            // multiple buffer slots.  Scan all slots and discard every entry that
+                            // belongs to the pma_idx being deleted so that no stale pre-delete
+                            // commands are forwarded to the worker after this point.
+                            // Invariant: whenever count[i] > 0, msg_buffer[i][0] holds a valid
+                            // message that was stored there before count[i] was incremented, so
+                            // reading msg_buffer[i][0] is always safe under this guard.
+                            for (int i = 0; i < MAX_COMMAND_BUFFER_NUM; i++) {
+                                #pragma HLS UNROLL
+                                if (count[i] > 0 && (int)(msg_buffer[i][0].range(31,0)) / VERTEX_PER_PMA == pma_idx) {
+                                    count[i] = 0;
+                                }
+                            }
 
                             // Wait until we can send immediately (no conflict and inflight not full)
                             while (check_inflight(in_flight, pma_idx) || in_flight_count >= MAX_INFLIGHT_NUM)
