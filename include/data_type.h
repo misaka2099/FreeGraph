@@ -99,7 +99,7 @@ struct INTRA_PMA_UPDATE_MESSAGE
 #define MAX_COMMAND_BUFFER_LENGTH 16
 #define MAX_COMMAND_BUFFER_NUM 16
 #define MAX_CMD_NUM 16
-#define LOAD_BITMAP 19
+// #define LOAD_BITMAP 19
 
 struct pma_idx_info
 {

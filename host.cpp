@@ -279,6 +279,16 @@ int main(int argc, char** argv)
         std::cerr << "Kernel loading incomplete; aborting before launch to avoid out-of-range access." << std::endl;
         return 1;
     }
+    if (pma_read_worker_kernels.size() < static_cast<size_t>(CHANNEL_NUM) ||
+        pma_insert_vertex_kernels.size() < static_cast<size_t>(CHANNEL_NUM) ||
+        pma_insert_edge_kernels.size() < static_cast<size_t>(CHANNEL_NUM))
+    {
+        std::cerr << "Kernel loading incomplete for read/insert CUs; aborting before launch." << std::endl;
+        std::cerr << "Loaded read workers: " << pma_read_worker_kernels.size()
+                  << ", insert vertex kernels: " << pma_insert_vertex_kernels.size()
+                  << ", insert edge kernels: " << pma_insert_edge_kernels.size() << std::endl;
+        return 1;
+    }
     std::vector<xrt::run> run_alloc_kernels;
     run_alloc_kernels.reserve(CHANNEL_NUM);
     std::vector<xrt::run> run_mem_access_kernels;
@@ -303,7 +313,6 @@ int main(int argc, char** argv)
         run_pma_read_worker_kernels.emplace_back(k);
     }
     auto run_pma_read_merger_kernel = xrt::run(pma_read_merger_kernel);
-    std::cout << "Memory access kernels are launched..." << std::endl;
     auto run_update_message_router_kernel = xrt::run(update_message_router_kernel);
     std::cout << "Update message router kernel is launched..." << std::endl;
     std::vector<xrt::run> run_pma_insert_vertex_kernels;
@@ -670,36 +679,36 @@ int main(int argc, char** argv)
 
         //
         std::cout << "Base graph PMA construction completed. PMA info:" << std::endl;
-        for (int i = 0 ; i < 10 ; i++)
-        {
-            int corresponding_channel = i % CHANNEL_NUM;
-            if (vec_info_ptrs[i % CHANNEL_NUM][i] == 0) break;
-            int start = vec_info_ptrs[i % CHANNEL_NUM][i].range(31,0);
-            int len =  vec_info_ptrs[i % CHANNEL_NUM][i].range(63,32);
-            std::cout << "PMA " << i << " ADDR START FROM " << start << " LEN " << len << std::endl; 
-            PMA_HEADER header;
-            memcpy(&header, hbm_base_addresses[corresponding_channel] + start, sizeof(PMA_HEADER));
-            for (int src = 0 ; src < VERTEX_PER_PMA; src++)
-            {
-                int edge_count = header.edge_count[src];
-                int seg_start = src == 0 ? 0 : header.vertex_range[src-1];
-                int seg_end = header.vertex_range[src];
-                std::cout << "vertex: " << src << " has " << edge_count << " neighbors" << std::endl;
-                for (int j = seg_start ; j < seg_end ; j ++)
-                {
-                    for (int k = 0 ; k < SEGMENT_SIZE ; k++)
-                    {
-                        int neighbor = *((int*)(hbm_base_addresses[corresponding_channel] + start + sizeof(PMA_HEADER) + (j * SEGMENT_SIZE + k) * sizeof(int)));
-                        if (neighbor == UNUSED_ICON)
-                        {
-                            break;
-                        }
-                        std::cout << neighbor << " ";
-                    }
-                }
-            }
-                std::cout << std::endl;
-        }
+        // for (int i = 0 ; i < 10 ; i++)
+        // {
+        //     int corresponding_channel = i % CHANNEL_NUM;
+        //     if (vec_info_ptrs[i % CHANNEL_NUM][i] == 0) break;
+        //     int start = vec_info_ptrs[i % CHANNEL_NUM][i].range(31,0);
+        //     int len =  vec_info_ptrs[i % CHANNEL_NUM][i].range(63,32);
+        //     std::cout << "PMA " << i << " ADDR START FROM " << start << " LEN " << len << std::endl; 
+        //     PMA_HEADER header;
+        //     memcpy(&header, hbm_base_addresses[corresponding_channel] + start, sizeof(PMA_HEADER));
+        //     for (int src = 0 ; src < VERTEX_PER_PMA; src++)
+        //     {
+        //         int edge_count = header.edge_count[src];
+        //         int seg_start = src == 0 ? 0 : header.vertex_range[src-1];
+        //         int seg_end = header.vertex_range[src];
+        //         std::cout << "vertex: " << src << " has " << edge_count << " neighbors" << std::endl;
+        //         for (int j = seg_start ; j < seg_end ; j ++)
+        //         {
+        //             for (int k = 0 ; k < SEGMENT_SIZE ; k++)
+        //             {
+        //                 int neighbor = *((int*)(hbm_base_addresses[corresponding_channel] + start + sizeof(PMA_HEADER) + (j * SEGMENT_SIZE + k) * sizeof(int)));
+        //                 if (neighbor == UNUSED_ICON)
+        //                 {
+        //                     break;
+        //                 }
+        //                 std::cout << neighbor << " ";
+        //             }
+        //         }
+        //     }
+        //         std::cout << std::endl;
+        // }
         //
         // Update bitmap
         for (int ch = 0; ch < CHANNEL_NUM; ++ch)
@@ -718,15 +727,26 @@ int main(int argc, char** argv)
         std::chrono::duration<double> elapsed_cpu_preprocess = end_cpu_preprocess - start_cpu_preprocess;
         std::cout << "CPU preprocessing time in add_base_graph_to_hbm: " << elapsed_cpu_preprocess.count() << " s" << std::endl;
 
-        for (auto &bo : bo_bitmap)
-        {
-            bo.sync(XCL_BO_SYNC_BO_TO_DEVICE);
-        }
+        // for (auto &bo : bo_bitmap)
+        // {
+        //     bo.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        // }
+        // for (auto &bo : bo_hbm_base_addr)
+        // {
+        //     bo.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        // }
+        // for (auto &bo : bo_vec_info)
+        // {
+        //     bo.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        // }
         std::cout << "base bitmap inserted to device." << std::endl;
-        
-        run_signal_kernel.set_arg(0, LOAD_BITMAP);
+
+        std::cout << "Sending LOAD_BITMAP signal..." << std::endl;
+        run_signal_kernel.set_arg(0, REQ_TYPE_LOAD_BITMAP);
         run_signal_kernel.start();
+        std::cout << "LOAD_BITMAP signal started, waiting..." << std::endl;
         run_signal_kernel.wait();
+        std::cout << "LOAD_BITMAP signal finished." << std::endl;
         return true;
     };
 
@@ -827,11 +847,11 @@ int main(int argc, char** argv)
     // run_memalloc_kernel.start();
     
 
-    if (!add_base_graph_to_hbm(static_max_vertex + 1, full_edge_count))
-    {
-        std::cerr << "Failed to build/load base graph into HBM due to capacity/index overflow." << std::endl;
-        return 1;
-    }
+    // if (!add_base_graph_to_hbm(static_max_vertex + 1, full_edge_count))
+    // {
+    //     std::cerr << "Failed to build/load base graph into HBM due to capacity/index overflow." << std::endl;
+    //     return 1;
+    // }
     std::cout << "Base graph loaded into HBM." << std::endl;
     // bo_pos_vec_info.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     bo_src.sync(XCL_BO_SYNC_BO_TO_DEVICE);
@@ -976,9 +996,12 @@ int main(int argc, char** argv)
     //     std::cout << "Full Graph verification skipped (no vertices)." << std::endl;
     // }
 
+    std::cout << "Sending MEM_STOP signal..." << std::endl;
     run_signal_kernel.set_arg(0, MEM_STOP);
     run_signal_kernel.start();
+    std::cout << "MEM_STOP signal started, waiting..." << std::endl;
     run_signal_kernel.wait();
+    std::cout << "MEM_STOP signal finished." << std::endl;
     std::cout << "Stop signal sent to memory kernel." <<  std::endl;
     // run_alloc_access_kernel.wait();
     // run_mem_access_kernel_1.wait();

@@ -1,11 +1,12 @@
 #include "data_type.h"
 #include "debug.h"
 #include "debug.h"
+#include "hls_print.h"
 #include "hls_stream.h"
 #include <cstdio>
 // 可配置的 in-flight 上限（可在编译命令中定义以覆盖默认值）
 #ifndef MAX_INFLIGHT_NUM
-#define MAX_INFLIGHT_NUM 16
+#define MAX_INFLIGHT_NUM 32
 #endif
 // static int task_tag = 0;
 #define ROUTER_WORKERS 4
@@ -26,6 +27,7 @@ void flush_buffer_aux(
         printf("Flushing buffer %d, command type: %d, SRC = %d, DST = %d\n", buffer_idx, int(tmp.data.range(97,96)), 
         int(tmp.data.range(31,0)), int(tmp.data.range(63,32)));
     }
+    hls::print("Flushed buffer with %d messages\n", c);
     count_arr[buffer_idx] = 0;
 }
 
@@ -42,6 +44,20 @@ bool check_inflight(
         }
     }
     return false;
+}
+
+void get_hash_value(
+    int pma_idx,
+    int &hash_value
+)
+{
+    #pragma HLS INLINE
+    // 轻量混洗，避免 pma_idx 连续时直接落到相邻桶。
+    // worker 归属仍然只由 pma_idx % ROUTER_WORKERS 决定，这里只影响缓冲桶选择。
+    ap_uint<32> x = (ap_uint<32>)pma_idx;
+    x ^= (x >> 16);
+    x *= (ap_uint<32>)2654435761u;
+    hash_value = (int)(x % MAX_COMMAND_BUFFER_NUM);
 }
 
 static void update_inflight_from_ack(
@@ -365,41 +381,43 @@ extern "C"
                         int src = msg.data.range(31,0);  
                         int opcode = msg.data.range(127,96);
                         int pma_idx = src / VERTEX_PER_PMA;
-                        int hash = pma_idx % (MAX_COMMAND_BUFFER_NUM);
+                        // int hash = pma_idx % (MAX_COMMAND_BUFFER_NUM);
+                        int hash = -1;
+                        get_hash_value(pma_idx, hash);
                         // if (msg.data.range(98,98) == OUT_DIRECTION)
                         // {
                         //     hash += MAX_COMMAND_BUFFER_NUM / 2;
                         // }
-                        if (opcode == PMA_DELETE_VERTEX)
-                        {
-                            // Drop any buffered commands for this hash because they occurred before delete-vertex
-                            count[hash] = 0;
+                        // if (opcode == PMA_DELETE_VERTEX)
+                        // {
+                        //     // Drop any buffered commands for this hash because they occurred before delete-vertex
+                        //     count[hash] = 0;
 
-                            // Wait until we can send immediately (no conflict and inflight not full)
-                            while (check_inflight(in_flight, pma_idx) || in_flight_count >= MAX_INFLIGHT_NUM)
-                            {
-                                check_ack_back(
-                                    in_flight,
-                                    in_flight_count,
-                                    ack_from_insert_edge_1,
-                                    ack_from_insert_edge_2,
-                                    ack_from_insert_edge_3,
-                                    ack_from_insert_edge_4
-                                );
-                            }
+                        //     // Wait until we can send immediately (no conflict and inflight not full)
+                        //     while (check_inflight(in_flight, pma_idx) || in_flight_count >= MAX_INFLIGHT_NUM)
+                        //     {
+                        //         check_ack_back(
+                        //             in_flight,
+                        //             in_flight_count,
+                        //             ack_from_insert_edge_1,
+                        //             ack_from_insert_edge_2,
+                        //             ack_from_insert_edge_3,
+                        //             ack_from_insert_edge_4
+                        //         );
+                        //     }
 
-                            int worker = pma_idx % ROUTER_WORKERS;
-                            switch (worker)
-                            {
-                                case 0: cmd_to_insert_edge_1.write(msg); break;
-                                case 1: cmd_to_insert_edge_2.write(msg); break;
-                                case 2: cmd_to_insert_edge_3.write(msg); break;
-                                case 3: cmd_to_insert_edge_4.write(msg); break;
-                                default: break;
-                            }
-                            add_inflight(in_flight, in_flight_count, pma_idx);
-                            break;
-                        }
+                        //     int worker = pma_idx % ROUTER_WORKERS;
+                        //     switch (worker)
+                        //     {
+                        //         case 0: cmd_to_insert_edge_1.write(msg); break;
+                        //         case 1: cmd_to_insert_edge_2.write(msg); break;
+                        //         case 2: cmd_to_insert_edge_3.write(msg); break;
+                        //         case 3: cmd_to_insert_edge_4.write(msg); break;
+                        //         default: break;
+                        //     }
+                        //     add_inflight(in_flight, in_flight_count, pma_idx);
+                        //     break;
+                        // }
                         if (count[hash] == 0)
                         {
                             HERE
