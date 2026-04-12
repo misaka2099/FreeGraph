@@ -39,6 +39,19 @@ static void process_cmds_direct(
             ack_back_to_router.write({.data = 1});
             if (cmd.last == 1)
             {
+                MEMORY_ALLOC_FREE_REQUEST finish_alloc;
+                finish_alloc.data = 0;
+                finish_alloc.data.range(67,64) = REQ_TYPE_FINISH;
+                finish_alloc.last = 1;
+                req_to_mem_alloc.write(finish_alloc);
+
+                MEMORY_INFO_ACCESS_COMMAND finish_mem;
+                finish_mem.command_type = MEMORY_FINISH;
+                finish_mem.pma_idx = 0;
+                finish_mem.start = 0;
+                finish_mem.len = 0;
+                finish_mem.last = 1;
+                req_to_mem_access.write(finish_mem);
                 break;
             }
             continue;

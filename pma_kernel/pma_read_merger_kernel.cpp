@@ -3,7 +3,7 @@
 #include "data_type.h"
 
 typedef ap_axiu<64, 8, 0, 0> READ_PKT_STREAM;
-static const int READ_WORKERS = 4;
+static const int READ_WORKERS = CHANNEL_NUM;
 
 extern "C" {
 void pma_read_merger_kernel(
@@ -12,6 +12,10 @@ void pma_read_merger_kernel(
     hls::stream<READ_PKT_STREAM> &worker1_pkt_stream,
     hls::stream<READ_PKT_STREAM> &worker2_pkt_stream,
     hls::stream<READ_PKT_STREAM> &worker3_pkt_stream,
+    hls::stream<READ_PKT_STREAM> &worker4_pkt_stream,
+    hls::stream<READ_PKT_STREAM> &worker5_pkt_stream,
+    hls::stream<READ_PKT_STREAM> &worker6_pkt_stream,
+    hls::stream<READ_PKT_STREAM> &worker7_pkt_stream,
     hls::stream<ap_axiu<64,0,0,0>> &data_to_coo_stream,
     hls::stream<ap_axiu<32,0,0,0>> &coo_edge_count_stream
 ) {
@@ -20,6 +24,10 @@ void pma_read_merger_kernel(
 #pragma HLS INTERFACE axis port=worker1_pkt_stream
 #pragma HLS INTERFACE axis port=worker2_pkt_stream
 #pragma HLS INTERFACE axis port=worker3_pkt_stream
+#pragma HLS INTERFACE axis port=worker4_pkt_stream
+#pragma HLS INTERFACE axis port=worker5_pkt_stream
+#pragma HLS INTERFACE axis port=worker6_pkt_stream
+#pragma HLS INTERFACE axis port=worker7_pkt_stream
 #pragma HLS INTERFACE axis port=data_to_coo_stream
 #pragma HLS INTERFACE axis port=coo_edge_count_stream
 
@@ -28,6 +36,10 @@ void pma_read_merger_kernel(
 #pragma HLS STREAM variable=worker1_pkt_stream depth=128
 #pragma HLS STREAM variable=worker2_pkt_stream depth=128
 #pragma HLS STREAM variable=worker3_pkt_stream depth=128
+#pragma HLS STREAM variable=worker4_pkt_stream depth=128
+#pragma HLS STREAM variable=worker5_pkt_stream depth=128
+#pragma HLS STREAM variable=worker6_pkt_stream depth=128
+#pragma HLS STREAM variable=worker7_pkt_stream depth=128
 #pragma HLS STREAM variable=data_to_coo_stream depth=16
 #pragma HLS STREAM variable=coo_edge_count_stream depth=16
 
@@ -38,46 +50,56 @@ void pma_read_merger_kernel(
         }
 
         int mode = (int)cmd.data.range(31, 0);
-        bool done0 = false;
-        bool done1 = false;
-        bool done2 = false;
-        bool done3 = false;
+        bool done[READ_WORKERS];
+#pragma HLS ARRAY_PARTITION variable=done complete
+        for (int i = 0; i < READ_WORKERS; i++) {
+#pragma HLS UNROLL
+            done[i] = false;
+        }
+        int done_count = 0;
         int rr = 0;
         int total_edge_count = 0;
         bool count_end = false;
 
-        while (!(done0 && done1 && done2 && done3)) {
+        while (done_count < READ_WORKERS) {
 #pragma HLS PIPELINE II=1
+            if (done[rr]) {
+                rr = (rr + 1) % READ_WORKERS;
+                continue;
+            }
+
             READ_PKT_STREAM pkt;
             if (rr == 0) {
-                if (done0) { rr = 1; continue; }
                 pkt = worker0_pkt_stream.read();
             } else if (rr == 1) {
-                if (done1) { rr = 2; continue; }
                 pkt = worker1_pkt_stream.read();
             } else if (rr == 2) {
-                if (done2) { rr = 3; continue; }
                 pkt = worker2_pkt_stream.read();
-            } else {
-                if (done3) { rr = 0; continue; }
+            } else if (rr == 3) {
                 pkt = worker3_pkt_stream.read();
+            } else if (rr == 4) {
+                pkt = worker4_pkt_stream.read();
+            } else if (rr == 5) {
+                pkt = worker5_pkt_stream.read();
+            } else if (rr == 6) {
+                pkt = worker6_pkt_stream.read();
+            } else {
+                pkt = worker7_pkt_stream.read();
             }
 
             if (pkt.keep == 0 && pkt.last == 1) {
-                if (rr == 0) done0 = true;
-                else if (rr == 1) done1 = true;
-                else if (rr == 2) done2 = true;
-                else done3 = true;
+                done[rr] = true;
+                done_count++;
                 rr = (rr + 1) % READ_WORKERS;
                 continue;
             }
 
-            else if (pkt.keep != 0 && pkt.last == 1) {
+            if (pkt.keep != 0 && pkt.last == 1) {
                 rr = (rr + 1) % READ_WORKERS;
                 continue;
             }
 
-            else if (pkt.keep != 0) {
+            if (pkt.keep != 0) {
                 if (mode == PMA_GET_ALL_OUT_EDGE_COO) {
                     ap_axiu<64,0,0,0> o = {};
                     o.data = pkt.data;

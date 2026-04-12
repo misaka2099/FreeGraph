@@ -23,7 +23,7 @@ struct READ_COMMAND
     int mode;
 };
 
-static const int READ_WORKERS = 2;
+static const int READ_WORKERS = CHANNEL_NUM;
 
 void read_header(
     // ap_uint<512>* hbm_ptr,

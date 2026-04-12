@@ -269,7 +269,6 @@ int main(int argc, char** argv)
         }
     }
     auto check_kernel = xrt::kernel(device, uuid, "check_kernel");
-    auto signal_kernel = xrt::kernel(device, uuid, "signal_kernel:{signal_kernel_1}");
     std::cout << "Kernels loaded successfully." << std::endl;
     std::cout << "Loaded alloc kernels: " << alloc_access_kernels.size()
               << ", mem kernels: " << mem_access_kernels.size() << std::endl;
@@ -330,7 +329,6 @@ int main(int argc, char** argv)
         run_pma_insert_edge_kernels.emplace_back(k);
     }
     std::cout << "PMA insert edge kernels are launched..." << std::endl;
-    auto run_signal_kernel = xrt::run(signal_kernel);
     std::cout << "Kernels are created..." << std::endl;
 
     auto start_buffer = std::chrono::high_resolution_clock::now();
@@ -384,22 +382,12 @@ int main(int argc, char** argv)
 
     // 边数据按阶段写入，初始不填充
 
-    auto bo_check_src = xrt::bo(device, sizeof(int) * std::max<int>(max_vertex_idx + 10, 1), check_kernel.group_id(0));
-    auto bo_check_dst = xrt::bo(device, sizeof(int) * buffer_len, check_kernel.group_id(1));
-    auto check_src = bo_check_src.map<int*>();
-    auto check_dst = bo_check_dst.map<int*>();
-
-    auto bo_coo_src = xrt::bo(device, sizeof(int) * buffer_len, check_kernel.group_id(2));
-    auto bo_coo_dst = xrt::bo(device, sizeof(int) * buffer_len, check_kernel.group_id(3));
+    auto bo_coo_src = xrt::bo(device, sizeof(int) * buffer_len, check_kernel.group_id(0));
+    auto bo_coo_dst = xrt::bo(device, sizeof(int) * buffer_len, check_kernel.group_id(1));
     int* coo_src_ptr = bo_coo_src.map<int*>();
     int* coo_dst_ptr = bo_coo_dst.map<int*>();
-    auto bo_row_ptr = xrt::bo(device, sizeof(int) * std::max<int>(max_vertex_idx + 10, 1), check_kernel.group_id(4));
-    auto bo_col_idx = xrt::bo(device, sizeof(int) * buffer_len, check_kernel.group_id(5));
-    auto bo_num_vertices = xrt::bo(device, sizeof(int), check_kernel.group_id(6));
-    auto bo_num_edges = xrt::bo(device, sizeof(int), check_kernel.group_id(7));
+    auto bo_num_edges = xrt::bo(device, sizeof(int), check_kernel.group_id(2));
 
-    // Map num vertices/edges so host can read returned counts from check_kernel
-    int* bo_num_vertices_ptr = bo_num_vertices.map<int*>();
     int* bo_num_edges_ptr = bo_num_edges.map<int*>();
 
     std::vector<xrt::bo> bo_bitmap;
@@ -439,6 +427,7 @@ int main(int argc, char** argv)
     {
         // run_alloc_access_kernel.set_arg(i, bo_bitmap[i]);
         run_alloc_kernels[i].set_arg(0, bo_bitmap[i]);
+        run_alloc_kernels[i].set_arg(1, true);
     }
 
     auto verify_graph = [&](const std::vector<std::vector<int>>& expected_graph, int current_max_vertex, const std::string& label) {
@@ -446,28 +435,13 @@ int main(int argc, char** argv)
         std::cout << "Verifying " << label << "..." << std::endl;
         std::vector<std::vector<int>> Updated_Graph(current_max_vertex + 1);
         
-        for (int i = 0 ; i < current_max_vertex + 1; i++)
-        {
-            check_src[i] = i;
-        }
-        std::fill(check_dst, check_dst + buffer_len, -1);
-        
-        bo_check_src.sync(XCL_BO_SYNC_BO_TO_DEVICE);
-        bo_check_dst.sync(XCL_BO_SYNC_BO_TO_DEVICE);
-        
         auto run_check_kernel = xrt::run(check_kernel);
-        run_check_kernel.set_arg(0, bo_check_src);
-        run_check_kernel.set_arg(1, bo_check_dst);
-        run_check_kernel.set_arg(2, bo_coo_src);
-        run_check_kernel.set_arg(3, bo_coo_dst);
-        run_check_kernel.set_arg(4, bo_row_ptr);
-        run_check_kernel.set_arg(5, bo_col_idx);
-        run_check_kernel.set_arg(6, bo_num_vertices);
-        run_check_kernel.set_arg(7, bo_num_edges);
-        run_check_kernel.set_arg(8, current_max_vertex + 1);
-        // run_check_kernel.set_arg(9, 1); // COO mode for read kernel test
-        run_check_kernel.set_arg(9, 3); 
-        run_check_kernel.set_arg(10, 0);
+        run_check_kernel.set_arg(0, bo_coo_src);
+        run_check_kernel.set_arg(1, bo_coo_dst);
+        run_check_kernel.set_arg(2, bo_num_edges);
+        run_check_kernel.set_arg(3, current_max_vertex + 1);
+        run_check_kernel.set_arg(4, 3); 
+        run_check_kernel.set_arg(5, 0);
         
         for (int i = 0; i < static_cast<int>(run_pma_read_worker_kernels.size()); ++i)
         {
@@ -487,8 +461,8 @@ int main(int argc, char** argv)
         int edge_num = bo_num_edges_ptr[0];
         std::cout << "Check kernel returned edge count: " << edge_num << std::endl;
 
-        run_check_kernel.set_arg(9, 1); 
-        run_check_kernel.set_arg(10, 1);
+        run_check_kernel.set_arg(4, 1); 
+        run_check_kernel.set_arg(5, 1);
         run_check_kernel.start();
         run_check_kernel.wait();
         run_pma_read_router_kernel.wait();
@@ -499,12 +473,8 @@ int main(int argc, char** argv)
         run_pma_read_merger_kernel.wait();
 
         // Retrieve edge count and COO arrays written back by check_kernel
-        bo_num_edges.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
         bo_coo_src.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
         bo_coo_dst.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
-        // int returned_edge_count = bo_num_edges_ptr[0];
-
-        // std::cout << "Check kernel finished for " << label << ". Returned edge count: " << returned_edge_count << std::endl;
 
         // Build Updated_Graph from COO arrays
         for (int i = 0; i <= current_max_vertex; ++i) Updated_Graph[i].clear();
@@ -741,12 +711,6 @@ int main(int argc, char** argv)
         // }
         std::cout << "base bitmap inserted to device." << std::endl;
 
-        std::cout << "Sending LOAD_BITMAP signal..." << std::endl;
-        run_signal_kernel.set_arg(0, REQ_TYPE_LOAD_BITMAP);
-        run_signal_kernel.start();
-        std::cout << "LOAD_BITMAP signal started, waiting..." << std::endl;
-        run_signal_kernel.wait();
-        std::cout << "LOAD_BITMAP signal finished." << std::endl;
         return true;
     };
 
@@ -996,13 +960,7 @@ int main(int argc, char** argv)
     //     std::cout << "Full Graph verification skipped (no vertices)." << std::endl;
     // }
 
-    std::cout << "Sending MEM_STOP signal..." << std::endl;
-    run_signal_kernel.set_arg(0, MEM_STOP);
-    run_signal_kernel.start();
-    std::cout << "MEM_STOP signal started, waiting..." << std::endl;
-    run_signal_kernel.wait();
-    std::cout << "MEM_STOP signal finished." << std::endl;
-    std::cout << "Stop signal sent to memory kernel." <<  std::endl;
+    std::cout << "Waiting service kernels to drain and exit by finish protocol..." << std::endl;
     // run_alloc_access_kernel.wait();
     // run_mem_access_kernel_1.wait();
     for (auto &r : run_alloc_kernels)

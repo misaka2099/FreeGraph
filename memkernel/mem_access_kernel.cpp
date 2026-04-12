@@ -6,8 +6,6 @@
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
-const int MEM_CHANNELS = 2;
-const int WORKER_NUM = (MEM_CHANNELS + 1);
 void process_req(
     ap_uint<512>* hbm_ptr,
     VEC_INFO* pma_addrs,
@@ -17,25 +15,38 @@ void process_req(
     hls::stream<ap_axiu<512, 0, 0, 0>> &data_from_vertex,
     hls::stream<ap_axiu<512,0,0, 0>> &data_from_edge,
     hls::stream<ap_axiu<512,0,0, 0>> &data_to_edge,
-    hls::stream<ap_axiu<512,0,0, 0>> &data_to_read,
-    hls::stream<COMMAND_STREAM> &stop_signal
+    hls::stream<ap_axiu<512,0,0, 0>> &data_to_read
 )
 {
+    bool finish_vertex = false;
+    bool finish_edge = false;
+    bool finish_read = false;
     while (true)
     {
         #pragma HLS PIPELINE II=1
-        COMMAND_STREAM cmd_stop;
-        if (stop_signal.read_nb(cmd_stop))
+        if (finish_vertex && finish_edge && finish_read)
         {
-            if (cmd_stop.data == MEM_STOP)
             break;
         }
+
         MEMORY_INFO_ACCESS_COMMAND cmd;
         int turn = -1;
         if (req_from_vertex.read_nb(cmd))      turn = 0;
         else if (req_from_edge.read_nb(cmd))   turn = 1;
         else if (req_from_read.read_nb(cmd))   turn = 2;
         else continue;
+
+        if (cmd.command_type == MEMORY_FINISH)
+        {
+            if (turn == 0)
+                finish_vertex = true;
+            else if (turn == 1)
+                finish_edge = true;
+            else if (turn == 2)
+                finish_read = true;
+            continue;
+        }
+
         switch (cmd.command_type) 
         {
             case MEMORY_WRITE:
@@ -110,8 +121,7 @@ extern "C"
         hls::stream<ap_axiu<512, 0, 0, 0>> &data_from_vertex,
         hls::stream<ap_axiu<512, 0, 0, 0>> &data_from_edge,
         hls::stream<ap_axiu<512, 0, 0, 0>> &data_to_edge,
-        hls::stream<ap_axiu<512, 0, 0, 0>> &data_to_read,
-        hls::stream<COMMAND_STREAM>& signal_stream
+        hls::stream<ap_axiu<512, 0, 0, 0>> &data_to_read
     )
     {
         #pragma HLS INTERFACE m_axi port=hbm_ptr offset=slave bundle=gmem1
@@ -130,7 +140,6 @@ extern "C"
         #pragma HLS INTERFACE axis port=data_from_edge
         #pragma HLS INTERFACE axis port=data_to_edge
         #pragma HLS INTERFACE axis port=data_to_read
-        #pragma HLS INTERFACE axis port=signal_stream
         #pragma HLS DATAFLOW 
 
         process_req(
@@ -142,10 +151,7 @@ extern "C"
             data_from_vertex,
             data_from_edge,
             data_to_edge,
-            data_to_read,
-            // *vec_info_to_edge[i],
-            // *vec_info_to_read[i],
-            signal_stream 
+            data_to_read
         );
 
     }

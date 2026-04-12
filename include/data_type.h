@@ -9,7 +9,10 @@ typedef ap_axiu<8,0,0,0> VERTEX_ACK;
 typedef ap_axiu<8,0,0,0> WHOLE_ACK;
 #define CHANNEL_CAPACITY (250*1024*1024)
 // #define CHANNEL_CAPACITY (64*1024*1024)
-#define CHANNEL_NUM 4
+#ifndef PMA_PARALLEL_CHANNEL_NUM
+#define PMA_PARALLEL_CHANNEL_NUM 8
+#endif
+#define CHANNEL_NUM PMA_PARALLEL_CHANNEL_NUM
 typedef ap_axiu<8,0,0,0> BYTE_STREAM ;
 typedef ap_axiu<32,3,0,0> COMMAND_STREAM;
 typedef ap_uint<32> COMMAND;
@@ -119,7 +122,8 @@ enum MEMORY_INFO_ACCESS_TYPE
     MEMORY_READ = 0,
     MEMORY_WRITE = 1,
     VEC_INFO_READ = 2,
-    VEC_INFO_WRITE = 3
+    VEC_INFO_WRITE = 3,
+    MEMORY_FINISH = 4
     // HEADER_WRITE = 4,
     // HEADER_READ = 5,
     // SEG_WRITE = 6,

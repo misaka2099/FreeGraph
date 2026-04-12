@@ -3,7 +3,7 @@
 #include "data_type.h"
 #include "etc/autopilot_ssdm_op.h"
 
-static const int READ_WORKERS = 4;
+static const int READ_WORKERS = CHANNEL_NUM;
 
 typedef ap_axiu<64, 8, 0, 0> READ_PKT_STREAM;
 
@@ -111,6 +111,13 @@ void pma_read_worker_kernel(
     while (true) {
         READ_COMMAND_STREAM cmd = cmd_stream.read();
         if (cmd.data == PMA_STOP && cmd.last == 1) {
+            MEMORY_INFO_ACCESS_COMMAND finish_cmd = {};
+            finish_cmd.command_type = MEMORY_FINISH;
+            finish_cmd.pma_idx = 0;
+            finish_cmd.start = 0;
+            finish_cmd.len = 0;
+            finish_cmd.last = 1;
+            req_to_mem_access_ch.write(finish_cmd);
             break;
         }
 

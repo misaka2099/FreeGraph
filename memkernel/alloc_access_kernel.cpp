@@ -97,12 +97,12 @@ static void deallocate(int start, int len, ap_uint<BITMAP_WORD_BITS>* bitmap)
 }
 
 static void alloc_free_worker(
-    hls::stream<COMMAND_STREAM>& signal_stream,
     hls::stream<MEMORY_ALLOC_FREE_REQUEST>& req_vertex_in,
     hls::stream<MEMORY_ALLOC_FREE_REQUEST>& req_edge_in,
     hls::stream<VEC_INFO_STREAM>& vec_info_to_vertex,
     hls::stream<VEC_INFO_STREAM>& vec_info_to_edge,
-    BYTE* bm_in_hbm
+    BYTE* bm_in_hbm,
+    bool init_from_hbm
 )
 {
     #pragma HLS INTERFACE m_axi port=bm_in_hbm offset=slave bundle=gmem0
@@ -110,43 +110,41 @@ static void alloc_free_worker(
     ap_uint<BITMAP_WORD_BITS> storage[BITMAP_WORDS];
     #pragma HLS bind_storage variable=storage type=ram_t2p impl=bram
 
-    for (int i = 0; i < BITMAP_WORDS; i++)
+    if (init_from_hbm)
     {
-        #pragma HLS PIPELINE II=1
-        storage[i] = 0;
+        for (int i = 0 ; i < BITMAP_WORDS ; i++)
+        {
+            #pragma HLS PIPELINE II=1
+            ap_uint<BITMAP_WORD_BITS> word = 0;
+            for (int b = 0; b < BITMAP_WORD_BYTES; ++b)
+            {
+                int byte_idx = i * BITMAP_WORD_BYTES + b;
+                BYTE v = (byte_idx < BITMAP_SIZE) ? bm_in_hbm[byte_idx] : (BYTE)0;
+                word.range((b + 1) * 8 - 1, b * 8) = v;
+            }
+            storage[i] = word;
+        }
     }
+    else
+    {
+        for (int i = 0; i < BITMAP_WORDS; i++)
+        {
+            #pragma HLS PIPELINE II=1
+            storage[i] = 0;
+        }
+    }
+
+    bool finish_vertex = false;
+    bool finish_edge = false;
 
     while (true)
     {
         #pragma HLS PIPELINE II=2
         MEMORY_ALLOC_FREE_REQUEST pending_info;
-        COMMAND_STREAM control_signal;
         bool from_vertex = false;
         bool valid_req = false;
         
-        if (signal_stream.read_nb(control_signal))
-        {
-            if (control_signal.data == MEM_STOP)
-            {
-                break;
-            }
-            else if (control_signal.data == REQ_TYPE_LOAD_BITMAP)
-            {
-                for (int i = 0 ; i < BITMAP_WORDS ; i++)
-                {
-                    #pragma HLS PIPELINE II=1
-                    ap_uint<BITMAP_WORD_BITS> word = 0;
-                    for (int b = 0; b < BITMAP_WORD_BYTES; ++b)
-                    {
-                        int byte_idx = i * BITMAP_WORD_BYTES + b;
-                        BYTE v = (byte_idx < BITMAP_SIZE) ? bm_in_hbm[byte_idx] : (BYTE)0;
-                        word.range((b + 1) * 8 - 1, b * 8) = v;
-                    }
-                    storage[i] = word;
-                }
-            }
-        }
-        else if (req_vertex_in.read_nb(pending_info))
+        if (req_vertex_in.read_nb(pending_info))
         {
             from_vertex = true;
             valid_req = true;
@@ -158,16 +156,38 @@ static void alloc_free_worker(
         }
         if (!valid_req)
         {
+            if (finish_vertex && finish_edge)
+            {
+                break;
+            }
             continue;
         }
+
+        int req_type = pending_info.data.range(67, 64);
+
+        if (req_type == REQ_TYPE_FINISH || pending_info.last == 1)
+        {
+            if (from_vertex)
+            {
+                finish_vertex = true;
+            }
+            else
+            {
+                finish_edge = true;
+            }
+            if (finish_vertex && finish_edge)
+            {
+                break;
+            }
+            continue;
+        }
+
         if (pending_info.last == 1)
         {
             break;
         }
 
         VEC_INFO back_info = 0;
-        auto req_internal = pending_info.data;
-        int req_type = req_internal.range(67, 64);
 
         if (req_type == REQ_TYPE_ALLOC)
         {
@@ -210,7 +230,7 @@ extern "C"
 {
     void alloc_access_kernel(
         BYTE* bm_in_hbm,
-        hls::stream<COMMAND_STREAM>& signal_stream,
+        bool init_from_hbm,
         hls::stream<MEMORY_ALLOC_FREE_REQUEST>& req_from_vertex,
         hls::stream<MEMORY_ALLOC_FREE_REQUEST>& req_from_edge,
         hls::stream<VEC_INFO_STREAM>& vec_info_to_vertex,
@@ -218,12 +238,13 @@ extern "C"
     )
     {
         #pragma HLS INTERFACE m_axi port=bm_in_hbm offset=slave bundle=gmem0
-        #pragma HLS INTERFACE axis port=signal_stream
+        #pragma HLS INTERFACE s_axilite port=bm_in_hbm bundle=control
+        #pragma HLS INTERFACE s_axilite port=init_from_hbm bundle=control
+        #pragma HLS INTERFACE s_axilite port=return bundle=control
         #pragma HLS INTERFACE axis port=req_from_vertex
         #pragma HLS INTERFACE axis port=req_from_edge
         #pragma HLS INTERFACE axis port=vec_info_to_vertex
         #pragma HLS INTERFACE axis port=vec_info_to_edge
-        #pragma HLS STREAM variable=signal_stream depth=4
         #pragma HLS STREAM variable=req_from_vertex depth=16
         #pragma HLS STREAM variable=req_from_edge depth=16
         #pragma HLS STREAM variable=vec_info_to_vertex depth=4
@@ -231,6 +252,6 @@ extern "C"
 
         #pragma HLS DATAFLOW
 
-        alloc_free_worker(signal_stream, req_from_vertex, req_from_edge, vec_info_to_vertex, vec_info_to_edge, bm_in_hbm);
+        alloc_free_worker(req_from_vertex, req_from_edge, vec_info_to_vertex, vec_info_to_edge, bm_in_hbm, init_from_hbm);
     }
 }
