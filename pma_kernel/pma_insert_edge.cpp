@@ -442,7 +442,7 @@ void binary_search_cu(
             deleted_seg_info.vertex_number[i] = -1;
         }
 
-        int bs_helper[1024];
+        int bs_helper[10240 ];
         #pragma HLS BIND_STORAGE variable=bs_helper type=RAM_2P impl=URAM
         int bs_helper_size = 0;
         int last_cached_src = -1;

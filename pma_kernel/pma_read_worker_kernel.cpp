@@ -2,7 +2,7 @@
 #include <ap_int.h>
 #include "data_type.h"
 #include "etc/autopilot_ssdm_op.h"
-
+#include "hls_print.h"
 static const int READ_WORKERS = CHANNEL_NUM;
 
 typedef ap_axiu<64, 8, 0, 0> READ_PKT_STREAM;
@@ -176,8 +176,12 @@ void pma_read_worker_kernel(
                 req_to_mem_access_ch.write(access_command);
                 ap_wait();
                 VEC_INFO vec_info = data_from_mem_access_ch.read().data.range(63, 0);
-                if (vec_info == 0) break;
-
+                if (vec_info == 0) 
+                {
+                    hls::print("Worker %d: No more PMA to read, total PMA count: ", worker_id);
+                    hls::print("%d\n", pma_idx);
+                    break;
+                }
                 PMA_HEADER pma_header;
                 int header_start = (int)vec_info.range(31, 0);
                 read_header(header_start, req_to_mem_access_ch, data_from_mem_access_ch, pma_header);
@@ -231,6 +235,7 @@ void pma_read_worker_kernel(
                 ap_wait();
                 VEC_INFO vec_info = data_from_mem_access_ch.read().data.range(63, 0);
                 if (vec_info == 0) {
+
                     find_empty = true;
                     break;
                 }

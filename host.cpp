@@ -188,6 +188,7 @@ int main(int argc, char** argv)
 
     auto xclbin = xrt::xclbin(xclbin_name);
     auto device = xrt::device(0);
+    
     auto uuid = device.load_xclbin(xclbin);
 
     // auto alloc_access_kernel_1 = xrt::kernel(device, uuid, "alloc_access_kernel:{alloc_access_kernel_1}");
@@ -430,7 +431,11 @@ int main(int argc, char** argv)
         run_alloc_kernels[i].set_arg(1, true);
     }
 
-    auto verify_graph = [&](const std::vector<std::vector<int>>& expected_graph, int current_max_vertex, const std::string& label) {
+    for (int i = 0; i < static_cast<int>(run_pma_read_worker_kernels.size()); ++i)
+    {
+        run_pma_read_worker_kernels[i].set_arg(0, i);
+    }
+    auto verify_graph = [&](const std::vector<std::vector<int>>& expected_graph, int current_max_vertex, const std::string& label, bool last) {
         auto start_verify = std::chrono::high_resolution_clock::now();
         std::cout << "Verifying " << label << "..." << std::endl;
         std::vector<std::vector<int>> Updated_Graph(current_max_vertex + 1);
@@ -443,17 +448,9 @@ int main(int argc, char** argv)
         run_check_kernel.set_arg(4, 3); 
         run_check_kernel.set_arg(5, 0);
         
-        for (int i = 0; i < static_cast<int>(run_pma_read_worker_kernels.size()); ++i)
-        {
-            run_pma_read_worker_kernels[i].set_arg(0, i);
-        }
 
-        for (auto &run_worker : run_pma_read_worker_kernels)
-        {
-            run_worker.start();
-        }
-        run_pma_read_merger_kernel.start();
-        run_pma_read_router_kernel.start();
+
+        
         run_check_kernel.start();
         run_check_kernel.wait();
 
@@ -462,15 +459,9 @@ int main(int argc, char** argv)
         std::cout << "Check kernel returned edge count: " << edge_num << std::endl;
 
         run_check_kernel.set_arg(4, 1); 
-        run_check_kernel.set_arg(5, 1);
+        run_check_kernel.set_arg(5, last);
         run_check_kernel.start();
         run_check_kernel.wait();
-        run_pma_read_router_kernel.wait();
-        for (auto &run_worker : run_pma_read_worker_kernels)
-        {
-            run_worker.wait();
-        }
-        run_pma_read_merger_kernel.wait();
 
         // Retrieve edge count and COO arrays written back by check_kernel
         bo_coo_src.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
@@ -796,7 +787,12 @@ int main(int argc, char** argv)
     }
     run_update_message_router_kernel.start();
 
-
+    for (auto &run_worker : run_pma_read_worker_kernels)
+    {
+        run_worker.start();
+    }
+    run_pma_read_merger_kernel.start();
+    run_pma_read_router_kernel.start();
     // run_mem_access_kernel_1.start();
     // run_alloc_access_kernel.start();
     for (auto &r : run_mem_access_kernels)
@@ -853,6 +849,7 @@ int main(int argc, char** argv)
 
     double base_phase_s = 0;
     double incremental_phase_s = 0;
+    const bool kVertexOnlyTest = false;
     std::mt19937 rng(static_cast<unsigned>(std::chrono::high_resolution_clock::now().time_since_epoch().count()));
 
     for (size_t idx = 0; idx < operations.size(); )
@@ -884,6 +881,10 @@ int main(int argc, char** argv)
         {
             break;
         }
+        if (kVertexOnlyTest)
+        {
+            edge_count = 0;
+        }
 
         bool last = (idx == operations.size());
         incremental_phase_s += run_update_batch(new_vertex_count, edge_count, "ts_" + std::to_string(current_ts), last);
@@ -897,6 +898,7 @@ int main(int argc, char** argv)
                     ensure_runtime_vertex(op.src >= 0 ? op.src : op.dst);
                     break;
                 case PMA_INSERT_EDGE:
+                    if (kVertexOnlyTest) break;
                     ensure_runtime_vertex(op.src);
                     ensure_runtime_vertex(op.dst);
                     if (op.src >= 0 && op.src < static_cast<int>(runtime_graph.size()))
@@ -906,6 +908,7 @@ int main(int argc, char** argv)
                     }
                     break;
                 case PMA_DELETE_EDGE:
+                    if (kVertexOnlyTest) break;
                     ensure_runtime_vertex(op.src);
                     ensure_runtime_vertex(op.dst);
                     if (op.src >= 0 && op.src < static_cast<int>(runtime_graph.size()))
@@ -915,6 +918,7 @@ int main(int argc, char** argv)
                     }
                     break;
                 case PMA_DELETE_VERTEX:
+                    if (kVertexOnlyTest) break;
                     ensure_runtime_vertex(op.src);
                     if (op.src >= 0 && op.src < static_cast<int>(runtime_graph.size()))
                     {
@@ -933,7 +937,7 @@ int main(int argc, char** argv)
         int current_max_vertex = static_cast<int>(runtime_graph.size()) - 1;
         if (!runtime_graph.empty())
         {
-            verify_graph(runtime_graph, current_max_vertex, "after_ts_" + std::to_string(current_ts));
+            verify_graph(runtime_graph, current_max_vertex, "after_ts_" + std::to_string(current_ts), idx == operations.size());
         }
     }
 
@@ -971,5 +975,11 @@ int main(int argc, char** argv)
     {
         r.wait();
     }
+    run_pma_read_router_kernel.wait();
+    for (auto &run_worker : run_pma_read_worker_kernels)
+    {
+        run_worker.wait();
+    }
+    run_pma_read_merger_kernel.wait();
     return 0;
 }
