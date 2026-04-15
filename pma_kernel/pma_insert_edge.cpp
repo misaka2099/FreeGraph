@@ -1196,7 +1196,7 @@ extern "C"
         #pragma HLS STREAM variable=cmd_stream depth=16
         #pragma HLS STREAM variable=req_to_mem_alloc depth=16
         #pragma HLS STREAM variable=vec_info_back_stream depth=4
-        #pragma HLS STREAM variable=ack_back_to_router depth=1
+        #pragma HLS STREAM variable=ack_back_to_router depth=32
 
         #pragma HLS STREAM variable=req_to_mem_access depth=16
         #pragma HLS STREAM variable=data_to_mem_access depth=16

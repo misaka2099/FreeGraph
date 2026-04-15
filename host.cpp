@@ -29,7 +29,7 @@ void print_pma(
     PMA_HEADER header;
     memcpy(&header, storage + start, sizeof(PMA_HEADER));
     int *pma_data = (int*)(storage + sizeof(PMA_HEADER) + start);
-    for (int i = 0 ; i < CHANNEL_NUM ; i++)
+    for (int i = 0 ; i < VERTEX_PER_PMA ; i++)
     {
         int src = pma_idx * 16  + i;
         int edge_count = header.edge_count[i];
@@ -58,7 +58,6 @@ int main(int argc, char** argv)
 
     std::string xclbin_name = argv[1];
     std::string graph_path = argv[2];
-    
     auto start_init = std::chrono::high_resolution_clock::now();
     
     std::fstream graph_file(graph_path);
@@ -177,8 +176,8 @@ int main(int argc, char** argv)
     // expected COO/CSR payload scale, which is bounded by operation/edge volume.
     size_t buffer_len = std::max<size_t>(1, edge_ops.size() * 2 + Graph.size() + 1024);
     int static_max_vertex = max_vertex_idx;
-    // BaseGraph置空，所有操作都作为增量在FPGA上执行
-    std::vector<std::vector<int>> BaseGraph;
+    // BaseGraph 使用完整操作序列构建后的最终图，用于直接装载并做 read 正确性验证
+    std::vector<std::vector<int>> BaseGraph = Graph;
 
     std::cout << "Operations read from the file: " << operations.size() << std::endl;
 
@@ -190,6 +189,8 @@ int main(int argc, char** argv)
     auto device = xrt::device(0);
     
     auto uuid = device.load_xclbin(xclbin);
+    std::cout << "device name:     " << device.get_info<xrt::info::device::name>() << "\n";
+    std::cout << "device bdf:      " << device.get_info<xrt::info::device::bdf>() << "\n";
 
     // auto alloc_access_kernel_1 = xrt::kernel(device, uuid, "alloc_access_kernel:{alloc_access_kernel_1}");
     // auto alloc_access_kernel_2 = xrt::kernel(device, uuid, "alloc_access_kernel:{alloc_access_kernel_2}");
@@ -447,7 +448,7 @@ int main(int argc, char** argv)
         run_check_kernel.set_arg(3, current_max_vertex + 1);
         run_check_kernel.set_arg(4, 3); 
         run_check_kernel.set_arg(5, 0);
-        
+        std::cout << "Starting check kernel for " << label << " with max vertex " << current_max_vertex << "..." << std::endl;
 
 
         
@@ -730,6 +731,7 @@ int main(int argc, char** argv)
             }
             src_ptr[edge_idx] = op.src;
             dst_ptr[edge_idx] = op.dst;
+            // std::cout << "Loading edge: " << op.src << " -> " << op.dst << " with opcode " << op.opcode << std::endl;
             opcode_ptr[edge_idx] = op.opcode;
             ++edge_idx;
         }
@@ -849,95 +851,125 @@ int main(int argc, char** argv)
 
     double base_phase_s = 0;
     double incremental_phase_s = 0;
+    const bool kBaseGraphReadOnlyTest = false;
     const bool kVertexOnlyTest = false;
     std::mt19937 rng(static_cast<unsigned>(std::chrono::high_resolution_clock::now().time_since_epoch().count()));
 
-    for (size_t idx = 0; idx < operations.size(); )
+    auto send_update_stop_only = [&]() {
+        auto run_update_message_generator_kernel = xrt::run(update_message_generator_kernel);
+        run_update_message_generator_kernel.set_arg(0, 0); // add_vertex_num
+        run_update_message_generator_kernel.set_arg(1, 0); // add_edge_num
+        run_update_message_generator_kernel.set_arg(2, 0); // delete_vertex_num
+        run_update_message_generator_kernel.set_arg(3, 0); // delete_edge_num
+        run_update_message_generator_kernel.set_arg(4, bo_src);
+        run_update_message_generator_kernel.set_arg(5, bo_dst);
+        run_update_message_generator_kernel.set_arg(6, bo_opcode);
+        run_update_message_generator_kernel.set_arg(7, 1); // last flag
+        run_update_message_generator_kernel.start();
+        run_update_message_generator_kernel.wait();
+    };
+    if (kBaseGraphReadOnlyTest)
     {
-        long long current_ts = operations[idx].timestamp;
-        std::vector<Operation> batch_ops;
-        while (idx < operations.size() && operations[idx].timestamp == current_ts)
+        if (!Graph.empty())
         {
-            batch_ops.push_back(operations[idx]);
-            ++idx;
+            verify_graph(Graph, max_vertex_idx, "Base_Graph", true);
         }
-
-        if (batch_ops.size() > 1)
+        else
         {
-            std::shuffle(batch_ops.begin(), batch_ops.end(), rng); // shuffle the whole operation tuple (src, dst, opcode) within same timestamp
+            std::cout << "Base graph verification skipped (no vertices)." << std::endl;
         }
-
-        int new_vertex_count = 0;
-        for (const auto &op : batch_ops)
+        // No incremental updates in this mode; send an explicit stop to update pipeline.
+        send_update_stop_only();
+    }
+    else
+    {
+        for (size_t idx = 0; idx < operations.size(); )
         {
-            if (op.opcode == PMA_INSERT_VERTEX)
+            long long current_ts = operations[idx].timestamp;
+            std::vector<Operation> batch_ops;
+            while (idx < operations.size() && operations[idx].timestamp == current_ts)
             {
-                new_vertex_count += 1;
+                batch_ops.push_back(operations[idx]);
+                ++idx;
             }
-        }
 
-        int edge_count = load_edge_batch(batch_ops);
-        if (edge_count < 0)
-        {
-            break;
-        }
-        if (kVertexOnlyTest)
-        {
-            edge_count = 0;
-        }
+            // if (batch_ops.size() > 1)
+            // {
+            //     std::shuffle(batch_ops.begin(), batch_ops.end(), rng); // shuffle the whole operation tuple (src, dst, opcode) within same timestamp
+            // }
 
-        bool last = (idx == operations.size());
-        incremental_phase_s += run_update_batch(new_vertex_count, edge_count, "ts_" + std::to_string(current_ts), last);
-
-        for (const auto &op : batch_ops)
-
-        {
-            switch (op.opcode)
+            int new_vertex_count = 0;
+            for (const auto &op : batch_ops)
             {
-                case PMA_INSERT_VERTEX:
-                    ensure_runtime_vertex(op.src >= 0 ? op.src : op.dst);
-                    break;
-                case PMA_INSERT_EDGE:
-                    if (kVertexOnlyTest) break;
-                    ensure_runtime_vertex(op.src);
-                    ensure_runtime_vertex(op.dst);
-                    if (op.src >= 0 && op.src < static_cast<int>(runtime_graph.size()))
-                    {
-                        runtime_graph[op.src].push_back(op.dst);
-                        normalize_neighbors(op.src);
-                    }
-                    break;
-                case PMA_DELETE_EDGE:
-                    if (kVertexOnlyTest) break;
-                    ensure_runtime_vertex(op.src);
-                    ensure_runtime_vertex(op.dst);
-                    if (op.src >= 0 && op.src < static_cast<int>(runtime_graph.size()))
-                    {
-                        auto &nbrs = runtime_graph[op.src];
-                        nbrs.erase(std::remove(nbrs.begin(), nbrs.end(), op.dst), nbrs.end());
-                    }
-                    break;
-                case PMA_DELETE_VERTEX:
-                    if (kVertexOnlyTest) break;
-                    ensure_runtime_vertex(op.src);
-                    if (op.src >= 0 && op.src < static_cast<int>(runtime_graph.size()))
-                    {
-                        runtime_graph[op.src].clear();
-                    }
-                    // for (auto &nbrs : runtime_graph)
-                    // {
-                    //     nbrs.erase(std::remove(nbrs.begin(), nbrs.end(), op.src), nbrs.end());
-                    // }
-                    break;
-                default:
-                    break;
+                if (op.opcode == PMA_INSERT_VERTEX)
+                {
+                    new_vertex_count += 1;
+                }
             }
-        }
 
-        int current_max_vertex = static_cast<int>(runtime_graph.size()) - 1;
-        if (!runtime_graph.empty())
-        {
-            verify_graph(runtime_graph, current_max_vertex, "after_ts_" + std::to_string(current_ts), idx == operations.size());
+            int edge_count = load_edge_batch(batch_ops);
+            if (edge_count < 0)
+            {
+                break;
+            }
+            if (kVertexOnlyTest)
+            {
+                edge_count = 0;
+            }
+
+            bool last = (idx == operations.size());
+            incremental_phase_s += run_update_batch(new_vertex_count, edge_count, "ts_" + std::to_string(current_ts), last);
+
+            for (const auto &op : batch_ops)
+
+            {
+                switch (op.opcode)
+                {
+                    case PMA_INSERT_VERTEX:
+                        ensure_runtime_vertex(op.src >= 0 ? op.src : op.dst);
+                        break;
+                    case PMA_INSERT_EDGE:
+                        if (kVertexOnlyTest) break;
+                        ensure_runtime_vertex(op.src);
+                        ensure_runtime_vertex(op.dst);
+                        if (op.src >= 0 && op.src < static_cast<int>(runtime_graph.size()))
+                        {
+                            runtime_graph[op.src].push_back(op.dst);
+                            normalize_neighbors(op.src);
+                        }
+                        break;
+                    case PMA_DELETE_EDGE:
+                        if (kVertexOnlyTest) break;
+                        ensure_runtime_vertex(op.src);
+                        ensure_runtime_vertex(op.dst);
+                        if (op.src >= 0 && op.src < static_cast<int>(runtime_graph.size()))
+                        {
+                            auto &nbrs = runtime_graph[op.src];
+                            nbrs.erase(std::remove(nbrs.begin(), nbrs.end(), op.dst), nbrs.end());
+                        }
+                        break;
+                    case PMA_DELETE_VERTEX:
+                        if (kVertexOnlyTest) break;
+                        ensure_runtime_vertex(op.src);
+                        if (op.src >= 0 && op.src < static_cast<int>(runtime_graph.size()))
+                        {
+                            runtime_graph[op.src].clear();
+                        }
+                        // for (auto &nbrs : runtime_graph)
+                        // {
+                        //     nbrs.erase(std::remove(nbrs.begin(), nbrs.end(), op.src), nbrs.end());
+                        // }
+                        break;
+                    default:
+                        break;
+                }
+            }
+
+            int current_max_vertex = static_cast<int>(runtime_graph.size()) - 1;
+            if (!runtime_graph.empty())
+            {
+                verify_graph(runtime_graph, current_max_vertex, "after_ts_" + std::to_string(current_ts), idx == operations.size());
+            }
         }
     }
 
@@ -981,5 +1013,56 @@ int main(int argc, char** argv)
         run_worker.wait();
     }
     run_pma_read_merger_kernel.wait();
+
+    std::cout << "Dumping device PMA state (vecinfo + HBM) ..." << std::endl;
+    for (auto &bo : bo_hbm_base_addr)
+    {
+        bo.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+    }
+    for (auto &bo : bo_vec_info)
+    {
+        bo.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+    }
+
+    std::cout << "First 100 vecinfo entries (owner channel + value):" << std::endl;
+    int printed_pma = 0;
+    for (int pma_idx = 0; pma_idx < 100; ++pma_idx)
+    {
+        int ch = pma_idx % CHANNEL_NUM;
+        VEC_INFO vec = vec_info_ptrs[ch][pma_idx];
+        int start = vec.range(31, 0);
+        int len = vec.range(63, 32);
+        std::cout << "PMA " << pma_idx
+                  << " (ch=" << ch << ") vecinfo start=" << start
+                  << " len=" << len << std::endl;
+
+        if (vec != 0)
+        {
+            print_pma(pma_idx, vec_info_ptrs[ch], hbm_base_addresses[ch]);
+            printed_pma++;
+        }
+    }
+
+    std::cout << "\nVecInfo cross-channel view (first 32 PMA idx):" << std::endl;
+    for (int pma_idx = 0; pma_idx < 32; ++pma_idx)
+    {
+        std::cout << "PMA " << pma_idx << ": ";
+        for (int ch = 0; ch < CHANNEL_NUM; ++ch)
+        {
+            VEC_INFO vec = vec_info_ptrs[ch][pma_idx];
+            int start = vec.range(31, 0);
+            int len = vec.range(63, 32);
+            std::cout << "[ch=" << ch << " start=" << start << " len=" << len << "]";
+            if (ch != CHANNEL_NUM - 1)
+            {
+                std::cout << " ";
+            }
+        }
+        std::cout << std::endl;
+    }
+
+    std::cout << "Printed PMA payload for " << printed_pma
+              << " non-zero vecinfo entries (within first 100 PMAs)." << std::endl;
+
     return 0;
 }
