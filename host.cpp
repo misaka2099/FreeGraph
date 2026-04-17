@@ -15,7 +15,11 @@
 #include <unordered_set>
 #include <fstream>
 #include <random>
-
+bool final_match = true;
+const bool kBaseGraphReadOnlyTest = false;
+const bool kVertexOnlyTest = false;
+const bool kShuffleSameTimestampOps = false; // Set to true to enable shuffling of operations with the same timestamp
+const bool kMismatchfileOutput = false; // Set to true to output mismatch details to files
 void print_pma(
     int pma_idx,
     VEC_INFO* pos_info,
@@ -84,21 +88,6 @@ int main(int argc, char** argv)
         operations.push_back({a, b, ts, op});
     }
     graph_file.close();
-
-    // // 拆分操作: 顶点插入单独计数，其余操作进入消息队列
-    std::vector<Operation> edge_ops;
-    size_t vertex_insert_count = 0;
-    for (const auto &opr : operations)
-    {
-        if (opr.opcode == PMA_INSERT_VERTEX)
-        {
-            vertex_insert_count++;
-        }
-        else
-        {
-            edge_ops.push_back(opr);
-        }
-    }
 
     // 基于操作序列构建期望图，用于后验验证
     std::vector<std::vector<int>> Graph;
@@ -174,10 +163,32 @@ int main(int argc, char** argv)
     int max_vertex_idx = static_cast<int>(Graph.size()) - 1;
     // Avoid O(V^2) host/device allocation. Verification buffers only need to cover
     // expected COO/CSR payload scale, which is bounded by operation/edge volume.
-    size_t buffer_len = std::max<size_t>(1, edge_ops.size() * 2 + Graph.size() + 1024);
+    size_t buffer_len = std::max<size_t>(1, operations.size() * 2 + Graph.size() + 1024);
     int static_max_vertex = max_vertex_idx;
     // BaseGraph 使用完整操作序列构建后的最终图，用于直接装载并做 read 正确性验证
     std::vector<std::vector<int>> BaseGraph = Graph;
+
+    size_t max_edge_batch = 0;
+    size_t current_edge_batch = 0;
+    long long current_edge_ts = 0;
+    bool first_edge_batch = true;
+    for (const auto &op : operations)
+    {
+        if (op.opcode == PMA_INSERT_VERTEX)
+        {
+            continue;
+        }
+        if (first_edge_batch || op.timestamp != current_edge_ts)
+        {
+            max_edge_batch = std::max(max_edge_batch, current_edge_batch);
+            current_edge_batch = 0;
+            current_edge_ts = op.timestamp;
+            first_edge_batch = false;
+        }
+        current_edge_batch++;
+    }
+    max_edge_batch = std::max(max_edge_batch, current_edge_batch);
+    std::cout << "Max edge batch count: " << max_edge_batch << std::endl;
 
     std::cout << "Operations read from the file: " << operations.size() << std::endl;
 
@@ -372,12 +383,12 @@ int main(int argc, char** argv)
     }
 
     // 修改 bo_src 和 bo_dst 的分配，确保使用 update_message_generator_kernel 的 group_id
-    size_t edge_buffer_len = std::max<size_t>(edge_ops.size(), 1);
-    printf("edge_size %zu\n", edge_ops.size());
+    size_t edge_buffer_len = std::max<size_t>(max_edge_batch, 1);
+    std::cout << "Update buffer length: " << edge_buffer_len << std::endl;
     auto bo_src = xrt::bo(device, sizeof(int) * edge_buffer_len, update_message_generator_kernel.group_id(4));
     auto bo_dst = xrt::bo(device, sizeof(int) * edge_buffer_len, update_message_generator_kernel.group_id(5));
     auto bo_opcode = xrt::bo(device, sizeof(int) * edge_buffer_len, update_message_generator_kernel.group_id(6));
-
+    std::cout << "Buffers for edge operations allocated." << std::endl;
     int* src_ptr = bo_src.map<int*>();
     int* dst_ptr = bo_dst.map<int*>();
     int* opcode_ptr = bo_opcode.map<int*>();
@@ -482,33 +493,49 @@ int main(int argc, char** argv)
             std::sort(Updated_Graph[i].begin(), Updated_Graph[i].end());
             Updated_Graph[i].erase(std::unique(Updated_Graph[i].begin(), Updated_Graph[i].end()), Updated_Graph[i].end());
         }
-        
-        std::string clean_label = label;
-        std::replace(clean_label.begin(), clean_label.end(), ' ', '_');
-        std::ofstream output_file("mismatch_" + clean_label + ".txt");
-        
         bool all_match = true;
-        for (int i = 0; i <= current_max_vertex; ++i) {
-             const std::vector<int>& expected_neighbors = (i < expected_graph.size()) ? expected_graph[i] : std::vector<int>();
-             
-            if (expected_neighbors != Updated_Graph[i]) {
-                output_file << "MISMATCH AT VERTEX " << i << std::endl;
-                for (auto v : expected_neighbors)
-                {
-                    output_file << "EXPECTED EDGE: " << i << " -> " << v << std::endl;
+        std::string clean_label = label;
+        if (kMismatchfileOutput) {
+            std::replace(clean_label.begin(), clean_label.end(), ' ', '_');
+            std::ofstream output_file("mismatch_" + clean_label + ".txt");
+            for (int i = 0; i <= current_max_vertex; ++i) 
+            {
+                const std::vector<int>& expected_neighbors = (i < expected_graph.size()) ? expected_graph[i] : std::vector<int>();
+                
+                if (expected_neighbors != Updated_Graph[i]) {
+                    output_file << "MISMATCH AT VERTEX " << i << std::endl;
+                    for (auto v : expected_neighbors)
+                    {
+                        output_file << "EXPECTED EDGE: " << i << " -> " << v << std::endl;
+                    }
+                    for (auto v : Updated_Graph[i])
+                    {
+                        output_file << "ACTUAL EDGE: " << i << " -> " << v << std::endl;
+                    }
+                    all_match = false;
                 }
-                for (auto v : Updated_Graph[i])
-                {
-                    output_file << "ACTUAL EDGE: " << i << " -> " << v << std::endl;
+            }
+        }
+        else {
+            for (int i = 0; i <= current_max_vertex; ++i) 
+            {
+                const std::vector<int>& expected_neighbors = (i < expected_graph.size()) ? expected_graph[i] : std::vector<int>();
+                
+                if (expected_neighbors != Updated_Graph[i]) {
+                    all_match = false;
+                    break;
                 }
-                all_match = false;
             }
         }
         
         if (all_match) {
             std::cout << label << " matches perfectly!" << std::endl;
         } else {
-            std::cout << label << " does not match. See mismatch_" << clean_label << ".txt for details." << std::endl;
+            std::cout << label << " does not match. "<< std::endl;
+            all_match = false;
+            if (kMismatchfileOutput) {
+                std::cout << "See mismatch_" << clean_label << ".txt for details." << std::endl;
+            }
         }
         auto end_verify = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> elapsed_verify = end_verify - start_verify;
@@ -851,8 +878,6 @@ int main(int argc, char** argv)
 
     double base_phase_s = 0;
     double incremental_phase_s = 0;
-    const bool kBaseGraphReadOnlyTest = false;
-    const bool kVertexOnlyTest = false;
     std::mt19937 rng(static_cast<unsigned>(std::chrono::high_resolution_clock::now().time_since_epoch().count()));
 
     auto send_update_stop_only = [&]() {
@@ -893,10 +918,10 @@ int main(int argc, char** argv)
                 ++idx;
             }
 
-            // if (batch_ops.size() > 1)
-            // {
-            //     std::shuffle(batch_ops.begin(), batch_ops.end(), rng); // shuffle the whole operation tuple (src, dst, opcode) within same timestamp
-            // }
+            if (batch_ops.size() > 1 && kShuffleSameTimestampOps)
+            {
+                std::shuffle(batch_ops.begin(), batch_ops.end(), rng); // shuffle the whole operation tuple (src, dst, opcode) within same timestamp
+            }
 
             int new_vertex_count = 0;
             for (const auto &op : batch_ops)
@@ -920,6 +945,9 @@ int main(int argc, char** argv)
             bool last = (idx == operations.size());
             incremental_phase_s += run_update_batch(new_vertex_count, edge_count, "ts_" + std::to_string(current_ts), last);
 
+            std::cout << "prepareing verification result on CPU for timestamp " << current_ts << "..." << std::endl;
+            std::vector<int> dirty_vertices;
+            dirty_vertices.reserve(batch_ops.size());
             for (const auto &op : batch_ops)
 
             {
@@ -935,7 +963,7 @@ int main(int argc, char** argv)
                         if (op.src >= 0 && op.src < static_cast<int>(runtime_graph.size()))
                         {
                             runtime_graph[op.src].push_back(op.dst);
-                            normalize_neighbors(op.src);
+                            dirty_vertices.push_back(op.src);
                         }
                         break;
                     case PMA_DELETE_EDGE:
@@ -946,6 +974,7 @@ int main(int argc, char** argv)
                         {
                             auto &nbrs = runtime_graph[op.src];
                             nbrs.erase(std::remove(nbrs.begin(), nbrs.end(), op.dst), nbrs.end());
+                            dirty_vertices.push_back(op.src);
                         }
                         break;
                     case PMA_DELETE_VERTEX:
@@ -954,6 +983,7 @@ int main(int argc, char** argv)
                         if (op.src >= 0 && op.src < static_cast<int>(runtime_graph.size()))
                         {
                             runtime_graph[op.src].clear();
+                            dirty_vertices.push_back(op.src);
                         }
                         // for (auto &nbrs : runtime_graph)
                         // {
@@ -965,6 +995,14 @@ int main(int argc, char** argv)
                 }
             }
 
+            std::sort(dirty_vertices.begin(), dirty_vertices.end());
+            dirty_vertices.erase(std::unique(dirty_vertices.begin(), dirty_vertices.end()), dirty_vertices.end());
+
+            for (int v : dirty_vertices)
+            {
+                normalize_neighbors(v);
+            }
+            std::cout << "CPU-side graph updated for timestamp " << current_ts << ". Verifying results..." << std::endl;
             int current_max_vertex = static_cast<int>(runtime_graph.size()) - 1;
             if (!runtime_graph.empty())
             {
@@ -1063,6 +1101,13 @@ int main(int argc, char** argv)
 
     std::cout << "Printed PMA payload for " << printed_pma
               << " non-zero vecinfo entries (within first 100 PMAs)." << std::endl;
-
+    if (final_match)
+    {
+        std::cout << "FINAL RESULT: MATCH!" << std::endl;
+    }
+    else
+    {
+        std::cout << "FINAL RESULT: MISMATCH!" << std::endl;
+    }
     return 0;
 }

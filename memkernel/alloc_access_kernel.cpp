@@ -16,6 +16,22 @@ static bool get_bit(int idx, ap_uint<BITMAP_WORD_BITS>* bitmap)
     return bitmap[word_idx][bit_idx] == 1;
 }
 
+static BYTE get_byte(int byte_idx, ap_uint<BITMAP_WORD_BITS>* bitmap)
+{
+    #pragma HLS INLINE
+    int word_idx = byte_idx / BITMAP_WORD_BYTES;
+    int byte_off = byte_idx % BITMAP_WORD_BYTES;
+    return (BYTE)bitmap[word_idx].range((byte_off + 1) * 8 - 1, byte_off * 8);
+}
+
+static void set_byte(int byte_idx, BYTE val, ap_uint<BITMAP_WORD_BITS>* bitmap)
+{
+    #pragma HLS INLINE
+    int word_idx = byte_idx / BITMAP_WORD_BYTES;
+    int byte_off = byte_idx % BITMAP_WORD_BYTES;
+    bitmap[word_idx].range((byte_off + 1) * 8 - 1, byte_off * 8) = val;
+}
+
 static void set_bit(int idx, ap_uint<BITMAP_WORD_BITS>* bitmap)
 {
     #pragma HLS INLINE
@@ -35,57 +51,147 @@ static void clear_bit(int idx, ap_uint<BITMAP_WORD_BITS>* bitmap)
 static void set_bits(int start, int len, ap_uint<BITMAP_WORD_BITS>* bitmap)
 {
     #pragma HLS INLINE
-    for (int i = start; i < start + len; i++)
+    int end = start + len;
+    int i = start;
+
+    // Head bits to reach byte alignment.
+    while (i < end && (i & 7) != 0)
+    {
+        set_bit(i, bitmap);
+        i++;
+    }
+
+    // Middle full bytes.
+    while (i + 8 <= end)
     {
         #pragma HLS LOOP_TRIPCOUNT min=1 max=4096
+        int byte_idx = i >> 3;
+        set_byte(byte_idx, (BYTE)0xFF, bitmap);
+        i += 8;
+    }
+
+    // Tail bits.
+    while (i < end)
+    {
         set_bit(i, bitmap);
+        i++;
     }
 }
 
 static bool is_free(int start, int len, int &first_set, ap_uint<BITMAP_WORD_BITS>* bitmap)
 {
     #pragma HLS INLINE
-    for (int i = start; i < start + len; i++)
+    int end = start + len;
+    int i = start;
+
+    while (i < end && (i & 7) != 0)
     {
-        #pragma HLS LOOP_TRIPCOUNT min=1 max=4096
         if (get_bit(i, bitmap))
         {
             first_set = i;
             return false;
         }
+        i++;
+    }
+
+    while (i + 8 <= end)
+    {
+        #pragma HLS LOOP_TRIPCOUNT min=1 max=4096
+        int byte_idx = i >> 3;
+        BYTE b = get_byte(byte_idx, bitmap);
+        if (b != 0)
+        {
+            for (int k = 0; k < 8; k++)
+            {
+                #pragma HLS UNROLL
+                if (b & ((BYTE)1 << k))
+                {
+                    first_set = i + k;
+                    return false;
+                }
+            }
+        }
+        i += 8;
+    }
+
+    while (i < end)
+    {
+        if (get_bit(i, bitmap))
+        {
+            first_set = i;
+            return false;
+        }
+        i++;
     }
     return true;
 }
 
-static void allocate(int &start, int len, ap_uint<BITMAP_WORD_BITS>* bitmap)
+static void allocate_next_fit(int &start, int len, int &next_cursor, ap_uint<BITMAP_WORD_BITS>* bitmap)
 {
     #pragma HLS INLINE
     start = -1;
-    if (len == 0) return;
+    if (len <= 0 || len > TOTAL_BLOCKS) return;
+
+    const int max_start = TOTAL_BLOCKS - len;
     int first_set = -1;
-    for (int i = 0 ; i < TOTAL_BLOCKS ; i++)
+
+    int begin = next_cursor;
+    if (begin > max_start) begin = 0;
+
+    for (int i = begin; i <= max_start; i++)
     {
         #pragma HLS LOOP_TRIPCOUNT min=1 max=256000
         if (is_free(i, len, first_set, bitmap))
         {
             start = i;
             set_bits(start, len, bitmap);
+            next_cursor = start + len;
+            if (next_cursor >= TOTAL_BLOCKS) next_cursor = 0;
             return;
         }
-        else
+        i = first_set;
+    }
+
+    for (int i = 0; i < begin; i++)
+    {
+        #pragma HLS LOOP_TRIPCOUNT min=1 max=256000
+        if (i > max_start) break;
+        if (is_free(i, len, first_set, bitmap))
         {
-            i = first_set;
+            start = i;
+            set_bits(start, len, bitmap);
+            next_cursor = start + len;
+            if (next_cursor >= TOTAL_BLOCKS) next_cursor = 0;
+            return;
         }
+        i = first_set;
     }
 }
 
 static void reset_bits(int start, int len, ap_uint<BITMAP_WORD_BITS>* bitmap)
 {
     #pragma HLS INLINE
-    for (int i = start; i < start + len; i++)
+    int end = start + len;
+    int i = start;
+
+    while (i < end && (i & 7) != 0)
+    {
+        clear_bit(i, bitmap);
+        i++;
+    }
+
+    while (i + 8 <= end)
     {
         #pragma HLS LOOP_TRIPCOUNT min=1 max=4096
+        int byte_idx = i >> 3;
+        set_byte(byte_idx, (BYTE)0x00, bitmap);
+        i += 8;
+    }
+
+    while (i < end)
+    {
         clear_bit(i, bitmap);
+        i++;
     }
 }
 
@@ -136,6 +242,7 @@ static void alloc_free_worker(
 
     bool finish_vertex = false;
     bool finish_edge = false;
+    int next_fit_cursor = 0;
 
     while (true)
     {
@@ -194,7 +301,7 @@ static void alloc_free_worker(
             int req_bytes = pending_info.data.range(63,32);
             int len_segs = (req_bytes + INIT_VEC_LEN_IN_BYTE - 1) / INIT_VEC_LEN_IN_BYTE;
             int start_seg;
-            allocate(start_seg, len_segs, storage);
+            allocate_next_fit(start_seg, len_segs, next_fit_cursor, storage);
             if (start_seg == -1)
             {
                 perror("ERROR INSUFFICIENT MEMORY POOL\n");

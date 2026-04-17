@@ -918,7 +918,13 @@ void rebalance_cu(
             }
         }
         
-        ack_back_to_router.write({.data=signal.pma_idx});
+        COMMAND_STREAM ack_pkt = {};
+        ack_pkt.data = (ap_uint<32>)signal.pma_idx;
+        ack_pkt.keep = (ap_uint<4>)0xF;
+        ack_pkt.strb = (ap_uint<4>)0xF;
+        ack_pkt.user = (ap_uint<3>)0;
+        ack_pkt.last = 0;
+        ack_back_to_router.write(ack_pkt);
     }
 }   
 
