@@ -10,7 +10,7 @@ typedef ap_axiu<8,0,0,0> WHOLE_ACK;
 #define CHANNEL_CAPACITY (250*1024*1024)
 // #define CHANNEL_CAPACITY (64*1024*1024)
 #ifndef PMA_PARALLEL_CHANNEL_NUM
-#define PMA_PARALLEL_CHANNEL_NUM 4
+#define PMA_PARALLEL_CHANNEL_NUM 8
 #endif
 #define CHANNEL_NUM PMA_PARALLEL_CHANNEL_NUM
 typedef ap_axiu<8,0,0,0> BYTE_STREAM ;
@@ -115,7 +115,7 @@ struct pma_idx_info
 //range(64): alloc or free 0->alloc 1->free
 typedef ap_axiu<96,32,0,0> MEMORY_ALLOC_FREE_REQUEST;
 
-typedef ap_uint<72> MEMORY_ALLOC_FREE_REQUEST_INTERNAL;
+typedef ap_uint<104> MEMORY_ALLOC_FREE_REQUEST_INTERNAL;
 
 enum MEMORY_INFO_ACCESS_TYPE
 {
@@ -123,7 +123,10 @@ enum MEMORY_INFO_ACCESS_TYPE
     MEMORY_WRITE = 1,
     VEC_INFO_READ = 2,
     VEC_INFO_WRITE = 3,
-    MEMORY_FINISH = 4
+    MEMORY_FINISH = 4,
+    VEC_INFO_ALLOC = 5,
+    VEC_INFO_FREE = 6,
+    ALLOC_FINISH = 7
     // HEADER_WRITE = 4,
     // HEADER_READ = 5,
     // SEG_WRITE = 6,
@@ -139,6 +142,7 @@ struct MEMORY_INFO_ACCESS_COMMAND
     int start;
     int len;
     int last;
+    bool direct_to_mem;// 0-> through cache 1-> directly access memory
 };
 
 // enum memory_access_type

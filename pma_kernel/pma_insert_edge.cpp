@@ -13,6 +13,9 @@
 #define MAX_MEMORY_REQUEST 5
 #define MAX_PMA_IDX_INFO_REQUEST 5
 #define MAX_PMA_ADDR_REQUEST 1
+#define PMA_CACHE_SIZE 8192
+#define PMA_CACHE_NUM 1024
+#define CACHE_LINE_WORDS 4
 // #define MAX_PMA_WORKER 2
 // #define MAX_PMA_HEADER_REQUEST 3
 struct InsertPos {
@@ -30,7 +33,12 @@ struct INTRA_COMMAND_STREAM
     ap_uint<32> data;
     ap_uint<1> last;
 };
-
+struct PMA_CACHE_STATUS
+{
+    ap_uint<1> cache_dirty;
+    ap_uint<1> cache_valid;
+    ap_uint<32> block_start;
+};
 static inline int density_capacity_from_seg_count(int seg_count)
 {
     return (seg_count * SEGMENT_SIZE * 3) >> 2;
@@ -1100,6 +1108,100 @@ void merge_requests(
 }
 
 
+static inline int get_cache_line_id(int block_start)
+{
+    #pragma HLS INLINE
+    const int line_bytes = CACHE_LINE_WORDS * 64;
+    return (block_start / line_bytes) % PMA_CACHE_NUM;
+}
+
+static inline int get_block_start(int addr)
+{
+    #pragma HLS INLINE
+    const int line_bytes = CACHE_LINE_WORDS * 64;
+    return (addr / line_bytes) * line_bytes;
+}
+
+static inline bool range_in_cache_line(
+    const PMA_CACHE_STATUS &status,
+    int start,
+    int len
+)
+{
+    #pragma HLS INLINE
+    if (!status.cache_valid) return false;
+    const int line_bytes = CACHE_LINE_WORDS * 64;
+    return start >= (int)status.block_start && (start + len) <= ((int)status.block_start + line_bytes);
+}
+
+static inline void flush_cache_line(
+    int line_id,
+    ap_uint<512> cache[PMA_CACHE_NUM][CACHE_LINE_WORDS],
+    PMA_CACHE_STATUS cache_status[PMA_CACHE_NUM],
+    hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access,
+    hls::stream<ap_axiu<512, 0, 0, 0>> &data_to_mem_access
+)
+{
+    #pragma HLS INLINE
+    if (!cache_status[line_id].cache_valid || !cache_status[line_id].cache_dirty)
+    {
+        return;
+    }
+
+    MEMORY_INFO_ACCESS_COMMAND cmd = {};
+    cmd.command_type = MEMORY_WRITE;
+    cmd.start = cache_status[line_id].block_start;
+    cmd.len = CACHE_LINE_WORDS * 64;
+    cmd.last = 0;
+    req_to_mem_access.write(cmd);
+    #pragma HLS PROTOCOL fixed
+    ap_wait();
+    for (int w = 0; w < CACHE_LINE_WORDS; ++w)
+    {
+        #pragma HLS PIPELINE II=1
+        ap_axiu<512, 0, 0, 0> packet = {};
+        packet.data = cache[line_id][w];
+        packet.last = (w == CACHE_LINE_WORDS - 1) ? 1 : 0;
+        data_to_mem_access.write(packet);
+    }
+    cache_status[line_id].cache_dirty = false;
+}
+
+static inline void load_cache_line(
+    int line_id,
+    int block_start,
+    ap_uint<512> cache[PMA_CACHE_NUM][CACHE_LINE_WORDS],
+    PMA_CACHE_STATUS cache_status[PMA_CACHE_NUM],
+    hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_access,
+    hls::stream<ap_axiu<512, 0, 0, 0>> &data_from_mem_access,
+    hls::stream<ap_axiu<512, 0, 0, 0>> &data_to_mem_access
+)
+{
+    #pragma HLS INLINE
+    if (cache_status[line_id].cache_valid && cache_status[line_id].cache_dirty)
+    {
+        flush_cache_line(line_id, cache, cache_status, req_to_mem_access, data_to_mem_access);
+    }
+
+    MEMORY_INFO_ACCESS_COMMAND cmd = {};
+    cmd.command_type = MEMORY_READ;
+    cmd.start = block_start;
+    cmd.len = CACHE_LINE_WORDS * 64;
+    cmd.last = 0;
+    req_to_mem_access.write(cmd);
+    #pragma HLS PROTOCOL fixed
+    ap_wait();
+    for (int w = 0; w < CACHE_LINE_WORDS; ++w)
+    {
+        #pragma HLS PIPELINE II=1
+        ap_axiu<512, 0, 0, 0> packet = data_from_mem_access.read();
+        cache[line_id][w] = packet.data;
+    }
+    cache_status[line_id].cache_valid = true;
+    cache_status[line_id].cache_dirty = false;
+    cache_status[line_id].block_start = block_start;
+}
+
 void mem_adapter(
     hls::stream<MEMORY_INFO_ACCESS_COMMAND> request[MAX_MEMORY_REQUEST],
     hls::stream<ap_uint<512>> data_to_mem[MAX_MEMORY_REQUEST],
@@ -1112,7 +1214,16 @@ void mem_adapter(
 )
 {
     ap_uint<MAX_MEMORY_REQUEST> finished_bitmap = -1;
-    int idx = 0;
+
+    ap_uint<512> pma_cache[PMA_CACHE_NUM][CACHE_LINE_WORDS];
+    PMA_CACHE_STATUS cache_status[PMA_CACHE_NUM];
+    #pragma HLS BIND_STORAGE variable=pma_cache type=RAM_2P impl=URAM
+    for (int i = 0 ; i < PMA_CACHE_NUM; i++)
+    {
+        cache_status[i].cache_valid = false;
+        cache_status[i].cache_dirty = false;
+        cache_status[i].block_start = 0;
+    }
     while (true)
     {
         #pragma HLS PIPELINE II=1
@@ -1132,27 +1243,85 @@ void mem_adapter(
                 } else {
                     MEMORY_INFO_ACCESS_COMMAND cmd = request_info;
                     if (cmd.command_type == MEMORY_READ) {
-                        req_to_mem_access.write(cmd);
-                        #pragma HLS PROTOCOL fixed
-                        ap_wait();
-                        for (int j = 0; j < cmd.len / 64; j++) {
-                            #pragma HLS PIPELINE II=1
-                            ap_axiu<512, 0, 0, 0> packet = data_from_mem_access.read();
-                            data_from_mem[i].write(packet.data);
+                        int total_words = cmd.len / 64;
+                        int processed = 0;
+                        while (processed < total_words)
+                        {
+                            #pragma HLS PIPELINE off
+                            int cur_start = cmd.start + processed * 64;
+                            int block_start = get_block_start(cur_start);
+                            int line_id = get_cache_line_id(block_start);
+                            if (!range_in_cache_line(cache_status[line_id], cur_start, 64))
+                            {
+                                load_cache_line(
+                                    line_id,
+                                    block_start,
+                                    pma_cache,
+                                    cache_status,
+                                    req_to_mem_access,
+                                    data_from_mem_access,
+                                    data_to_mem_access
+                                );
+                            }
+
+                            int word_offset = (cur_start - (int)cache_status[line_id].block_start) / 64;
+                            int words_this_round = CACHE_LINE_WORDS - word_offset;
+                            int remain_words = total_words - processed;
+                            if (words_this_round > remain_words)
+                            {
+                                words_this_round = remain_words;
+                            }
+                            for (int j = 0; j < words_this_round; ++j)
+                            {
+                                #pragma HLS PIPELINE II=1
+                                data_from_mem[i].write(pma_cache[line_id][word_offset + j]);
+                            }
+                            processed += words_this_round;
                         }
-                    } else if (cmd.command_type == MEMORY_WRITE) {
-                        req_to_mem_access.write(cmd);
-                        #pragma HLS PROTOCOL fixed
-                        ap_wait();
-                        for (int j = 0; j < cmd.len / 64; j++) {
-                            #pragma HLS PIPELINE II=1
-                            ap_uint<512> data = data_to_mem[i].read();
-                            ap_axiu<512, 0, 0, 0> packet;
-                            packet.data = data;
-                            packet.last = (j == cmd.len / 64 - 1) ? 1 : 0;
-                            data_to_mem_access.write(packet);
+                    }
+                    else if (cmd.command_type == MEMORY_WRITE)
+                    {
+                        int total_words = cmd.len / 64;
+                        int processed = 0;
+                        while (processed < total_words)
+                        {
+                            #pragma HLS PIPELINE off
+                            int cur_start = cmd.start + processed * 64;
+                            int block_start = get_block_start(cur_start);
+                            int line_id = get_cache_line_id(block_start);
+                            if (!range_in_cache_line(cache_status[line_id], cur_start, 64))
+                            {
+                                load_cache_line(
+                                    line_id,
+                                    block_start,
+                                    pma_cache,
+                                    cache_status,
+                                    req_to_mem_access,
+                                    data_from_mem_access,
+                                    data_to_mem_access
+                                );
+                            }
+
+                            int word_offset = (cur_start - (int)cache_status[line_id].block_start) / 64;
+                            int words_this_round = CACHE_LINE_WORDS - word_offset;
+                            int remain_words = total_words - processed;
+                            if (words_this_round > remain_words)
+                            {
+                                words_this_round = remain_words;
+                            }
+
+                            for (int j = 0; j < words_this_round; ++j)
+                            {
+                                #pragma HLS PIPELINE II=1
+                                ap_uint<512> data = data_to_mem[i].read();
+                                pma_cache[line_id][word_offset + j] = data;
+                            }
+                            cache_status[line_id].cache_dirty = true;
+                            processed += words_this_round;
                         }
-                    } else if (cmd.command_type == VEC_INFO_READ) {
+                    }
+                    else if (cmd.command_type == VEC_INFO_READ) 
+                    {
                         req_to_mem_access.write(cmd);
                         #pragma HLS protocol fixed
                         ap_wait();
@@ -1160,7 +1329,9 @@ void mem_adapter(
                         #pragma HLS PROTOCOL fixed
                         ap_wait();
                         vec_info_to_app.write(vec_pkt);
-                    } else if (cmd.command_type == VEC_INFO_WRITE) {
+                    } 
+                    else if (cmd.command_type == VEC_INFO_WRITE) 
+                    {
                         req_to_mem_access.write(cmd);
                     }
                 }
@@ -1168,6 +1339,13 @@ void mem_adapter(
         }
         ap_wait();
     }
+
+    for (int line_id = 0; line_id < PMA_CACHE_NUM; ++line_id)
+    {
+        #pragma HLS PIPELINE off
+        flush_cache_line(line_id, pma_cache, cache_status, req_to_mem_access, data_to_mem_access);
+    }
+
     MEMORY_INFO_ACCESS_COMMAND finish_cmd = {};
     finish_cmd.last = 1;
     finish_cmd.command_type = MEMORY_FINISH;

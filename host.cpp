@@ -16,9 +16,9 @@
 #include <fstream>
 #include <random>
 bool final_match = true;
-const bool kBaseGraphReadOnlyTest = false;
+const bool kBaseGraphReadOnlyTest = true;
 const bool kVertexOnlyTest = false;
-const bool kShuffleSameTimestampOps = false; // Set to true to enable shuffling of operations with the same timestamp
+const bool kShuffleSameTimestampOps = true; // Set to true to enable shuffling of operations with the same timestamp
 const bool kMismatchfileOutput = false; // Set to true to output mismatch details to files
 void print_pma(
     int pma_idx,
