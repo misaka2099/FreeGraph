@@ -16,10 +16,10 @@
 #include <fstream>
 #include <random>
 bool final_match = true;
-const bool kBaseGraphReadOnlyTest = true;
+const bool kBaseGraphReadOnlyTest = false;
 const bool kVertexOnlyTest = false;
 const bool kShuffleSameTimestampOps = true; // Set to true to enable shuffling of operations with the same timestamp
-const bool kMismatchfileOutput = false; // Set to true to output mismatch details to files
+const bool kMismatchfileOutput = true; // Set to true to output mismatch details to files
 void print_pma(
     int pma_idx,
     VEC_INFO* pos_info,
@@ -532,7 +532,7 @@ int main(int argc, char** argv)
             std::cout << label << " matches perfectly!" << std::endl;
         } else {
             std::cout << label << " does not match. "<< std::endl;
-            all_match = false;
+            final_match = false;
             if (kMismatchfileOutput) {
                 std::cout << "See mismatch_" << clean_label << ".txt for details." << std::endl;
             }

@@ -10,7 +10,7 @@ typedef ap_axiu<8,0,0,0> WHOLE_ACK;
 #define CHANNEL_CAPACITY (250*1024*1024)
 // #define CHANNEL_CAPACITY (64*1024*1024)
 #ifndef PMA_PARALLEL_CHANNEL_NUM
-#define PMA_PARALLEL_CHANNEL_NUM 8
+#define PMA_PARALLEL_CHANNEL_NUM 4
 #endif
 #define CHANNEL_NUM PMA_PARALLEL_CHANNEL_NUM
 typedef ap_axiu<8,0,0,0> BYTE_STREAM ;
@@ -115,7 +115,25 @@ struct pma_idx_info
 //range(64): alloc or free 0->alloc 1->free
 typedef ap_axiu<96,32,0,0> MEMORY_ALLOC_FREE_REQUEST;
 
-typedef ap_uint<104> MEMORY_ALLOC_FREE_REQUEST_INTERNAL;
+typedef ap_uint<72> MEMORY_ALLOC_FREE_REQUEST_INTERNAL;
+
+
+enum PMA_INFO_ACCESS_TYPE 
+{
+    PMA_HEADER_READ = 0,
+    PMA_HEADER_WRITE = 1,
+    PMA_SEGMENT_READ = 2,
+    PMA_SEGMENT_WRITE = 3,
+    PMA_FINISH = 4,
+    PMA_EXTEND = 5
+};
+struct PMA_INFO_ACCESS_COMMAND
+{
+    PMA_INFO_ACCESS_TYPE command_type;
+    int pma_idx;
+    int seg_start;
+    int seg_len;
+};
 
 enum MEMORY_INFO_ACCESS_TYPE
 {
@@ -132,7 +150,6 @@ enum MEMORY_INFO_ACCESS_TYPE
     // SEG_WRITE = 6,
     // SEG_READ = 7
 };
-
 struct MEMORY_INFO_ACCESS_COMMAND
 {
     MEMORY_INFO_ACCESS_TYPE command_type;
@@ -142,7 +159,6 @@ struct MEMORY_INFO_ACCESS_COMMAND
     int start;
     int len;
     int last;
-    bool direct_to_mem;// 0-> through cache 1-> directly access memory
 };
 
 // enum memory_access_type
@@ -184,3 +200,5 @@ struct MEMORY_INFO_ACCESS_COMMAND
 // //the size of one ping or pong buffer
 // const int SRC_BUFFER_SIZE=4096; //4096 vertices 16*2 KB per source vertex buffer for a scatter PE// 64 BRAMs per scatter PE
 // const int LOG2_SRC_BUFFER_SIZE=12; // #4096 vertices 16*2 KB per source vertex buffer for a scatter PE// 64 BRAMs per scatter PE
+
+#define PMA_ENLARGE_FACTOR 3

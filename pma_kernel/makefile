@@ -9,9 +9,11 @@ XO_FILES := $(patsubst %,%.xo,$(KERNELS))
 
 .PHONY: all clean help
 all: $(XO_FILES)
-%.xo: %.cpp
+INCLUDE_HEADERS := /home/sail/lyf/pma_demo/stream/include/data_type.h /home/sail/lyf/pma_demo/stream/include/debug.h
+
+%.xo: %.cpp $(INCLUDE_HEADERS)
 	@echo "---- Building kernel $* -> $@ (target=$(TARGET)) ----"
-	$(VPP) -c -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) -k $* -o $@ $<
+	$(VPP) -c -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --kernel_frequency=150 -k $* -o $@ $< 
 	@echo "---- done: $@ ----"
 clean:
 	@echo "Cleaning .xo and build artifacts..."

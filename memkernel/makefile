@@ -31,7 +31,7 @@ all: $(XO_FILES)
 
 %.xo: %.cpp
 	@echo "---- Building kernel $* -> $@ (target=$(TARGET)) ----"
-	$(VPP) -c -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) -k $* -o $@ $<
+	$(VPP) -c -g -t $(TARGET) $(INCLUDES) --kernel_frequency=150 --platform $(PLATFORM) -k $* -o $@ $<
 	@echo "---- done: $@ ----"
 # allocate_kernel.xo: allocate_kernel.cpp memory_manage_alloc.cpp
 # 	@echo "---- Building allocate_kernel -> $@ ----"

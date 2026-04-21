@@ -178,7 +178,7 @@ void pma_read_worker_kernel(
                 VEC_INFO vec_info = data_from_mem_access_ch.read().data.range(63, 0);
                 if (vec_info == 0) 
                 {
-                    hls::print("Worker %d: No more PMA to read, total PMA count: ", worker_id);
+                    hls::print("Worker %d: No more PMA to read, total PMA count: \n", worker_id);
                     hls::print("%d\n", pma_idx);
                     break;
                 }
@@ -196,7 +196,7 @@ void pma_read_worker_kernel(
                     for (int s = seg_start; s < seg_end; s++) {
                         read_seg(req_to_mem_access_ch, data_from_mem_access_ch, segment_buffer, pma_data_base_addr, s);
                         for (int j = 0; j < SEGMENT_SIZE; j++) {
-#pragma HLS PIPELINE II=1
+                            #pragma HLS PIPELINE II=1
                             int neighbor = segment_buffer[j];
                             if (neighbor == UNUSED_ICON) break;
                             ap_uint<64> pair = ((ap_uint<64>)(ap_uint<32>)src << 32) | (ap_uint<32>)neighbor;
