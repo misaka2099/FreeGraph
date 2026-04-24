@@ -23,7 +23,6 @@ void process_req(
     bool finish_read = false;
     while (true)
     {
-        #pragma HLS PIPELINE II=1
         if (finish_vertex && finish_edge && finish_read)
         {
             break;

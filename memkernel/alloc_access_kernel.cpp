@@ -2,133 +2,92 @@
 #include <hls_stream.h>
 #include "data_type.h"
 
+// Configurable bitmap storage granularity (default: 512-bit per word).
+#ifndef BITMAP_STORAGE_WORD_BITS
+#define BITMAP_STORAGE_WORD_BITS 512
+#endif
+
+typedef ap_uint<BITMAP_STORAGE_WORD_BITS> bitmap_word_t;
+
 const int TOTAL_BLOCKS = (CHANNEL_CAPACITY / INIT_VEC_LEN_IN_BYTE);
 const int BITMAP_SIZE = (TOTAL_BLOCKS + 7) / 8;
-const int BITMAP_WORD_BITS = 512;
+const int BITMAP_WORD_BITS = BITMAP_STORAGE_WORD_BITS;
 const int BITMAP_WORD_BYTES = BITMAP_WORD_BITS / 8;
 const int BITMAP_WORDS = (TOTAL_BLOCKS + BITMAP_WORD_BITS - 1) / BITMAP_WORD_BITS;
 
-static bool get_bit(int idx, ap_uint<BITMAP_WORD_BITS>* bitmap)
+static void set_bits(int start, int len, bitmap_word_t* bitmap)
 {
-    #pragma HLS INLINE
-    int word_idx = idx / BITMAP_WORD_BITS;
-    int bit_idx = idx % BITMAP_WORD_BITS;
-    return bitmap[word_idx][bit_idx] == 1;
-}
-
-static BYTE get_byte(int byte_idx, ap_uint<BITMAP_WORD_BITS>* bitmap)
-{
-    #pragma HLS INLINE
-    int word_idx = byte_idx / BITMAP_WORD_BYTES;
-    int byte_off = byte_idx % BITMAP_WORD_BYTES;
-    return (BYTE)bitmap[word_idx].range((byte_off + 1) * 8 - 1, byte_off * 8);
-}
-
-static void set_byte(int byte_idx, BYTE val, ap_uint<BITMAP_WORD_BITS>* bitmap)
-{
-    #pragma HLS INLINE
-    int word_idx = byte_idx / BITMAP_WORD_BYTES;
-    int byte_off = byte_idx % BITMAP_WORD_BYTES;
-    bitmap[word_idx].range((byte_off + 1) * 8 - 1, byte_off * 8) = val;
-}
-
-static void set_bit(int idx, ap_uint<BITMAP_WORD_BITS>* bitmap)
-{
-    #pragma HLS INLINE
-    int word_idx = idx / BITMAP_WORD_BITS;
-    int bit_idx = idx % BITMAP_WORD_BITS;
-    bitmap[word_idx][bit_idx] = 1;
-}
-
-static void clear_bit(int idx, ap_uint<BITMAP_WORD_BITS>* bitmap)
-{
-    #pragma HLS INLINE
-    int word_idx = idx / BITMAP_WORD_BITS;
-    int bit_idx = idx % BITMAP_WORD_BITS;
-    bitmap[word_idx][bit_idx] = 0;
-}
-
-static void set_bits(int start, int len, ap_uint<BITMAP_WORD_BITS>* bitmap)
-{
-    #pragma HLS INLINE
+    #pragma HLS INLINE off
     int end = start + len;
     int i = start;
 
-    // Head bits to reach byte alignment.
-    while (i < end && (i & 7) != 0)
-    {
-        set_bit(i, bitmap);
-        i++;
-    }
-
-    // Middle full bytes.
-    while (i + 8 <= end)
-    {
-        #pragma HLS LOOP_TRIPCOUNT min=1 max=4096
-        int byte_idx = i >> 3;
-        set_byte(byte_idx, (BYTE)0xFF, bitmap);
-        i += 8;
-    }
-
-    // Tail bits.
     while (i < end)
     {
-        set_bit(i, bitmap);
-        i++;
+        #pragma HLS LOOP_TRIPCOUNT min=1 max=4096
+        int word_idx = i / BITMAP_WORD_BITS;
+        int word_start = word_idx * BITMAP_WORD_BITS;
+        int word_end = word_start + BITMAP_WORD_BITS;
+        bitmap_word_t cur = bitmap[word_idx];
+
+        int s = i - word_start;
+        int e = ((end < word_end) ? end : word_end) - word_start;
+
+        for (int b = s; b < e; ++b)
+        {
+            #pragma HLS LOOP_TRIPCOUNT min=1 max=BITMAP_WORD_BITS
+            cur[b] = 1;
+        }
+
+        bitmap[word_idx] = cur;
+        i += (e - s);
     }
 }
 
-static bool is_free(int start, int len, int &first_set, ap_uint<BITMAP_WORD_BITS>* bitmap)
+static bool is_free(int start, int len, int &first_set, bitmap_word_t* bitmap)
 {
     #pragma HLS INLINE
     int end = start + len;
     int i = start;
 
-    while (i < end && (i & 7) != 0)
-    {
-        if (get_bit(i, bitmap))
-        {
-            first_set = i;
-            return false;
-        }
-        i++;
-    }
-
-    while (i + 8 <= end)
+    while (i < end)
     {
         #pragma HLS LOOP_TRIPCOUNT min=1 max=4096
-        int byte_idx = i >> 3;
-        BYTE b = get_byte(byte_idx, bitmap);
-        if (b != 0)
+        int word_idx = i / BITMAP_WORD_BITS;
+        int word_start = word_idx * BITMAP_WORD_BITS;
+        int word_end = word_start + BITMAP_WORD_BITS;
+        bitmap_word_t cur = bitmap[word_idx];
+
+        int s = i - word_start;
+        int e = ((end < word_end) ? end : word_end) - word_start;
+
+        bitmap_word_t mask = 0;
+        for (int b = s; b < e; ++b)
         {
-            for (int k = 0; k < 8; k++)
+            #pragma HLS LOOP_TRIPCOUNT min=1 max=BITMAP_WORD_BITS
+            mask[b] = 1;
+        }
+
+        if ((cur & mask) != 0)
+        {
+            for (int b = s; b < e; ++b)
             {
                 #pragma HLS UNROLL
-                if (b & ((BYTE)1 << k))
+                if (cur[b])
                 {
-                    first_set = i + k;
+                    first_set = word_start + b;
                     return false;
                 }
             }
         }
-        i += 8;
-    }
 
-    while (i < end)
-    {
-        if (get_bit(i, bitmap))
-        {
-            first_set = i;
-            return false;
-        }
-        i++;
+        i += (e - s);
     }
     return true;
 }
 
-static void allocate_next_fit(int &start, int len, int &next_cursor, ap_uint<BITMAP_WORD_BITS>* bitmap)
+static void allocate_next_fit(int &start, int len, int &next_cursor, bitmap_word_t* bitmap)
 {
-    #pragma HLS INLINE
+    #pragma HLS INLINE off
     start = -1;
     if (len <= 0 || len > TOTAL_BLOCKS) return;
 
@@ -141,7 +100,8 @@ static void allocate_next_fit(int &start, int len, int &next_cursor, ap_uint<BIT
     for (int i = begin; i <= max_start; i++)
     {
         #pragma HLS LOOP_TRIPCOUNT min=1 max=256000
-        if (is_free(i, len, first_set, bitmap))
+        bool free = is_free(i, len, first_set, bitmap);
+        if (free)
         {
             start = i;
             set_bits(start, len, bitmap);
@@ -156,7 +116,8 @@ static void allocate_next_fit(int &start, int len, int &next_cursor, ap_uint<BIT
     {
         #pragma HLS LOOP_TRIPCOUNT min=1 max=256000
         if (i > max_start) break;
-        if (is_free(i, len, first_set, bitmap))
+        bool free = is_free(i, len, first_set, bitmap);
+        if (free)
         {
             start = i;
             set_bits(start, len, bitmap);
@@ -168,43 +129,44 @@ static void allocate_next_fit(int &start, int len, int &next_cursor, ap_uint<BIT
     }
 }
 
-static void reset_bits(int start, int len, ap_uint<BITMAP_WORD_BITS>* bitmap)
+static void reset_bits(int start, int len, bitmap_word_t* bitmap)
 {
-    #pragma HLS INLINE
+    #pragma HLS INLINE off
     int end = start + len;
     int i = start;
 
-    while (i < end && (i & 7) != 0)
-    {
-        clear_bit(i, bitmap);
-        i++;
-    }
-
-    while (i + 8 <= end)
-    {
-        #pragma HLS LOOP_TRIPCOUNT min=1 max=4096
-        int byte_idx = i >> 3;
-        set_byte(byte_idx, (BYTE)0x00, bitmap);
-        i += 8;
-    }
-
     while (i < end)
     {
-        clear_bit(i, bitmap);
-        i++;
+        #pragma HLS LOOP_TRIPCOUNT min=1 max=4096
+        int word_idx = i / BITMAP_WORD_BITS;
+        int word_start = word_idx * BITMAP_WORD_BITS;
+        int word_end = word_start + BITMAP_WORD_BITS;
+        bitmap_word_t cur = bitmap[word_idx];
+
+        int s = i - word_start;
+        int e = ((end < word_end) ? end : word_end) - word_start;
+
+        for (int b = s; b < e; ++b)
+        {
+            #pragma HLS LOOP_TRIPCOUNT min=1 max=BITMAP_WORD_BITS
+            cur[b] = 0;
+        }
+
+        bitmap[word_idx] = cur;
+        i += (e - s);
     }
 }
 
-static void deallocate(int start, int len, ap_uint<BITMAP_WORD_BITS>* bitmap)
+static void deallocate(int start, int len, bitmap_word_t* bitmap)
 {
-    #pragma HLS INLINE
+    #pragma HLS INLINE off
     if (len == 0) return;
     reset_bits(start, len, bitmap);
 }
 
 static void alloc_free_worker(
-    hls::stream<MEMORY_ALLOC_FREE_REQUEST>& req_vertex_in,
-    hls::stream<MEMORY_ALLOC_FREE_REQUEST>& req_edge_in,
+    hls::stream<MEMORY_INFO_ACCESS_COMMAND>& req_vertex_in,
+    hls::stream<MEMORY_INFO_ACCESS_COMMAND>& req_edge_in,
     hls::stream<VEC_INFO_STREAM>& vec_info_to_vertex,
     hls::stream<VEC_INFO_STREAM>& vec_info_to_edge,
     BYTE* bm_in_hbm,
@@ -213,22 +175,43 @@ static void alloc_free_worker(
 {
     #pragma HLS INTERFACE m_axi port=bm_in_hbm offset=slave bundle=gmem0
 
-    ap_uint<BITMAP_WORD_BITS> storage[BITMAP_WORDS];
+    bitmap_word_t storage[BITMAP_WORDS];
     #pragma HLS bind_storage variable=storage type=ram_t2p impl=bram
+    #pragma HLS DEPENDENCE variable=storage inter false
 
     if (init_from_hbm)
     {
-        for (int i = 0 ; i < BITMAP_WORDS ; i++)
+        // Prefer full word loads from HBM to keep bitmap representation word-based.
+        bitmap_word_t* bm_words = (bitmap_word_t*)bm_in_hbm;
+        int full_words = BITMAP_SIZE / BITMAP_WORD_BYTES;
+        int rem_bytes = BITMAP_SIZE % BITMAP_WORD_BYTES;
+
+        for (int i = 0 ; i < full_words ; i++)
         {
             #pragma HLS PIPELINE II=1
-            ap_uint<BITMAP_WORD_BITS> word = 0;
-            for (int b = 0; b < BITMAP_WORD_BYTES; ++b)
+            storage[i] = bm_words[i];
+        }
+
+        if (full_words < BITMAP_WORDS)
+        {
+            if (rem_bytes != 0)
             {
-                int byte_idx = i * BITMAP_WORD_BYTES + b;
-                BYTE v = (byte_idx < BITMAP_SIZE) ? bm_in_hbm[byte_idx] : (BYTE)0;
-                word.range((b + 1) * 8 - 1, b * 8) = v;
+                bitmap_word_t tail_word = 0;
+                for (int b = 0; b < rem_bytes; ++b)
+                {
+                    #pragma HLS PIPELINE II=1
+                    int byte_idx = full_words * BITMAP_WORD_BYTES + b;
+                    tail_word.range((b + 1) * 8 - 1, b * 8) = bm_in_hbm[byte_idx];
+                }
+                storage[full_words] = tail_word;
             }
-            storage[i] = word;
+
+            int zero_start = full_words + ((rem_bytes != 0) ? 1 : 0);
+            for (int i = zero_start; i < BITMAP_WORDS; ++i)
+            {
+                #pragma HLS PIPELINE II=1
+                storage[i] = 0;
+            }
         }
     }
     else
@@ -246,8 +229,7 @@ static void alloc_free_worker(
 
     while (true)
     {
-        #pragma HLS PIPELINE II=2
-        MEMORY_ALLOC_FREE_REQUEST pending_info;
+        MEMORY_INFO_ACCESS_COMMAND pending_info;
         bool from_vertex = false;
         bool valid_req = false;
         
@@ -270,9 +252,9 @@ static void alloc_free_worker(
             continue;
         }
 
-        int req_type = pending_info.data.range(67, 64);
+        MEMORY_INFO_ACCESS_TYPE req_type = pending_info.command_type;
 
-        if (req_type == REQ_TYPE_FINISH || pending_info.last == 1)
+        if (req_type == ALLOC_FINISH || pending_info.last == 1)
         {
             if (from_vertex)
             {
@@ -296,17 +278,19 @@ static void alloc_free_worker(
 
         VEC_INFO back_info = 0;
 
-        if (req_type == REQ_TYPE_ALLOC)
+        if (req_type == VEC_INFO_ALLOC)
         {
-            int req_bytes = pending_info.data.range(63,32);
+            int req_bytes = pending_info.len;
             int len_segs = (req_bytes + INIT_VEC_LEN_IN_BYTE - 1) / INIT_VEC_LEN_IN_BYTE;
             int start_seg;
             allocate_next_fit(start_seg, len_segs, next_fit_cursor, storage);
-            if (start_seg == -1)
+
+            int reg_start_seg = start_seg;
+            if (reg_start_seg == -1)
             {
                 perror("ERROR INSUFFICIENT MEMORY POOL\n");
             }
-            int start_bytes = start_seg * INIT_VEC_LEN_IN_BYTE;
+            int start_bytes = reg_start_seg * INIT_VEC_LEN_IN_BYTE;
             back_info.range(31,0) = start_bytes;
             back_info.range(63,32) = req_bytes;
 
@@ -322,10 +306,10 @@ static void alloc_free_worker(
                 vec_info_to_edge.write(out);
             }
         }
-        else if (req_type == REQ_TYPE_FREE)
+        else if (req_type == VEC_INFO_FREE)
         {
-            int start_bytes = pending_info.data.range(31,0);
-            int len_bytes = pending_info.data.range(63,32);
+            int start_bytes = pending_info.start;
+            int len_bytes = pending_info.len;
             int start_seg = start_bytes / INIT_VEC_LEN_IN_BYTE;
             int len_segs  = (len_bytes + INIT_VEC_LEN_IN_BYTE - 1) / INIT_VEC_LEN_IN_BYTE;
             deallocate(start_seg, len_segs, storage);
@@ -338,8 +322,8 @@ extern "C"
     void alloc_access_kernel(
         BYTE* bm_in_hbm,
         bool init_from_hbm,
-        hls::stream<MEMORY_ALLOC_FREE_REQUEST>& req_from_vertex,
-        hls::stream<MEMORY_ALLOC_FREE_REQUEST>& req_from_edge,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND>& req_from_vertex,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND>& req_from_edge,
         hls::stream<VEC_INFO_STREAM>& vec_info_to_vertex,
         hls::stream<VEC_INFO_STREAM>& vec_info_to_edge
     )

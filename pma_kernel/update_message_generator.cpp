@@ -61,17 +61,17 @@ extern "C"
         {
             #pragma HLS PIPELINE II=1
             PMA_UPDATE_MESSAGE msg{};
-            msg.data = 0;
-            msg.data.range(31,0) = i * VERTEX_PER_PMA;
-            msg.data.range(63,32) = 0;
-            msg.data.range(127,96) = PMA_INSERT_VERTEX; // opcode stored in high 32 bits
+            msg.src = i * VERTEX_PER_PMA;
+            msg.dst = 0;
+            msg.opcode = PMA_UPDATE_INSERT_VERTEX ;
             msg.last = last;
             cmd_to_router.write(msg);
         }
         //get batch update info vertex update + edge_update
         HERE
             total_vertex_num_out += add_vertex_num;
-        cmd_to_router.write({.data = -1, .last = last});
+        // cmd_to_router.write({.data = -1, .last = last});
+        cmd_to_router.write({.src=-1, .dst=-1, .opcode = PMA_UPDATE_INSERT_VERTEX, .last = last});
         // // clear_message_to_router.write({.data = 111});
         // for (int i = 0 ; i < add_edge_num ; i++)
         // {
@@ -94,10 +94,23 @@ extern "C"
         {
             #pragma HLS PIPELINE II=1
             PMA_UPDATE_MESSAGE msg{};
-            msg.data = 0;
-            msg.data.range(31,0) = src[i];
-            msg.data.range(63,32) = dst[i];
-            msg.data.range(127,96) = opcode[i]; // opcode stored in high 32 bits
+            msg.src = src[i];
+            msg.dst = dst[i];
+            // msg.opcode = opcode[i]; // opcode stored in high 32 bits
+            switch (opcode[i]) 
+            {
+                case PMA_INSERT_EDGE:
+                    msg.opcode = PMA_UPDATE_INSERT_EDGE;
+                    break;
+                case PMA_DELETE_EDGE:
+                    msg.opcode = PMA_UPDATE_DELETE_EDGE;
+                    break;
+                case PMA_DELETE_VERTEX:
+                    msg.opcode = PMA_UPDATE_DELETE_VERTEX;
+                    break;
+                default:
+                    msg.opcode = PMA_UPDATE_INSERT_EDGE; // default to insert edge if unknown opcode
+            }
             msg.last = last;
             cmd_to_router.write(msg);
         }
@@ -117,7 +130,7 @@ extern "C"
         // }
         //send to pma_kernel
         HERE
-        cmd_to_router.write({.data = -1, .last = last});
+        cmd_to_router.write({.src=-1, .dst=-1, .opcode = PMA_UPDATE_INSERT_EDGE, .last = last});
         // If this is the final batch, wait for ACK from router indicating completion
         WHOLE_ACK ack_pkt;
         // blocking read to ensure router processed the whole batch

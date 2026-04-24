@@ -170,7 +170,7 @@ void write_header(
 void process_cmd(
     hls::stream<PMA_UPDATE_MESSAGE> &cmd_stream,
     hls::stream<int> &cmd_count_stream,
-    hls::stream<ap_uint<128>> &cmd_batch_stream,
+    hls::stream<PMA_UPDATE_MESSAGE> &cmd_batch_stream,
     hls::stream<pma_idx_info> &pma_info_stream
 )
 {
@@ -181,14 +181,14 @@ void process_cmd(
             ap_wait();
             continue;
         }
-        ap_uint<128> cmd_batch[MAX_CMD_NUM];
+        PMA_UPDATE_MESSAGE cmd_batch[MAX_CMD_NUM];
         #pragma HLS ARRAY_PARTITION variable=cmd_batch complete
         int cmd_count = 0;
         // 读取直到 last=1
         for (int i = 0; i < MAX_CMD_NUM; i++) {
             #pragma HLS PIPELINE II=1
             auto cmd = cmd_stream.read();
-            if (cmd.data == PMA_STOP) 
+            if (cmd.opcode == PMA_UPDATE_STOP) 
             {
                 if (cmd.last == 1)
                 {
@@ -201,7 +201,7 @@ void process_cmd(
                 }
                 continue;
             }
-            cmd_batch[i] = cmd.data;
+            cmd_batch[i] = cmd;
             cmd_count++;
             if (cmd.last == 1) {
                 break;
@@ -209,7 +209,7 @@ void process_cmd(
         }
         pma_idx_info info;
         // info.direction = cmd_batch[0].range(98,98);
-        info.pma_idx = cmd_batch[0].range(31,0) / VERTEX_PER_PMA;
+        info.pma_idx = cmd_batch[0].src / VERTEX_PER_PMA;
         info.last = 0;
         pma_info_stream.write(info);
         // 将批次数据和数量写入输出流
@@ -223,8 +223,8 @@ void process_cmd(
 
 void sort_cu(
     hls::stream<int>& cmd_count_stream,
-    hls::stream<ap_uint<128>>& cmd_batch_stream,
-    hls::stream<ap_uint<128>>& edge_info_stream,
+    hls::stream<PMA_UPDATE_MESSAGE>& cmd_batch_stream,
+    hls::stream<PMA_UPDATE_MESSAGE>& edge_info_stream,
     hls::stream<int> &edge_count
 )
 {
@@ -236,27 +236,37 @@ void sort_cu(
         {
             break;
         }
-        ap_uint<128> edge_info[MAX_CMD_NUM];
+        PMA_UPDATE_MESSAGE edge_info[MAX_CMD_NUM];
         #pragma HLS BIND_STORAGE variable=edge_info type=RAM_2P impl=BRAM
 
         // 收集边信息
         for (int i = 0; i < cmd_count; i++) {
             #pragma HLS PIPELINE II=1
             auto cmd = cmd_batch_stream.read();
-            edge_info[i] = 0;
-            edge_info[i].range(127,96) = cmd.range(31,0);  // src
-            edge_info[i].range(95,64)  = cmd.range(63,32); // dst
-            edge_info[i].range(63,32)  = cmd.range(127,96); // Include opcode region
+            edge_info[i].src = cmd.src;  // src
+            edge_info[i].dst  = cmd.dst; // dst
+            edge_info[i].opcode  = cmd.opcode; // Include opcode region
         }
         SORT_EDGES:
         for (int i = 1; i < cmd_count; i++) {
-            ap_uint<128> key = edge_info[i];
-            int j = i - 1;
-            while (j >= 0 && edge_info[j] > key) {
-                edge_info[j + 1] = edge_info[j];
-                j--;
+            // insertion sort: compare by src, then dst (both ascending)
+            for (int j = i; j > 0; j--) {
+                #pragma HLS LOOP_TRIPCOUNT min=1 max=MAX_CMD_NUM
+                bool greater = false;
+                if (edge_info[j-1].src > edge_info[j].src) {
+                    greater = true;
+                } else if (edge_info[j-1].src == edge_info[j].src &&
+                           edge_info[j-1].dst > edge_info[j].dst) {
+                    greater = true;
+                }
+                if (greater) {
+                    PMA_UPDATE_MESSAGE tmp = edge_info[j];
+                    edge_info[j] = edge_info[j-1];
+                    edge_info[j-1] = tmp;
+                } else {
+                    break;
+                }
             }
-            edge_info[j + 1] = key;
         }
 
 
@@ -382,7 +392,7 @@ void binary_search_insert_cu(
     hls::stream<PMA_HEADER> &pma_header_out,
     hls::stream<VEC_INFO> &pma_addr_in,
     hls::stream<VEC_INFO> &pma_addr_out,
-    hls::stream<ap_uint<128>> &edge_info_stream,
+    hls::stream<PMA_UPDATE_MESSAGE> &edge_info_stream,
     hls::stream<int> &edge_count_in,
     hls::stream<pma_idx_info> &pma_idx_in,
     hls::stream<pma_idx_info> &pma_idx_out,
@@ -443,12 +453,15 @@ void binary_search_insert_cu(
             #pragma HLS PIPELINE off
             auto edge_info = edge_info_stream.read();
 
-            int opcode = edge_info.range(63,32).to_uint();
-            ap_uint<64> payload = edge_info.range(127,64);
-            if (opcode == PMA_INSERT_EDGE)
+            int opcode = edge_info.opcode;
+            ap_uint<64> payload = 0;
+            // pack src into high 32 bits, dst into low 32 bits
+            payload.range(63,32) = edge_info.src;
+            payload.range(31,0)  = edge_info.dst;
+            int src = edge_info.src;
+            int dst = edge_info.dst;
+            if (opcode == PMA_UPDATE_INSERT_EDGE)
             {
-                int src = payload.range(63,32);
-                int dst = payload.range(31,0);
                 int local_src = src % VERTEX_PER_PMA;
 
                 if (last_cached_src != src)
@@ -468,10 +481,8 @@ void binary_search_insert_cu(
                 insert_ops[insert_ops_count++] = payload;
                 insert_idx++;
             }
-            else if (opcode == PMA_DELETE_EDGE)
+            else if (opcode == PMA_UPDATE_DELETE_EDGE)
             {
-                int src = payload.range(63,32);
-                int dst = payload.range(31,0);
                 int local_src = src % VERTEX_PER_PMA;
 
                 if (last_cached_src != src)
@@ -492,7 +503,7 @@ void binary_search_insert_cu(
                 delete_edge_ops[delete_edge_ops_count++] = payload;
                 delete_idx++;
             }
-            else if (opcode == PMA_DELETE_VERTEX)
+            else if (opcode == PMA_UPDATE_DELETE_VERTEX)
             {
                 delete_vertex_ops[delete_vertex_ops_count++] = payload;
             }
@@ -683,15 +694,18 @@ void redistribute(
     int write_buffer[SEGMENT_SIZE];
     #pragma HLS BIND_STORAGE variable=read_buffer type=RAM_2P impl=BRAM
     #pragma HLS BIND_STORAGE variable=write_buffer type=RAM_2P impl=BRAM
+    #pragma HLS ARRAY_PARTITION variable=write_buffer complete dim=1
     
     int read_ptr = SEGMENT_SIZE; // Force read first
     
     // Initialize write buffer
     for(int k=0; k<SEGMENT_SIZE; k++) write_buffer[k] = -1;
 
+    #pragma HLS LOOP_FLATTEN off
     while(write_seg_idx < write_seg_end) {
         int target_fill = base_per_seg + ((write_seg_idx - write_seg_start) < extra ? 1 : 0);
         
+        #pragma HLS LOOP_FLATTEN off
         while(current_write_fill < target_fill) {
             if (read_ptr == SEGMENT_SIZE) {
                     if (read_seg_idx < read_seg_end) {
@@ -726,7 +740,7 @@ void rebalance_cu(
     hls::stream<pma_idx_info>& pma_idx,
     hls::stream<inserted_seg>& inserted_seg_info,
     hls::stream<COMMAND_STREAM>& ack_back_to_router,
-    hls::stream<MEMORY_ALLOC_FREE_REQUEST>& req_to_mem_alloc,
+    hls::stream<MEMORY_INFO_ACCESS_COMMAND>& req_to_mem_alloc,
     hls::stream<VEC_INFO_STREAM>& new_alloc_addr
 )
 {
@@ -745,8 +759,11 @@ void rebalance_cu(
             x.last = 1;
             memory_access_stream.write(x);
             data_to_mem.write(0);
-            MEMORY_ALLOC_FREE_REQUEST finish_req = {};
-            finish_req.data.range(67,64) = REQ_TYPE_FINISH;
+            MEMORY_INFO_ACCESS_COMMAND finish_req = {};
+            finish_req.command_type = ALLOC_FINISH;
+            finish_req.start = 0;
+            finish_req.len = 0;
+            finish_req.pma_idx = signal.pma_idx;
             finish_req.last = 1;
             req_to_mem_alloc.write(finish_req);
             // ack_back_to_router.write(pma_idx);
@@ -799,16 +816,13 @@ void rebalance_cu(
         if (enlarged)
         {
             // Enlarged
-            MEMORY_ALLOC_FREE_REQUEST_INTERNAL alloc_req = 0;
-            alloc_req.range(67,64) = REQ_TYPE_ALLOC;
-            alloc_req.range(64,64) = 0; // Alloc
             int current_size = old_pma_addr.range(63,32);
-            // int new_size = current_size + total_enlarge_segs * SEGMENT_SIZE * 4;
             int new_size = current_size + (total_enlarge_segs >> 6 >> 2);
-            alloc_req.range(63,32) = new_size;
-            alloc_req.range(31,0) = 0;
-            MEMORY_ALLOC_FREE_REQUEST alloc_req_pkt = {};
-            alloc_req_pkt.data = alloc_req;
+            MEMORY_INFO_ACCESS_COMMAND alloc_req_pkt = {};
+            alloc_req_pkt.start = 0;
+            alloc_req_pkt.command_type = VEC_INFO_ALLOC;
+            alloc_req_pkt.len = current_size + (total_enlarge_segs >> 6 >> 2);
+            alloc_req_pkt.pma_idx = signal.pma_idx;
             alloc_req_pkt.last = 0;
             req_to_mem_alloc.write(alloc_req_pkt);
             #pragma HLS protocol fixed
@@ -838,14 +852,11 @@ void rebalance_cu(
                     memory_access_stream, data_to_mem, data_from_mem, 
                     old_pma_data_base_addr, new_pma_data_base_addr, total_valid_count);
             }
-            MEMORY_ALLOC_FREE_REQUEST_INTERNAL free_command = 0;
-            free_command.range(67,64) = REQ_TYPE_FREE;
-            free_command.range(63,0) = old_pma_addr.range(63,0);
-            free_command.range(64,64) = 1; // free
-            MEMORY_ALLOC_FREE_REQUEST free_req_pkt = {};
-            free_req_pkt.data = free_command;
-            free_req_pkt.last = 0;
-            req_to_mem_alloc.write(free_req_pkt);
+            MEMORY_INFO_ACCESS_COMMAND free_command = {};
+            free_command.command_type = VEC_INFO_FREE;
+            free_command.start = old_pma_addr.range(31,0);
+            free_command.len = old_pma_addr.range(63,32);
+            req_to_mem_alloc.write(free_command);
         }
         else
         {
@@ -883,6 +894,7 @@ void rebalance_cu(
                 int last_right = seg_idx + seg_start + 1 ;
                 int max_edge = density_capacity_from_seg_count(1);
                 if (total_valid_count < max_edge) continue;
+                #pragma HLS LOOP_FLATTEN off
                 for (int cur_seg_num = 2 ; cur_seg_num <= seg_num ; cur_seg_num *= 2)
                 {
                     int left = seg_start + int(seg_idx / cur_seg_num) * cur_seg_num;
@@ -942,6 +954,7 @@ void mem_adapter(
         if (all_finished) break;
 
         // 统一处理所有memory和vec_info请求
+        #pragma HLS LOOP_FLATTEN off
         for (int i = 0; i < MAX_MEMORY_REQUEST; i++) {
             if (finished_bitmap[i] == 0) continue;
             MEMORY_INFO_ACCESS_COMMAND request_info;
@@ -957,8 +970,9 @@ void mem_adapter(
                         req_to_mem_access.write(cmd);
                         #pragma HLS PROTOCOL fixed
                         ap_wait();
+                        #pragma HLS PIPELINE II=1
+                        #pragma HLS LOOP_TRIPCOUNT min=1 max=WRITE_KERNEL_BUFFER_SIZE
                         for (int j = 0; j < cmd.len / 64; j++) {
-                            #pragma HLS PIPELINE II=1
                             ap_axiu<512, 0, 0, 0> packet = data_from_mem_access.read();
                             data_from_mem[i].write(packet.data);
                         }
@@ -966,6 +980,7 @@ void mem_adapter(
                         req_to_mem_access.write(cmd);
                         #pragma HLS PROTOCOL fixed
                         ap_wait();
+                        #pragma HLS LOOP_TRIPCOUNT min=1 max=WRITE_KERNEL_BUFFER_SIZE
                         for (int j = 0; j < cmd.len / 64; j++) {
                             #pragma HLS PIPELINE II=1
                             ap_uint<512> data = data_to_mem[i].read();
@@ -1000,7 +1015,7 @@ extern "C"
 {
     void pma_insert_edge(
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_stream,
-        hls::stream<MEMORY_ALLOC_FREE_REQUEST> &req_to_mem_alloc,
+        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_to_mem_alloc,
         hls::stream<VEC_INFO_STREAM> &vec_info_back_stream,
         hls::stream<COMMAND_STREAM> &ack_back_to_router,
         
@@ -1037,9 +1052,9 @@ extern "C"
         hls::stream<PMA_HEADER> pma_header_request ;
 
         hls::stream<int> cmd_count_stream ;
-        hls::stream<ap_uint<128>> cmd_batch_stream ;
+        hls::stream<PMA_UPDATE_MESSAGE> cmd_batch_stream ;
 
-        hls::stream<ap_uint<128>> edge_info_stream ;
+        hls::stream<PMA_UPDATE_MESSAGE> edge_info_stream ;
         hls::stream<int> edge_count_stream ;
 
         hls::stream<PMA_HEADER> header_after_bs ;

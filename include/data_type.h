@@ -58,7 +58,23 @@ typedef ap_axiu<256, 0, 0, 0> SEARCH_RESULT_STREAM;
 typedef ap_axiu<72, 0, 0, 0> TAG_STREAM; // 64 VECINFO + 8tag 
 #define READER_CHUNK_BYTES 512
 // (0,31) src (32,63) dst or (32, 95) attr (96,97) type(insert vertex, insert edge, change attr) (98)direction()
-typedef ap_axiu<128, 0, 0, 0> PMA_UPDATE_MESSAGE; 
+// typedef ap_axiu<128, 0, 0, 0> PMA_UPDATE_MESSAGE; 
+
+enum PMA_UPDATE_OPCODE
+{
+    PMA_UPDATE_INSERT_EDGE = 0,
+    PMA_UPDATE_DELETE_EDGE = 1,
+    PMA_UPDATE_INSERT_VERTEX = 2,
+    PMA_UPDATE_DELETE_VERTEX = 3,
+    PMA_UPDATE_STOP = 4
+};
+struct PMA_UPDATE_MESSAGE
+{
+    int src;
+    int dst;
+    PMA_UPDATE_OPCODE opcode;
+    int last;
+};
 #define MAX_PMA_NUM 1000000
 
 // #define OUT_DIRECTION 0
