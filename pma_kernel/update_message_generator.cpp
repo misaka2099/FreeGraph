@@ -5,10 +5,7 @@
 extern "C"
 {
     void update_message_generator(
-        int add_vertex_num,
-        int add_edge_num,
-        int delete_vertex_num,
-        int delete_edge_num,
+        int op_num,
         int *src,
         int *dst,
         int *opcode,
@@ -22,8 +19,7 @@ extern "C"
         // hls::stream<CLEAR_ICON> &clear_message_to_router
     )
     {
-        #pragma HLS INTERFACE s_axilite port=add_vertex_num 
-        #pragma HLS INTERFACE s_axilite port=add_edge_num
+        #pragma HLS INTERFACE s_axilite port=op_num
         #pragma HLS INTERFACE m_axi port=src bundle=gmem0
         #pragma HLS INTERFACE m_axi port=dst bundle=gmem1
         // #pragma HLS INTERFACE m_axi port=src_to_change bundle=gmem2
@@ -38,12 +34,7 @@ extern "C"
         // static int total_vertex_num_out = 0;
         // HERE
 
-        static int total_vertex_num_out = 0;
-        
-        int start_pma_idx = (total_vertex_num_out + VERTEX_PER_PMA - 1) / VERTEX_PER_PMA;
-        int end_pma_idx = (total_vertex_num_out + add_vertex_num + VERTEX_PER_PMA - 1) / VERTEX_PER_PMA;
-
-
+       
         // for (int i = start_pma_idx ; i < end_pma_idx ; i++)
         // {
         //     #pragma HLS PIPELINE II=1
@@ -57,22 +48,7 @@ extern "C"
         //     cmd_to_router.write(msg);
         // }
         // HERE
-        for (int i = start_pma_idx ; i < end_pma_idx  ; i++)
-        {
-            #pragma HLS PIPELINE II=1
-            PMA_UPDATE_MESSAGE msg{};
-            msg.src = i * VERTEX_PER_PMA;
-            msg.dst = 0;
-            msg.opcode = PMA_UPDATE_INSERT_VERTEX ;
-            msg.last = last;
-            cmd_to_router.write(msg);
-        }
-        //get batch update info vertex update + edge_update
-        HERE
-            total_vertex_num_out += add_vertex_num;
-        // cmd_to_router.write({.data = -1, .last = last});
-        cmd_to_router.write({.src=-1, .dst=-1, .opcode = PMA_UPDATE_INSERT_VERTEX, .last = last});
-        // // clear_message_to_router.write({.data = 111});
+     // // clear_message_to_router.write({.data = 111});
         // for (int i = 0 ; i < add_edge_num ; i++)
         // {
         //     #pragma HLS PIPELINE II=1
@@ -88,9 +64,8 @@ extern "C"
         //     msg.last = last;
         //     cmd_to_router.write(msg);
         // }
-        HERE
-        
-        for (int i = 0 ; i < add_edge_num ; i++)
+       
+        for (int i = 0 ; i < op_num ; i++)
         {
             #pragma HLS PIPELINE II=1
             PMA_UPDATE_MESSAGE msg{};
@@ -99,13 +74,13 @@ extern "C"
             // msg.opcode = opcode[i]; // opcode stored in high 32 bits
             switch (opcode[i]) 
             {
-                case PMA_INSERT_EDGE:
+                case PMA_UPDATE_INSERT_EDGE:
                     msg.opcode = PMA_UPDATE_INSERT_EDGE;
                     break;
-                case PMA_DELETE_EDGE:
+                case PMA_UPDATE_DELETE_EDGE:
                     msg.opcode = PMA_UPDATE_DELETE_EDGE;
                     break;
-                case PMA_DELETE_VERTEX:
+                case PMA_UPDATE_DELETE_VERTEX:
                     msg.opcode = PMA_UPDATE_DELETE_VERTEX;
                     break;
                 default:

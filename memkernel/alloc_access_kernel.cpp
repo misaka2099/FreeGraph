@@ -165,9 +165,7 @@ static void deallocate(int start, int len, bitmap_word_t* bitmap)
 }
 
 static void alloc_free_worker(
-    hls::stream<MEMORY_INFO_ACCESS_COMMAND>& req_vertex_in,
     hls::stream<MEMORY_INFO_ACCESS_COMMAND>& req_edge_in,
-    hls::stream<VEC_INFO_STREAM>& vec_info_to_vertex,
     hls::stream<VEC_INFO_STREAM>& vec_info_to_edge,
     BYTE* bm_in_hbm,
     bool init_from_hbm
@@ -223,29 +221,21 @@ static void alloc_free_worker(
         }
     }
 
-    bool finish_vertex = false;
-    bool finish_edge = false;
+    bool finish = false;
     int next_fit_cursor = 0;
 
     while (true)
     {
         MEMORY_INFO_ACCESS_COMMAND pending_info;
-        bool from_vertex = false;
         bool valid_req = false;
         
-        if (req_vertex_in.read_nb(pending_info))
+        if (req_edge_in.read_nb(pending_info))
         {
-            from_vertex = true;
-            valid_req = true;
-        }
-        else if (req_edge_in.read_nb(pending_info))
-        {
-            from_vertex = false;
             valid_req = true;
         }
         if (!valid_req)
         {
-            if (finish_vertex && finish_edge)
+            if (finish)
             {
                 break;
             }
@@ -256,15 +246,9 @@ static void alloc_free_worker(
 
         if (req_type == ALLOC_FINISH || pending_info.last == 1)
         {
-            if (from_vertex)
-            {
-                finish_vertex = true;
-            }
-            else
-            {
-                finish_edge = true;
-            }
-            if (finish_vertex && finish_edge)
+            
+            finish = true;
+            if (finish)
             {
                 break;
             }
@@ -297,14 +281,7 @@ static void alloc_free_worker(
             VEC_INFO_STREAM out;
             out.data = back_info;
             out.last = 0;
-            if (from_vertex)
-            {
-                vec_info_to_vertex.write(out);
-            }
-            else
-            {
-                vec_info_to_edge.write(out);
-            }
+            vec_info_to_edge.write(out); 
         }
         else if (req_type == VEC_INFO_FREE)
         {
@@ -322,9 +299,7 @@ extern "C"
     void alloc_access_kernel(
         BYTE* bm_in_hbm,
         bool init_from_hbm,
-        hls::stream<MEMORY_INFO_ACCESS_COMMAND>& req_from_vertex,
         hls::stream<MEMORY_INFO_ACCESS_COMMAND>& req_from_edge,
-        hls::stream<VEC_INFO_STREAM>& vec_info_to_vertex,
         hls::stream<VEC_INFO_STREAM>& vec_info_to_edge
     )
     {
@@ -332,17 +307,13 @@ extern "C"
         #pragma HLS INTERFACE s_axilite port=bm_in_hbm bundle=control
         #pragma HLS INTERFACE s_axilite port=init_from_hbm bundle=control
         #pragma HLS INTERFACE s_axilite port=return bundle=control
-        #pragma HLS INTERFACE axis port=req_from_vertex
         #pragma HLS INTERFACE axis port=req_from_edge
-        #pragma HLS INTERFACE axis port=vec_info_to_vertex
         #pragma HLS INTERFACE axis port=vec_info_to_edge
-        #pragma HLS STREAM variable=req_from_vertex depth=16
         #pragma HLS STREAM variable=req_from_edge depth=16
-        #pragma HLS STREAM variable=vec_info_to_vertex depth=4
         #pragma HLS STREAM variable=vec_info_to_edge depth=4
 
         #pragma HLS DATAFLOW
 
-        alloc_free_worker(req_from_vertex, req_from_edge, vec_info_to_vertex, vec_info_to_edge, bm_in_hbm, init_from_hbm);
+        alloc_free_worker(req_from_edge, vec_info_to_edge, bm_in_hbm, init_from_hbm);
     }
 }

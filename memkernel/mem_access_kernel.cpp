@@ -9,37 +9,33 @@
 void process_req(
     ap_uint<512>* hbm_ptr,
     VEC_INFO* pma_addrs,
-    hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_vertex,
+    int max_pma_idx,
     hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_edge,
     hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_read,
-    hls::stream<ap_axiu<512, 0, 0, 0>> &data_from_vertex,
     hls::stream<ap_axiu<512,0,0, 0>> &data_from_edge,
     hls::stream<ap_axiu<512,0,0, 0>> &data_to_edge,
     hls::stream<ap_axiu<512,0,0, 0>> &data_to_read
 )
 {
-    bool finish_vertex = false;
     bool finish_edge = false;
     bool finish_read = false;
+    int currect_max_pma_idx = max_pma_idx;
     while (true)
     {
-        if (finish_vertex && finish_edge && finish_read)
+        if (finish_edge && finish_read)
         {
             break;
         }
 
         MEMORY_INFO_ACCESS_COMMAND cmd;
         int turn = -1;
-        if (req_from_vertex.read_nb(cmd))      turn = 0;
-        else if (req_from_edge.read_nb(cmd))   turn = 1;
+        if (req_from_edge.read_nb(cmd))   turn = 1;
         else if (req_from_read.read_nb(cmd))   turn = 2;
         else continue;
 
         if (cmd.command_type == MEMORY_FINISH)
         {
-            if (turn == 0)
-                finish_vertex = true;
-            else if (turn == 1)
+            if (turn == 1)
                 finish_edge = true;
             else if (turn == 2)
                 finish_read = true;
@@ -57,10 +53,7 @@ void process_req(
                 {
                     #pragma HLS PIPELINE II=1
                     ap_axiu<512, 0, 0, 0> pkt;
-                    if (turn == 0)
-                        pkt = data_from_vertex.read();
-                    else
-                        pkt = data_from_edge.read();
+                    pkt = data_from_edge.read();
                     hbm_ptr[(start / 64) + i] = pkt.data;
                 }
                 break;
@@ -90,6 +83,10 @@ void process_req(
                 vec.range(31,0) = cmd.start;
                 vec.range(63,32) = cmd.len;
                 pma_addrs[pma_idx] = vec;
+                if (pma_idx > currect_max_pma_idx)
+                {
+                    currect_max_pma_idx = pma_idx;
+                }
                 break;
             }
             case VEC_INFO_READ:
@@ -100,6 +97,17 @@ void process_req(
                     data_to_edge.write({.data = vec_info});
                 else if (turn == 2)
                     data_to_read.write({.data = vec_info});
+                break;
+            }
+            case PMA_IDX_MAX_QUERY:
+            {
+                if (turn == 2)
+                {
+                    ap_axiu<512,0,0,0> pkt;
+                    pkt.data = currect_max_pma_idx;
+                    pkt.last = 1;
+                    data_to_read.write(pkt);
+                }
                 break;
             }
             default:
@@ -114,10 +122,9 @@ extern "C"
     void mem_access_kernel(
         ap_uint<512>* hbm_ptr,
         VEC_INFO* pma_addrs,
-        hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_vertex,
+        int max_pma_idx,
         hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_edge,
         hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_read,
-        hls::stream<ap_axiu<512, 0, 0, 0>> &data_from_vertex,
         hls::stream<ap_axiu<512, 0, 0, 0>> &data_from_edge,
         hls::stream<ap_axiu<512, 0, 0, 0>> &data_to_edge,
         hls::stream<ap_axiu<512, 0, 0, 0>> &data_to_read
@@ -131,11 +138,9 @@ extern "C"
         #pragma HLS INTERFACE s_axilite port=pma_addrs bundle=control
         // #pragma HLS INTERFACE s_axilite port=neg_pma_addrs bundle=control
         #pragma HLS INTERFACE s_axilite port=return bundle=control
-
-        #pragma HLS INTERFACE axis port=req_from_vertex
+        #pragma HLS INTERFACE s_axilite port=max_pma_idx bundle=control
         #pragma HLS INTERFACE axis port=req_from_edge
         #pragma HLS INTERFACE axis port=req_from_read
-        #pragma HLS INTERFACE axis port=data_from_vertex
         #pragma HLS INTERFACE axis port=data_from_edge
         #pragma HLS INTERFACE axis port=data_to_edge
         #pragma HLS INTERFACE axis port=data_to_read
@@ -144,10 +149,9 @@ extern "C"
         process_req(
             hbm_ptr,
             pma_addrs,
-            req_from_vertex,
+            max_pma_idx,
             req_from_edge,
             req_from_read,
-            data_from_vertex,
             data_from_edge,
             data_to_edge,
             data_to_read

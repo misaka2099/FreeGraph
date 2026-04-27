@@ -168,7 +168,14 @@ void pma_read_worker_kernel(
             write_pkt(pkt_to_merger, 0, 0, 1, 0);
         } else if (mode == PMA_GET_ALL_OUT_EDGE_COO || mode == PMA_GET_ALL_OUT_EDGE_CSR) {
             int pma_idx = worker_id;
-            while (true) {
+            MEMORY_INFO_ACCESS_COMMAND pma_idx_query_cmd = {};
+            pma_idx_query_cmd.command_type = PMA_IDX_MAX_QUERY;
+            pma_idx_query_cmd.last = 0;
+            req_to_mem_access_ch.write(pma_idx_query_cmd);
+            ap_wait();
+            int max_pma_idx = data_from_mem_access_ch.read().data.range(31,0);
+            for (int pma_idx = worker_id; pma_idx <= max_pma_idx; pma_idx += READ_WORKERS) 
+            {
                 MEMORY_INFO_ACCESS_COMMAND access_command = {};
                 access_command.command_type = VEC_INFO_READ;
                 access_command.pma_idx = pma_idx;
@@ -178,9 +185,7 @@ void pma_read_worker_kernel(
                 VEC_INFO vec_info = data_from_mem_access_ch.read().data.range(63, 0);
                 if (vec_info == 0) 
                 {
-                    hls::print("Worker %d: No more PMA to read, total PMA count: \n", worker_id);
-                    hls::print("%d\n", pma_idx);
-                    break;
+                    continue;
                 }
                 PMA_HEADER pma_header;
                 int header_start = (int)vec_info.range(31, 0);
@@ -204,9 +209,7 @@ void pma_read_worker_kernel(
                         }
                     }
                 }
-
                 write_pkt(pkt_to_merger, 0, 0xFF, 1, KEEP64);
-                pma_idx += READ_WORKERS;
             }
             write_pkt(pkt_to_merger, 0, 0, 1, 0);
         } else if (mode == PMA_GET_EDGE_COUNT_RANGE) {

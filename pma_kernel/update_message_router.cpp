@@ -18,7 +18,7 @@ void flush_buffer_aux(
     int *count_arr
 )
 {
-    #pragma HLS INLINE off
+    #pragma HLS INLINE 
     int c = count_arr[buffer_idx];
     for (int j = 0 ; j < c; j++) {
         #pragma HLS PIPELINE II=1
@@ -27,13 +27,13 @@ void flush_buffer_aux(
         tmp.last = (j == c - 1) ? 1 : 0;
         cmd_to_pma.write(tmp);
     }
-    hls::print("Flushed buffer with %d messages\n", c);
+    // hls::print("Flushed buffer with %d messages\n", c);
     count_arr[buffer_idx] = 0;
 }
 
 bool check_inflight(int *in_flight_arr, int pma_idx)
 {
-    #pragma HLS INLINE off
+    #pragma HLS INLINE 
     bool found = false;
     for (int i = 0 ; i < MAX_INFLIGHT_NUM ; i++)
     {
@@ -46,7 +46,7 @@ bool check_inflight(int *in_flight_arr, int pma_idx)
 
 void get_hash_value(int pma_idx, int &hash_value)
 {
-    #pragma HLS INLINE off
+    #pragma HLS INLINE 
     ap_uint<32> x = (ap_uint<32>)pma_idx;
     x ^= (x >> 16);
     x *= (ap_uint<32>)2654435761u;
@@ -58,7 +58,7 @@ static void update_inflight_from_ack(
     int &in_flight_count,
     hls::stream<COMMAND_STREAM> &ack_stream)
 {
-    #pragma HLS INLINE off 
+    #pragma HLS INLINE  
     COMMAND_STREAM ack;
     if (ack_stream.read_nb(ack))
     {
@@ -69,7 +69,7 @@ static void update_inflight_from_ack(
             {
                 in_flight_arr[i] = -1;
                 in_flight_count--;
-                hls::print("infight removed, count %d\n", in_flight_count);
+                // hls::print("infight removed, count %d\n", in_flight_count);
                 break;
             }
         }
@@ -99,7 +99,7 @@ void add_inflight(int *in_flight_arr, int &in_flight_count, int pma_idx)
         {
             in_flight_arr[i] = pma_idx;
             in_flight_count++;
-            hls::print("infight added, count %d\n", in_flight_count);
+            // hls::print("infight added, count %d\n", in_flight_count);
             break;
         }
     }
@@ -151,10 +151,6 @@ extern "C"
 {
     void update_message_router(
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_from_generator,
-        hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_vertex_1,
-        hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_vertex_2,
-        hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_vertex_3,
-        hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_vertex_4,
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_1,
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_2,
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_3,
@@ -163,18 +159,10 @@ extern "C"
         hls::stream<COMMAND_STREAM> &ack_from_insert_edge_2,
         hls::stream<COMMAND_STREAM> &ack_from_insert_edge_3,
         hls::stream<COMMAND_STREAM> &ack_from_insert_edge_4,
-        hls::stream<VERTEX_ACK> &ack_from_insert_vertex_1,
-        hls::stream<VERTEX_ACK> &ack_from_insert_vertex_2,
-        hls::stream<VERTEX_ACK> &ack_from_insert_vertex_3,
-        hls::stream<VERTEX_ACK> &ack_from_insert_vertex_4,
         hls::stream<WHOLE_ACK> &ack_to_generator
     )
     {
         #pragma HLS INTERFACE axis port=cmd_from_generator
-        #pragma HLS INTERFACE axis port=cmd_to_insert_vertex_1
-        #pragma HLS INTERFACE axis port=cmd_to_insert_vertex_2
-        #pragma HLS INTERFACE axis port=cmd_to_insert_vertex_3
-        #pragma HLS INTERFACE axis port=cmd_to_insert_vertex_4
         #pragma HLS INTERFACE axis port=cmd_to_insert_edge_1
         #pragma HLS INTERFACE axis port=cmd_to_insert_edge_2
         #pragma HLS INTERFACE axis port=cmd_to_insert_edge_3
@@ -183,17 +171,9 @@ extern "C"
         #pragma HLS INTERFACE axis port=ack_from_insert_edge_2
         #pragma HLS INTERFACE axis port=ack_from_insert_edge_3
         #pragma HLS INTERFACE axis port=ack_from_insert_edge_4
-        #pragma HLS INTERFACE axis port=ack_from_insert_vertex_1
-        #pragma HLS INTERFACE axis port=ack_from_insert_vertex_2
-        #pragma HLS INTERFACE axis port=ack_from_insert_vertex_3
-        #pragma HLS INTERFACE axis port=ack_from_insert_vertex_4
         #pragma HLS INTERFACE axis port=ack_to_generator
 
         #pragma HLS STREAM variable=cmd_from_generator depth=16
-        #pragma HLS STREAM variable=cmd_to_insert_vertex_1 depth=16
-        #pragma HLS STREAM variable=cmd_to_insert_vertex_2 depth=16
-        #pragma HLS STREAM variable=cmd_to_insert_vertex_3 depth=16
-        #pragma HLS STREAM variable=cmd_to_insert_vertex_4 depth=16
         #pragma HLS STREAM variable=cmd_to_insert_edge_1 depth=16
         #pragma HLS STREAM variable=cmd_to_insert_edge_2 depth=16
         #pragma HLS STREAM variable=cmd_to_insert_edge_3 depth=16
@@ -202,10 +182,6 @@ extern "C"
         #pragma HLS STREAM variable=ack_from_insert_edge_2 depth=16
         #pragma HLS STREAM variable=ack_from_insert_edge_3 depth=16
         #pragma HLS STREAM variable=ack_from_insert_edge_4 depth=16
-        #pragma HLS STREAM variable=ack_from_insert_vertex_1 depth=16
-        #pragma HLS STREAM variable=ack_from_insert_vertex_2 depth=16
-        #pragma HLS STREAM variable=ack_from_insert_vertex_3 depth=16
-        #pragma HLS STREAM variable=ack_from_insert_vertex_4 depth=16
         #pragma HLS STREAM variable=ack_to_generator depth=16
 
         PMA_UPDATE_MESSAGE msg_buffer[MAX_COMMAND_BUFFER_NUM][MAX_COMMAND_BUFFER_LENGTH];
@@ -218,7 +194,7 @@ extern "C"
         for (int i = 0 ; i < MAX_INFLIGHT_NUM ; i++) in_flight[i] = -1;
         
         int in_flight_count = 0;
-        hls::print("in_flight_count %d\n", in_flight_count);
+        // hls::print("in_flight_count %d\n", in_flight_count);
         for (int i = 0 ; i < MAX_COMMAND_BUFFER_NUM ; i++)
         {
             // for (int j = 0 ; j < MAX_COMMAND_BUFFER_LENGTH ; j++)
@@ -229,67 +205,14 @@ extern "C"
             count[i] = 0;
         }
 
-        int stage = 0;
+        int stage = 2;
         PMA_UPDATE_MESSAGE msg;
         bool quit = false;
         while (true)
         {
             switch (stage)
             {
-                case 0:
-                {
-                    if(cmd_from_generator.read_nb(msg))
-                    {
-                        if (msg.src == -1)
-                        {
-                            stage++;
-                            msg.opcode = PMA_UPDATE_STOP;
-                            cmd_to_insert_vertex_1.write(msg);
-                            cmd_to_insert_vertex_2.write(msg);
-                            cmd_to_insert_vertex_3.write(msg);
-                            cmd_to_insert_vertex_4.write(msg);
-                            break;
-                        }
-                        int src = msg.src;
-                        int pma_idx = src / VERTEX_PER_PMA;
-                        int worker = pma_idx % ROUTER_WORKERS;
-                        switch (worker)
-                        {
-                            case 0: cmd_to_insert_vertex_1.write(msg); break;
-                            case 1: cmd_to_insert_vertex_2.write(msg); break;
-                            case 2: cmd_to_insert_vertex_3.write(msg); break;
-                            case 3: cmd_to_insert_vertex_4.write(msg); break;
-                            default: break;
-                        }
-                    }
-                    break;
-                }
-                case 1:
-                {
-                    bool acked[ROUTER_WORKERS];
-                    #pragma HLS ARRAY_PARTITION variable=acked complete
-                    for (int i = 0; i < ROUTER_WORKERS; ++i)
-                    {
-                        #pragma HLS UNROLL
-                        acked[i] = false;
-                    }
-                    VERTEX_ACK tmp;
-                    while (true)
-                    {
-                        if (!acked[0] && ack_from_insert_vertex_1.read_nb(tmp)) acked[0] = true;
-                        if (!acked[1] && ack_from_insert_vertex_2.read_nb(tmp)) acked[1] = true;
-                        if (!acked[2] && ack_from_insert_vertex_3.read_nb(tmp)) acked[2] = true;
-                        if (!acked[3] && ack_from_insert_vertex_4.read_nb(tmp)) acked[3] = true;
-                        bool all_acked = true;
-                        for (int i = 0; i < ROUTER_WORKERS; ++i)
-                        {
-                            #pragma HLS UNROLL
-                            all_acked = all_acked && acked[i];
-                        }
-                        if (all_acked) break;
-                    }
-                    stage++;
-                }
+                
                 case 2:
                 {
                     check_ack_back_array(
@@ -324,6 +247,19 @@ extern "C"
                                     );
                                 }
                             }
+                            while (in_flight_count > 0)
+                            {
+                                check_ack_back_array(
+                                    in_flight,
+                                    in_flight_count,
+                                    ack_from_insert_edge_1,
+                                    ack_from_insert_edge_2,
+                                    ack_from_insert_edge_3,
+                                    ack_from_insert_edge_4
+                                );
+                                ap_wait();
+                            }
+                            hls::print("in_flight_count after flush %d\n", in_flight_count);
                             if (msg.last == 1)
                             {
                                 cmd_to_insert_edge_1.write(msg);
@@ -336,17 +272,6 @@ extern "C"
                             else
                             {
                                 stage = 0;
-                            }
-                            while (in_flight_count > 0)
-                            {
-                                check_ack_back_array(
-                                    in_flight,
-                                    in_flight_count,
-                                    ack_from_insert_edge_1,
-                                    ack_from_insert_edge_2,
-                                    ack_from_insert_edge_3,
-                                    ack_from_insert_edge_4
-                                );
                             }
                             WHOLE_ACK ack_pkt;
                             ack_pkt.data = 1;
@@ -426,6 +351,6 @@ extern "C"
                 break;
             }
         }
-        hls::print("in_flight_count after end %d\n", in_flight_count);
+        // hls::print("in_flight_count after end %d\n", in_flight_count);
     }
 }

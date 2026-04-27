@@ -19,20 +19,8 @@ typedef ap_uint<32> COMMAND;
 typedef ap_uint<8> BYTE;
 // typedef double ATTR_STREAM;
 #define PMA_STOP 0
-#define PMA_INSERT_EDGE 1 
-#define PMA_INSERT_VERTEX 2 
-#define PMA_DELETE_EDGE 3
-#define PMA_DELETE_VERTEX 4
 #define PMA_GET_OUT_EDGE 3
 #define PMA_GET_IN_EDGE 4 
-#define PMA_GET_ATTR 5 
-#define PMA_CHANGE_ATTR 6 
-#define MEM_WRITE 7
-#define MEM_READ 8 
-#define MEM_STOP 9
-#define MEM_ALLOC 10
-#define MEM_FREE 11
-#define MEM_COPY 12
 #define PMA_GET_ALL_OUT_EDGE_COO 17
 // #define PMA_GET_ALL_IN_EDGE_COO 18
 #define PMA_GET_ALL_OUT_EDGE_CSR 19
@@ -160,7 +148,8 @@ enum MEMORY_INFO_ACCESS_TYPE
     MEMORY_FINISH = 4,
     VEC_INFO_ALLOC = 5,
     VEC_INFO_FREE = 6,
-    ALLOC_FINISH = 7
+    ALLOC_FINISH = 7,
+    PMA_IDX_MAX_QUERY = 8
     // HEADER_WRITE = 4,
     // HEADER_READ = 5,
     // SEG_WRITE = 6,

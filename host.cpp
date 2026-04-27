@@ -79,7 +79,7 @@ int main(int argc, char** argv)
     };
 
     std::vector<Operation> operations;
-    int a = -1, b = -1, op = PMA_INSERT_EDGE;
+    int a = -1, b = -1, op = PMA_UPDATE_INSERT_EDGE;
     long long ts = 0;
 
     // 输入格式: src dst timestamp opcode
@@ -100,11 +100,12 @@ int main(int argc, char** argv)
         }
     };
     int full_edge_count = 0;
+    int max_src = -1;
     for (const auto &opr : operations)
     {
         switch (opr.opcode)
         {
-            case PMA_INSERT_VERTEX:
+            case PMA_UPDATE_INSERT_VERTEX:
                 // 插入顶点不需要 src/dst，但如果提供了则确保容量
                 if (opr.src >= 0)
                 {
@@ -119,13 +120,13 @@ int main(int argc, char** argv)
                     Graph.resize(Graph.size() + 1);
                 }
                 break;
-            case PMA_INSERT_EDGE:
+            case PMA_UPDATE_INSERT_EDGE:
                 ensure_vertex(opr.src);
                 ensure_vertex(opr.dst);
                 Graph[opr.src].push_back(opr.dst);
                 full_edge_count++;
                 break;
-            case PMA_DELETE_EDGE:
+            case PMA_UPDATE_DELETE_EDGE:
                 ensure_vertex(opr.src);
                 ensure_vertex(opr.dst);
                 if (opr.src < static_cast<int>(Graph.size()))
@@ -135,7 +136,7 @@ int main(int argc, char** argv)
                 }
                 full_edge_count--;
                 break;
-            case PMA_DELETE_VERTEX:
+            case PMA_UPDATE_DELETE_VERTEX:
                 // 删除顶点需要指定 src (或 dst)，两者取其一
                 if (opr.src >= 0)
                 {
@@ -174,7 +175,7 @@ int main(int argc, char** argv)
     bool first_edge_batch = true;
     for (const auto &op : operations)
     {
-        if (op.opcode == PMA_INSERT_VERTEX)
+        if (op.opcode == PMA_UPDATE_INSERT_VERTEX)
         {
             continue;
         }
@@ -265,14 +266,14 @@ int main(int argc, char** argv)
         }
     };
 
-    std::vector<xrt::kernel> pma_insert_vertex_kernels;
-    pma_insert_vertex_kernels.reserve(CHANNEL_NUM);
-    for (int i = 1; i <= CHANNEL_NUM; ++i)
-    {
-        if (!try_add_kernel(pma_insert_vertex_kernels, "pma_insert_vertex:{pma_insert_vertex_" + std::to_string(i) + "}")) {
-            break;
-        }
-    }
+    // std::vector<xrt::kernel> pma_insert_vertex_kernels;
+    // pma_insert_vertex_kernels.reserve(CHANNEL_NUM);
+    // for (int i = 1; i <= CHANNEL_NUM; ++i)
+    // {
+    //     if (!try_add_kernel(pma_insert_vertex_kernels, "pma_insert_vertex:{pma_insert_vertex_" + std::to_string(i) + "}")) {
+    //         break;
+    //     }
+    // }
     std::vector<xrt::kernel> pma_insert_edge_kernels;
     pma_insert_edge_kernels.reserve(CHANNEL_NUM);
     for (int i = 1; i <= CHANNEL_NUM; ++i)
@@ -292,12 +293,12 @@ int main(int argc, char** argv)
         return 1;
     }
     if (pma_read_worker_kernels.size() < static_cast<size_t>(CHANNEL_NUM) ||
-        pma_insert_vertex_kernels.size() < static_cast<size_t>(CHANNEL_NUM) ||
+        // pma_insert_vertex_kernels.size() < static_cast<size_t>(CHANNEL_NUM) ||
         pma_insert_edge_kernels.size() < static_cast<size_t>(CHANNEL_NUM))
     {
         std::cerr << "Kernel loading incomplete for read/insert CUs; aborting before launch." << std::endl;
         std::cerr << "Loaded read workers: " << pma_read_worker_kernels.size()
-                  << ", insert vertex kernels: " << pma_insert_vertex_kernels.size()
+                //   << ", insert vertex kernels: " << pma_insert_vertex_kernels.size()
                   << ", insert edge kernels: " << pma_insert_edge_kernels.size() << std::endl;
         return 1;
     }
@@ -327,13 +328,13 @@ int main(int argc, char** argv)
     auto run_pma_read_merger_kernel = xrt::run(pma_read_merger_kernel);
     auto run_update_message_router_kernel = xrt::run(update_message_router_kernel);
     std::cout << "Update message router kernel is launched..." << std::endl;
-    std::vector<xrt::run> run_pma_insert_vertex_kernels;
-    run_pma_insert_vertex_kernels.reserve(pma_insert_vertex_kernels.size());
+    // std::vector<xrt::run> run_pma_insert_vertex_kernels;
+    // run_pma_insert_vertex_kernels.reserve(pma_insert_vertex_kernels.size());
 
-    for (auto &k : pma_insert_vertex_kernels)
-    {
-        run_pma_insert_vertex_kernels.emplace_back(k);
-    }
+    // for (auto &k : pma_insert_vertex_kernels)
+    // {
+    //     run_pma_insert_vertex_kernels.emplace_back(k);
+    // }
     std::cout << "PMA insert vertex kernels are launched..." << std::endl;
     std::vector<xrt::run> run_pma_insert_edge_kernels;
     run_pma_insert_edge_kernels.reserve(pma_insert_edge_kernels.size());
@@ -385,9 +386,9 @@ int main(int argc, char** argv)
     // 修改 bo_src 和 bo_dst 的分配，确保使用 update_message_generator_kernel 的 group_id
     size_t edge_buffer_len = std::max<size_t>(max_edge_batch, 1);
     std::cout << "Update buffer length: " << edge_buffer_len << std::endl;
-    auto bo_src = xrt::bo(device, sizeof(int) * edge_buffer_len, update_message_generator_kernel.group_id(4));
-    auto bo_dst = xrt::bo(device, sizeof(int) * edge_buffer_len, update_message_generator_kernel.group_id(5));
-    auto bo_opcode = xrt::bo(device, sizeof(int) * edge_buffer_len, update_message_generator_kernel.group_id(6));
+    auto bo_src = xrt::bo(device, sizeof(int) * edge_buffer_len, update_message_generator_kernel.group_id(1));
+    auto bo_dst = xrt::bo(device, sizeof(int) * edge_buffer_len, update_message_generator_kernel.group_id(2));
+    auto bo_opcode = xrt::bo(device, sizeof(int) * edge_buffer_len, update_message_generator_kernel.group_id(3));
     std::cout << "Buffers for edge operations allocated." << std::endl;
     int* src_ptr = bo_src.map<int*>();
     int* dst_ptr = bo_dst.map<int*>();
@@ -433,6 +434,7 @@ int main(int argc, char** argv)
         // run_mem_access_kernel_1.set_arg(i, bo_hbm_base_addr[i]);
         run_mem_access_kernels[i].set_arg(0, bo_hbm_base_addr[i]);
         run_mem_access_kernels[i].set_arg(1, bo_vec_info[i]);
+        run_mem_access_kernels[i].set_arg(2, 0); // build from PMA index 0, can be updated later for dynamic allocation
     }
     // run_mem_access_kernel_1.set_arg(CHANNEL_NUM, bo_pos_vec_info);
 
@@ -747,7 +749,7 @@ int main(int argc, char** argv)
         size_t edge_idx = 0;
         for (const auto &op : batch_ops)
         {
-            if (op.opcode == PMA_INSERT_VERTEX)
+            if (op.opcode == PMA_UPDATE_INSERT_VERTEX)
             {
                 continue;
             }
@@ -778,15 +780,12 @@ int main(int argc, char** argv)
         }
         auto run_update_message_generator_kernel = xrt::run(update_message_generator_kernel);
         std::cout << "Update message generator kernel is launched..." << std::endl;
-    
-        run_update_message_generator_kernel.set_arg(0, new_vertex_count);                   // add_vertex_num
-        run_update_message_generator_kernel.set_arg(1, edge_count);                         // add_edge_num
-        run_update_message_generator_kernel.set_arg(2, 0);                                  // delete_vertex_num
-        run_update_message_generator_kernel.set_arg(3, 0);                                  // delete_edge_num
-        run_update_message_generator_kernel.set_arg(4, bo_src);                              // src
-        run_update_message_generator_kernel.set_arg(5, bo_dst);                              // dst
-        run_update_message_generator_kernel.set_arg(6, bo_opcode);                           // opcode
-        run_update_message_generator_kernel.set_arg(7, static_cast<int>(last));             // last flag
+                      // add_vertex_num
+        run_update_message_generator_kernel.set_arg(0, edge_count);                               // delete_edge_num
+        run_update_message_generator_kernel.set_arg(1, bo_src);                              // src
+        run_update_message_generator_kernel.set_arg(2, bo_dst);                              // dst
+        run_update_message_generator_kernel.set_arg(3, bo_opcode);                           // opcode
+        run_update_message_generator_kernel.set_arg(4, static_cast<int>(last));             // last flag
 
         auto phase_start = std::chrono::high_resolution_clock::now();
 
@@ -806,10 +805,10 @@ int main(int argc, char** argv)
     };
 
     // 1. Start Long-Running (Keep Alive) Kernels ONCE before the batch loop
-    for (auto &r : run_pma_insert_vertex_kernels)
-    {
-        r.start();
-    }
+    // for (auto &r : run_pma_insert_vertex_kernels)
+    // {
+    //     r.start();
+    // }
     for (auto &r : run_pma_insert_edge_kernels)
     {
         r.start();
@@ -926,7 +925,7 @@ int main(int argc, char** argv)
             int new_vertex_count = 0;
             for (const auto &op : batch_ops)
             {
-                if (op.opcode == PMA_INSERT_VERTEX)
+                if (op.opcode == PMA_UPDATE_INSERT_VERTEX)
                 {
                     new_vertex_count += 1;
                 }
@@ -953,10 +952,10 @@ int main(int argc, char** argv)
             {
                 switch (op.opcode)
                 {
-                    case PMA_INSERT_VERTEX:
+                    case PMA_UPDATE_INSERT_VERTEX:
                         ensure_runtime_vertex(op.src >= 0 ? op.src : op.dst);
                         break;
-                    case PMA_INSERT_EDGE:
+                    case PMA_UPDATE_INSERT_EDGE:
                         if (kVertexOnlyTest) break;
                         ensure_runtime_vertex(op.src);
                         ensure_runtime_vertex(op.dst);
@@ -966,7 +965,7 @@ int main(int argc, char** argv)
                             dirty_vertices.push_back(op.src);
                         }
                         break;
-                    case PMA_DELETE_EDGE:
+                    case PMA_UPDATE_DELETE_EDGE:
                         if (kVertexOnlyTest) break;
                         ensure_runtime_vertex(op.src);
                         ensure_runtime_vertex(op.dst);
@@ -977,7 +976,7 @@ int main(int argc, char** argv)
                             dirty_vertices.push_back(op.src);
                         }
                         break;
-                    case PMA_DELETE_VERTEX:
+                    case PMA_UPDATE_DELETE_VERTEX:
                         if (kVertexOnlyTest) break;
                         ensure_runtime_vertex(op.src);
                         if (op.src >= 0 && op.src < static_cast<int>(runtime_graph.size()))
@@ -1017,10 +1016,10 @@ int main(int argc, char** argv)
     {
         r.wait();
     }
-    for (auto &r : run_pma_insert_vertex_kernels)
-    {
-        r.wait();
-    }
+    // for (auto &r : run_pma_insert_vertex_kernels)
+    // {
+    //     r.wait();
+    // }
 
     std::cout << "GRAPH UPDATED. total_time=" << (base_phase_s + incremental_phase_s)
               << " s" << std::endl;
