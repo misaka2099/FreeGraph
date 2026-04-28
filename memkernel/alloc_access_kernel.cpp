@@ -21,25 +21,32 @@ static void set_bits(int start, int len, bitmap_word_t* bitmap)
     int end = start + len;
     int i = start;
 
+    // Process at word granularity; build a mask per-word and do one RMW.
     while (i < end)
     {
-        #pragma HLS LOOP_TRIPCOUNT min=1 max=4096
         int word_idx = i / BITMAP_WORD_BITS;
         int word_start = word_idx * BITMAP_WORD_BITS;
         int word_end = word_start + BITMAP_WORD_BITS;
-        bitmap_word_t cur = bitmap[word_idx];
 
         int s = i - word_start;
         int e = ((end < word_end) ? end : word_end) - word_start;
+        int width = e - s;
 
-        for (int b = s; b < e; ++b)
-        {
-            #pragma HLS LOOP_TRIPCOUNT min=1 max=BITMAP_WORD_BITS
-            cur[b] = 1;
+        bitmap_word_t mask = 0;
+        if (width <= 0) {
+            // nothing
+        } else if (width >= BITMAP_WORD_BITS) {
+            mask = ~((bitmap_word_t)0);
+        } else {
+            bitmap_word_t one = (bitmap_word_t)1;
+            bitmap_word_t bits = (one << width) - (bitmap_word_t)1;
+            mask = bits << s;
         }
 
-        bitmap[word_idx] = cur;
-        i += (e - s);
+        // read-modify-write: OR the mask
+        bitmap_word_t cur = bitmap[word_idx];
+        bitmap[word_idx] = cur | mask;
+        i += width;
     }
 }
 
@@ -51,7 +58,6 @@ static bool is_free(int start, int len, int &first_set, bitmap_word_t* bitmap)
 
     while (i < end)
     {
-        #pragma HLS LOOP_TRIPCOUNT min=1 max=4096
         int word_idx = i / BITMAP_WORD_BITS;
         int word_start = word_idx * BITMAP_WORD_BITS;
         int word_end = word_start + BITMAP_WORD_BITS;
@@ -59,19 +65,26 @@ static bool is_free(int start, int len, int &first_set, bitmap_word_t* bitmap)
 
         int s = i - word_start;
         int e = ((end < word_end) ? end : word_end) - word_start;
+        int width = e - s;
 
         bitmap_word_t mask = 0;
-        for (int b = s; b < e; ++b)
-        {
-            #pragma HLS LOOP_TRIPCOUNT min=1 max=BITMAP_WORD_BITS
-            mask[b] = 1;
+        if (width <= 0) {
+            // nothing
+        } else if (width >= BITMAP_WORD_BITS) {
+            mask = ~((bitmap_word_t)0);
+        } else {
+            bitmap_word_t one = (bitmap_word_t)1;
+            bitmap_word_t bits = (one << width) - (bitmap_word_t)1;
+            mask = bits << s;
         }
 
-        if ((cur & mask) != 0)
+        bitmap_word_t tmp = cur & mask;
+        if (tmp != 0)
         {
+            // find first set bit inside [s, e)
             for (int b = s; b < e; ++b)
             {
-                #pragma HLS UNROLL
+                #pragma HLS PIPELINE II=1
                 if (cur[b])
                 {
                     first_set = word_start + b;
@@ -80,7 +93,7 @@ static bool is_free(int start, int len, int &first_set, bitmap_word_t* bitmap)
             }
         }
 
-        i += (e - s);
+        i += width;
     }
     return true;
 }
@@ -137,23 +150,28 @@ static void reset_bits(int start, int len, bitmap_word_t* bitmap)
 
     while (i < end)
     {
-        #pragma HLS LOOP_TRIPCOUNT min=1 max=4096
         int word_idx = i / BITMAP_WORD_BITS;
         int word_start = word_idx * BITMAP_WORD_BITS;
         int word_end = word_start + BITMAP_WORD_BITS;
-        bitmap_word_t cur = bitmap[word_idx];
 
         int s = i - word_start;
         int e = ((end < word_end) ? end : word_end) - word_start;
+        int width = e - s;
 
-        for (int b = s; b < e; ++b)
-        {
-            #pragma HLS LOOP_TRIPCOUNT min=1 max=BITMAP_WORD_BITS
-            cur[b] = 0;
+        bitmap_word_t mask = 0;
+        if (width <= 0) {
+            // nothing
+        } else if (width >= BITMAP_WORD_BITS) {
+            mask = ~((bitmap_word_t)0);
+        } else {
+            bitmap_word_t one = (bitmap_word_t)1;
+            bitmap_word_t bits = (one << width) - (bitmap_word_t)1;
+            mask = bits << s;
         }
 
-        bitmap[word_idx] = cur;
-        i += (e - s);
+        bitmap_word_t cur = bitmap[word_idx];
+        bitmap[word_idx] = cur & (~mask);
+        i += width;
     }
 }
 
@@ -167,7 +185,7 @@ static void deallocate(int start, int len, bitmap_word_t* bitmap)
 static void alloc_free_worker(
     hls::stream<MEMORY_INFO_ACCESS_COMMAND>& req_edge_in,
     hls::stream<VEC_INFO_STREAM>& vec_info_to_edge,
-    BYTE* bm_in_hbm,
+    bitmap_word_t* bm_in_hbm,
     bool init_from_hbm
 )
 {
@@ -179,37 +197,10 @@ static void alloc_free_worker(
 
     if (init_from_hbm)
     {
-        // Prefer full word loads from HBM to keep bitmap representation word-based.
-        bitmap_word_t* bm_words = (bitmap_word_t*)bm_in_hbm;
-        int full_words = BITMAP_SIZE / BITMAP_WORD_BYTES;
-        int rem_bytes = BITMAP_SIZE % BITMAP_WORD_BYTES;
-
-        for (int i = 0 ; i < full_words ; i++)
+        for (int i = 0 ; i < BITMAP_WORDS ; i++)
         {
             #pragma HLS PIPELINE II=1
-            storage[i] = bm_words[i];
-        }
-
-        if (full_words < BITMAP_WORDS)
-        {
-            if (rem_bytes != 0)
-            {
-                bitmap_word_t tail_word = 0;
-                for (int b = 0; b < rem_bytes; ++b)
-                {
-                    #pragma HLS PIPELINE II=1
-                    int byte_idx = full_words * BITMAP_WORD_BYTES + b;
-                    tail_word.range((b + 1) * 8 - 1, b * 8) = bm_in_hbm[byte_idx];
-                }
-                storage[full_words] = tail_word;
-            }
-
-            int zero_start = full_words + ((rem_bytes != 0) ? 1 : 0);
-            for (int i = zero_start; i < BITMAP_WORDS; ++i)
-            {
-                #pragma HLS PIPELINE II=1
-                storage[i] = 0;
-            }
+            storage[i] = bm_in_hbm[i];
         }
     }
     else
@@ -297,7 +288,7 @@ static void alloc_free_worker(
 extern "C"
 {
     void alloc_access_kernel(
-        BYTE* bm_in_hbm,
+        bitmap_word_t* bm_in_hbm,
         bool init_from_hbm,
         hls::stream<MEMORY_INFO_ACCESS_COMMAND>& req_from_edge,
         hls::stream<VEC_INFO_STREAM>& vec_info_to_edge

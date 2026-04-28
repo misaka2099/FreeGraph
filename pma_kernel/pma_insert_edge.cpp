@@ -23,10 +23,7 @@ void add_timestamp(
     ADD_TIMESTAMP:
     for (int i = 0 ; i < CACHE_LINE_SIZE ; i++)
     {
-        if (i != now_op_cache_tag)
-        {
-            cache_time_stamp[i]++;
-        }
+        cache_time_stamp[i]++;
     }
     cache_time_stamp[now_op_cache_tag] = 0;
 }
@@ -59,9 +56,9 @@ void cache_mechanism(
     #pragma HLS STREAM variable=data_to_app depth=16
     #pragma HLS STREAM variable=req_from_app depth=16
     ap_uint<512> cache_buffer[CACHE_LINE_SIZE][MAX_CACHE_SIZE];
-    #pragma HLS bind_storage variable=cache_buffer type=ram_2p impl=BRAM
+    #pragma HLS bind_storage variable=cache_buffer type=ram_2p impl=URAM
     ap_uint<32> cache_time_stamp[CACHE_LINE_SIZE];
-    #pragma HLS bind_storage variable=cache_time_stamp type=ram_1p impl=BRAM
+    #pragma HLS bind_storage variable=cache_time_stamp type=ram_1p impl=URAM
     // ap_uint<1> cache_valid[CACHE_LINE_SIZE];
     // ap_uint<1> cache_dirty[CACHE_LINE_SIZE];
     ap_uint<CACHE_LINE_SIZE> cache_valid = 0;
@@ -80,13 +77,11 @@ void cache_mechanism(
         cache_new_len[i] = 0;
         cache_pma_idx[i] = -1;
     }
-    const PMA_HEADER empty_header = {
-        .vertex_range = {1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16},
-        .edge_count =   {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0},
-        .attr = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0}
-    };
-    #pragma HLS bind_storage variable=empty_header type=ram_1p impl=URAM
-
+    ap_uint<512> empty_vertex_range = 0;
+    for (int v = 0; v < VERTEX_PER_PMA; v++)
+    {
+        empty_vertex_range.range(v * 32 + 31, v * 32) = v + 1;
+    }
     const ap_uint<512> empty_pma_content = -1;//UNUSED_INCON = -1 OTHER NEED TO BE INITIAL MANUALLY
     #pragma HLS bind_storage variable=empty_pma_content type=ram_1p impl=URAM
         const int HEADER_WORDS = (int)(sizeof(PMA_HEADER) / 64);
@@ -283,18 +278,22 @@ void cache_mechanism(
                     cache_pma_idx[evict_line] = pma_idx;
                     //write empty header to cache_buffer
                     ap_uint<512> header_buffer[4];
-                    for (int j = 0 ; j < 4 ; j++)
-                    {
-                        #pragma HLS PIPELINE II=1
-                        header_buffer[j] = ((ap_uint<512>*)(&empty_header))[j];
-                        cache_buffer[evict_line][j] = header_buffer[j];
-                    }
+                    // for (int j = 0 ; j < 4 ; j++)
+                    // {
+                    //     #pragma HLS PIPELINE II=1
+                    //     header_buffer[j] = ((ap_uint<512>*)(&empty_header))[j];
+                    //     cache_buffer[evict_line][j] = header_buffer[j];
+                    // }
+                    cache_buffer[evict_line][0] = empty_vertex_range;
+                    cache_buffer[evict_line][1] = 0;
+                    cache_buffer[evict_line][2] = 0;
+                    cache_buffer[evict_line][3] = 0;
                     for (int j = 4 ; j < 64 + 4 ; j++)
                     {
                         #pragma HLS PIPELINE II=1
                         cache_buffer[evict_line][j] = empty_pma_content;
                     }
-                 }
+                }
             }
             int active_line = (cache_line == -1) ? evict_line : cache_line;
             add_timestamp(active_line, cache_time_stamp);
@@ -369,7 +368,6 @@ void cache_mechanism(
                         {
                             for (int w = 0; w < seg_words_per_seg; w++)
                             {
-                                #pragma HLS PIPELINE II=1
                                 int src_word_idx = header_words + (old_start + s) * seg_words_per_seg + w;
                                 int dst_word_idx = header_words + (new_start + s) * seg_words_per_seg + w;
                                 cache_buffer[active_line][dst_word_idx] = cache_buffer[active_line][src_word_idx];
@@ -509,8 +507,9 @@ void process_cmd(
         #pragma HLS ARRAY_PARTITION variable=cmd_batch complete
         int cmd_count = 0;
         // read until last=1
+        bool done = false;
         for (int i = 0; i < MAX_CMD_NUM; i++) {
-            #pragma HLS PIPELINE II=1
+            if (done) break;
             PMA_UPDATE_MESSAGE cmd = cmd_stream.read();
             if (cmd.src == -1) {
                 if (cmd.last == 1) {
@@ -526,7 +525,7 @@ void process_cmd(
             cmd_batch[i] = cmd;
             cmd_count++;
             if (cmd.last == 1) {
-                break;
+                done = true;
             }
         }
         pma_idx_info info;
@@ -913,7 +912,6 @@ void binary_search_insert_cu(
             memory_access_stream.write(command);
             for (int s = low_seg; s < high_seg; s++)            
             {
-                #pragma HLS PIPELINE II=1
                 for (int k = 0; k < 4; k++)
                 {
                     // hls::print("[pma] DATA_TO_MEM_FILL_UNUSED pma_idx=%d\n", signal.pma_idx);

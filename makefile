@@ -53,7 +53,7 @@ ALL_XO_FILES = $(MEM_XO_FILES) $(LIVE_GRAPH_PMA_XO_FILES)
 WHOLE_XO_FILES =$(MEM_XO_FILES) $(PMA_XO_FILES) $(REGRAPH_XO_FILES)
 $(XCLBIN_FILE): $(ALL_XO_FILES)
 	@echo "---- Linking kernels to create $(XCLBIN_FILE) ----"
-	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --save-temps --config system.cfg --config profile.cfg -o $@ $^
+	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --kernel_frequency=150 --save-temps --config system.cfg --config profile.cfg -o $@ $^
 	@echo "---- Link done: $@ ----"
 
 $(WHOLE_SYSTEM_XCLBIN): $(WHOLE_XO_FILES)

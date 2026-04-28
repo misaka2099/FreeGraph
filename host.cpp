@@ -18,7 +18,7 @@
 bool final_match = true;
 const bool kBaseGraphReadOnlyTest = false;
 const bool kVertexOnlyTest = false;
-const bool kShuffleSameTimestampOps = true; // Set to true to enable shuffling of operations with the same timestamp
+const bool kShuffleSameTimestampOps = false; // Set to true to enable shuffling of operations with the same timestamp
 const bool kMismatchfileOutput = true; // Set to true to output mismatch details to files
 void print_pma(
     int pma_idx,
@@ -40,6 +40,7 @@ void print_pma(
         int seg_start = i == 0 ? 0 : header.vertex_range[i-1];
         int seg_end = header.vertex_range[i];
         std::cout << "vertex: " << src << " has " << edge_count << " neighbors" << std::endl;
+        std::cout << "vertex " << src << " range from " << seg_start << " to " << seg_end << std::endl; 
         for (int j = seg_start ; j < seg_end ; j ++)
         {
             for (int k = 0 ; k < SEGMENT_SIZE ; k++)
@@ -105,21 +106,21 @@ int main(int argc, char** argv)
     {
         switch (opr.opcode)
         {
-            case PMA_UPDATE_INSERT_VERTEX:
-                // 插入顶点不需要 src/dst，但如果提供了则确保容量
-                if (opr.src >= 0)
-                {
-                    ensure_vertex(opr.src);
-                }
-                else if (opr.dst >= 0)
-                {
-                    ensure_vertex(opr.dst);
-                }
-                else
-                {
-                    Graph.resize(Graph.size() + 1);
-                }
-                break;
+            // case PMA_UPDATE_INSERT_VERTEX:
+            //     // 插入顶点不需要 src/dst，但如果提供了则确保容量
+            //     if (opr.src >= 0)
+            //     {
+            //         ensure_vertex(opr.src);
+            //     }
+            //     else if (opr.dst >= 0)
+            //     {
+            //         ensure_vertex(opr.dst);
+            //     }
+            //     else
+            //     {
+            //         Graph.resize(Graph.size() + 1);
+            //     }
+            //     break;
             case PMA_UPDATE_INSERT_EDGE:
                 ensure_vertex(opr.src);
                 ensure_vertex(opr.dst);
@@ -175,10 +176,10 @@ int main(int argc, char** argv)
     bool first_edge_batch = true;
     for (const auto &op : operations)
     {
-        if (op.opcode == PMA_UPDATE_INSERT_VERTEX)
-        {
-            continue;
-        }
+        // if (op.opcode == PMA_UPDATE_INSERT_VERTEX)
+        // {
+        //     continue;
+        // }
         if (first_edge_batch || op.timestamp != current_edge_ts)
         {
             max_edge_batch = std::max(max_edge_batch, current_edge_batch);
@@ -384,8 +385,16 @@ int main(int argc, char** argv)
     }
 
     // 修改 bo_src 和 bo_dst 的分配，确保使用 update_message_generator_kernel 的 group_id
-    size_t edge_buffer_len = std::max<size_t>(max_edge_batch, 1);
-    std::cout << "Update buffer length: " << edge_buffer_len << std::endl;
+    // Cap per-device edge buffer to avoid large single-allocation failures
+    const size_t kDefaultMaxEdgeBuffer = 1000000; // tuneable cap (1M)
+    size_t edge_buffer_len = std::max<size_t>(1, std::min(max_edge_batch, kDefaultMaxEdgeBuffer));
+    if (edge_buffer_len < max_edge_batch) {
+        std::cout << "Update buffer length capped per-device: " << edge_buffer_len
+                  << " (original " << max_edge_batch << ")" << std::endl;
+    } else {
+        std::cout << "Update buffer length: " << edge_buffer_len << std::endl;
+    }
+
     auto bo_src = xrt::bo(device, sizeof(int) * edge_buffer_len, update_message_generator_kernel.group_id(1));
     auto bo_dst = xrt::bo(device, sizeof(int) * edge_buffer_len, update_message_generator_kernel.group_id(2));
     auto bo_opcode = xrt::bo(device, sizeof(int) * edge_buffer_len, update_message_generator_kernel.group_id(3));
@@ -749,10 +758,10 @@ int main(int argc, char** argv)
         size_t edge_idx = 0;
         for (const auto &op : batch_ops)
         {
-            if (op.opcode == PMA_UPDATE_INSERT_VERTEX)
-            {
-                continue;
-            }
+            // if (op.opcode == PMA_UPDATE_INSERT_VERTEX)
+            // {
+            //     continue;
+            // }
             if (edge_idx >= edge_buffer_len)
             {
                 std::cerr << "Edge buffer overflow in batch load." << std::endl;
@@ -773,11 +782,7 @@ int main(int argc, char** argv)
         return static_cast<int>(edge_idx);
     };
 
-    auto run_update_batch = [&](int new_vertex_count, int edge_count, const std::string& label, bool last) -> double {
-        if (edge_count == 0 && new_vertex_count == 0) {
-            std::cout << label << ": vertices=0, edges=0, time=0 s" << std::endl;
-            return 0;
-        }
+    auto run_update_batch = [&]( int edge_count, const std::string& label, bool last) -> double {
         auto run_update_message_generator_kernel = xrt::run(update_message_generator_kernel);
         std::cout << "Update message generator kernel is launched..." << std::endl;
                       // add_vertex_num
@@ -799,7 +804,7 @@ int main(int argc, char** argv)
 
         auto phase_end = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> elapsed = phase_end - phase_start;
-        std::cout << label << ": vertices=" << new_vertex_count << ", edges=" << edge_count
+        std::cout << label << "edges=" << edge_count
                   << ", time=" << elapsed.count() << " s" << std::endl;
         return elapsed.count();
     };
@@ -922,14 +927,14 @@ int main(int argc, char** argv)
                 std::shuffle(batch_ops.begin(), batch_ops.end(), rng); // shuffle the whole operation tuple (src, dst, opcode) within same timestamp
             }
 
-            int new_vertex_count = 0;
-            for (const auto &op : batch_ops)
-            {
-                if (op.opcode == PMA_UPDATE_INSERT_VERTEX)
-                {
-                    new_vertex_count += 1;
-                }
-            }
+            // int new_vertex_count = 0;
+            // for (const auto &op : batch_ops)
+            // {
+            //     if (op.opcode == PMA_UPDATE_INSERT_VERTEX)
+            //     {
+            //         new_vertex_count += 1;
+            //     }
+            // }
 
             int edge_count = load_edge_batch(batch_ops);
             if (edge_count < 0)
@@ -942,19 +947,18 @@ int main(int argc, char** argv)
             }
 
             bool last = (idx == operations.size());
-            incremental_phase_s += run_update_batch(new_vertex_count, edge_count, "ts_" + std::to_string(current_ts), last);
+            incremental_phase_s += run_update_batch(edge_count, "ts_" + std::to_string(current_ts), last);
 
             std::cout << "prepareing verification result on CPU for timestamp " << current_ts << "..." << std::endl;
             std::vector<int> dirty_vertices;
             dirty_vertices.reserve(batch_ops.size());
             for (const auto &op : batch_ops)
-
             {
                 switch (op.opcode)
                 {
-                    case PMA_UPDATE_INSERT_VERTEX:
-                        ensure_runtime_vertex(op.src >= 0 ? op.src : op.dst);
-                        break;
+                    // case PMA_UPDATE_INSERT_VERTEX:
+                    //     ensure_runtime_vertex(op.src >= 0 ? op.src : op.dst);
+                    //     break;
                     case PMA_UPDATE_INSERT_EDGE:
                         if (kVertexOnlyTest) break;
                         ensure_runtime_vertex(op.src);

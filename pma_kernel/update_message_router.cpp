@@ -6,7 +6,7 @@
 #include <cstdio>
 
 #ifndef MAX_INFLIGHT_NUM
-#define MAX_INFLIGHT_NUM 32
+#define MAX_INFLIGHT_NUM 16
 #endif
 
 #define ROUTER_WORKERS CHANNEL_NUM
@@ -58,20 +58,27 @@ static void update_inflight_from_ack(
     int &in_flight_count,
     hls::stream<COMMAND_STREAM> &ack_stream)
 {
-    #pragma HLS INLINE  
+    #pragma HLS INLINE off
     COMMAND_STREAM ack;
     if (ack_stream.read_nb(ack))
     {
         int pma_idx = ack.data;
+        int find_idx = -1;
         for (int i = 0 ; i < MAX_INFLIGHT_NUM ; i++)
         {
             if (in_flight_arr[i] == pma_idx)
             {
-                in_flight_arr[i] = -1;
-                in_flight_count--;
-                // hls::print("infight removed, count %d\n", in_flight_count);
-                break;
+                // in_flight_arr[i] = -1;
+                // in_flight_count--;
+                // // hls::print("infight removed, count %d\n", in_flight_count);
+                // break;
+                find_idx = i;
             }
+        }
+        if (find_idx != -1)
+        {
+            in_flight_arr[find_idx] = -1;
+            in_flight_count--;
         }
     }
 }
@@ -80,15 +87,16 @@ static void check_ack_back_array(
     int *in_flight_arr,
     int &in_flight_count,
     hls::stream<COMMAND_STREAM>& ack_from_insert_edge_1,
-    hls::stream<COMMAND_STREAM>& ack_from_insert_edge_2,
-    hls::stream<COMMAND_STREAM>& ack_from_insert_edge_3,
-    hls::stream<COMMAND_STREAM>& ack_from_insert_edge_4)
+    hls::stream<COMMAND_STREAM>& ack_from_insert_edge_2
+    // hls::stream<COMMAND_STREAM>& ack_from_insert_edge_3,
+    // hls::stream<COMMAND_STREAM>& ack_from_insert_edge_4
+)
 {
     #pragma HLS INLINE off
     update_inflight_from_ack(in_flight_arr, in_flight_count, ack_from_insert_edge_1);
     update_inflight_from_ack(in_flight_arr, in_flight_count, ack_from_insert_edge_2);
-    update_inflight_from_ack(in_flight_arr, in_flight_count, ack_from_insert_edge_3);
-    update_inflight_from_ack(in_flight_arr, in_flight_count, ack_from_insert_edge_4);
+    // update_inflight_from_ack(in_flight_arr, in_flight_count, ack_from_insert_edge_3);
+    // update_inflight_from_ack(in_flight_arr, in_flight_count, ack_from_insert_edge_4);
 }
 
 void add_inflight(int *in_flight_arr, int &in_flight_count, int pma_idx)
@@ -112,12 +120,12 @@ void flush_and_add_inflight(
     int &in_flight_count,
     hls::stream<COMMAND_STREAM>& ack_from_insert_edge_1,
     hls::stream<COMMAND_STREAM>& ack_from_insert_edge_2,
-    hls::stream<COMMAND_STREAM>& ack_from_insert_edge_3,
-    hls::stream<COMMAND_STREAM>& ack_from_insert_edge_4,
+    // hls::stream<COMMAND_STREAM>& ack_from_insert_edge_3,
+    // hls::stream<COMMAND_STREAM>& ack_from_insert_edge_4,
     hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_1,
     hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_2,
-    hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_3,
-    hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_4,
+    // hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_3,
+    // hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_4,
     PMA_UPDATE_MESSAGE msg_buffer[MAX_COMMAND_BUFFER_NUM][MAX_COMMAND_BUFFER_LENGTH],
     int *count_arr)
 {
@@ -127,10 +135,11 @@ void flush_and_add_inflight(
             in_flight_arr,
             in_flight_count,
             ack_from_insert_edge_1,
-            ack_from_insert_edge_2,
-            ack_from_insert_edge_3,
-            ack_from_insert_edge_4
+            ack_from_insert_edge_2
+            // ack_from_insert_edge_3,
+            // ack_from_insert_edge_4
         );
+        ap_wait();
     }
 
     if (count_arr[hash] > 0) {
@@ -139,8 +148,8 @@ void flush_and_add_inflight(
         {
             case 0: flush_buffer_aux(hash, cmd_to_insert_edge_1, msg_buffer, count_arr); break;
             case 1: flush_buffer_aux(hash, cmd_to_insert_edge_2, msg_buffer, count_arr); break;
-            case 2: flush_buffer_aux(hash, cmd_to_insert_edge_3, msg_buffer, count_arr); break;
-            case 3: flush_buffer_aux(hash, cmd_to_insert_edge_4, msg_buffer, count_arr); break;
+            // case 2: flush_buffer_aux(hash, cmd_to_insert_edge_3, msg_buffer, count_arr); break;
+            // case 3: flush_buffer_aux(hash, cmd_to_insert_edge_4, msg_buffer, count_arr); break;
             default: break;
         }
         add_inflight(in_flight_arr, in_flight_count, pma_idx);
@@ -153,35 +162,35 @@ extern "C"
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_from_generator,
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_1,
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_2,
-        hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_3,
-        hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_4,
+        // hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_3,
+        // hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_4,
         hls::stream<COMMAND_STREAM> &ack_from_insert_edge_1,
         hls::stream<COMMAND_STREAM> &ack_from_insert_edge_2,
-        hls::stream<COMMAND_STREAM> &ack_from_insert_edge_3,
-        hls::stream<COMMAND_STREAM> &ack_from_insert_edge_4,
+        // hls::stream<COMMAND_STREAM> &ack_from_insert_edge_3,
+        // hls::stream<COMMAND_STREAM> &ack_from_insert_edge_4,
         hls::stream<WHOLE_ACK> &ack_to_generator
     )
     {
         #pragma HLS INTERFACE axis port=cmd_from_generator
         #pragma HLS INTERFACE axis port=cmd_to_insert_edge_1
         #pragma HLS INTERFACE axis port=cmd_to_insert_edge_2
-        #pragma HLS INTERFACE axis port=cmd_to_insert_edge_3
-        #pragma HLS INTERFACE axis port=cmd_to_insert_edge_4
+        // #pragma HLS INTERFACE axis port=cmd_to_insert_edge_3
+        // #pragma HLS INTERFACE axis port=cmd_to_insert_edge_4
         #pragma HLS INTERFACE axis port=ack_from_insert_edge_1
         #pragma HLS INTERFACE axis port=ack_from_insert_edge_2
-        #pragma HLS INTERFACE axis port=ack_from_insert_edge_3
-        #pragma HLS INTERFACE axis port=ack_from_insert_edge_4
+        // #pragma HLS INTERFACE axis port=ack_from_insert_edge_3
+        // #pragma HLS INTERFACE axis port=ack_from_insert_edge_4
         #pragma HLS INTERFACE axis port=ack_to_generator
 
         #pragma HLS STREAM variable=cmd_from_generator depth=16
         #pragma HLS STREAM variable=cmd_to_insert_edge_1 depth=16
         #pragma HLS STREAM variable=cmd_to_insert_edge_2 depth=16
-        #pragma HLS STREAM variable=cmd_to_insert_edge_3 depth=16
-        #pragma HLS STREAM variable=cmd_to_insert_edge_4 depth=16
+        // #pragma HLS STREAM variable=cmd_to_insert_edge_3 depth=16
+        // #pragma HLS STREAM variable=cmd_to_insert_edge_4 depth=16
         #pragma HLS STREAM variable=ack_from_insert_edge_1 depth=16
         #pragma HLS STREAM variable=ack_from_insert_edge_2 depth=16
-        #pragma HLS STREAM variable=ack_from_insert_edge_3 depth=16
-        #pragma HLS STREAM variable=ack_from_insert_edge_4 depth=16
+        // #pragma HLS STREAM variable=ack_from_insert_edge_3 depth=16
+        // #pragma HLS STREAM variable=ack_from_insert_edge_4 depth=16
         #pragma HLS STREAM variable=ack_to_generator depth=16
 
         PMA_UPDATE_MESSAGE msg_buffer[MAX_COMMAND_BUFFER_NUM][MAX_COMMAND_BUFFER_LENGTH];
@@ -192,7 +201,6 @@ extern "C"
         int in_flight[MAX_INFLIGHT_NUM];
         #pragma HLS ARRAY_PARTITION variable=in_flight complete
         for (int i = 0 ; i < MAX_INFLIGHT_NUM ; i++) in_flight[i] = -1;
-        
         int in_flight_count = 0;
         // hls::print("in_flight_count %d\n", in_flight_count);
         for (int i = 0 ; i < MAX_COMMAND_BUFFER_NUM ; i++)
@@ -219,15 +227,14 @@ extern "C"
                         in_flight,
                         in_flight_count,
                         ack_from_insert_edge_1,
-                        ack_from_insert_edge_2,
-                        ack_from_insert_edge_3,
-                        ack_from_insert_edge_4
+                        ack_from_insert_edge_2
+                        // ack_from_insert_edge_3,
+                        // ack_from_insert_edge_4
                     );
                     if(cmd_from_generator.read_nb(msg))
                     {
-                        if (msg.src == -1)
+                        if (msg.opcode == PMA_UPDATE_STOP)
                         {
-                            msg.opcode = PMA_UPDATE_STOP;
                             for (int i = 0 ; i < MAX_COMMAND_BUFFER_NUM ; i++)
                             {
                                 if (count[i] > 0)
@@ -237,12 +244,12 @@ extern "C"
                                         in_flight, in_flight_count,
                                         ack_from_insert_edge_1,
                                         ack_from_insert_edge_2,
-                                        ack_from_insert_edge_3,
-                                        ack_from_insert_edge_4,
+                                        // ack_from_insert_edge_3,
+                                        // ack_from_insert_edge_4,
                                         cmd_to_insert_edge_1,
                                         cmd_to_insert_edge_2,
-                                        cmd_to_insert_edge_3,
-                                        cmd_to_insert_edge_4,
+                                        // cmd_to_insert_edge_3,
+                                        // cmd_to_insert_edge_4,
                                         msg_buffer, count
                                     );
                                 }
@@ -253,19 +260,20 @@ extern "C"
                                     in_flight,
                                     in_flight_count,
                                     ack_from_insert_edge_1,
-                                    ack_from_insert_edge_2,
-                                    ack_from_insert_edge_3,
-                                    ack_from_insert_edge_4
+                                    ack_from_insert_edge_2
+                                    // ack_from_insert_edge_3,
+                                    // ack_from_insert_edge_4
                                 );
                                 ap_wait();
                             }
                             hls::print("in_flight_count after flush %d\n", in_flight_count);
                             if (msg.last == 1)
                             {
+                                msg.opcode = PMA_UPDATE_STOP;
                                 cmd_to_insert_edge_1.write(msg);
                                 cmd_to_insert_edge_2.write(msg);
-                                cmd_to_insert_edge_3.write(msg);
-                                cmd_to_insert_edge_4.write(msg);
+                                // cmd_to_insert_edge_3.write(msg);
+                                // cmd_to_insert_edge_4.write(msg);
                                 quit = true;
                                 stage++;
                             }
@@ -307,12 +315,12 @@ extern "C"
                                     in_flight, in_flight_count,
                                     ack_from_insert_edge_1,
                                     ack_from_insert_edge_2,
-                                    ack_from_insert_edge_3,
-                                    ack_from_insert_edge_4,
+                                    // ack_from_insert_edge_3,
+                                    // ack_from_insert_edge_4,
                                     cmd_to_insert_edge_1,
                                     cmd_to_insert_edge_2,
-                                    cmd_to_insert_edge_3,
-                                    cmd_to_insert_edge_4,
+                                    // cmd_to_insert_edge_3,
+                                    // cmd_to_insert_edge_4,
                                     msg_buffer, count
                                 );
                                 msg_buffer[hash][count[hash]] = msg;
@@ -326,12 +334,12 @@ extern "C"
                                 in_flight, in_flight_count,
                                 ack_from_insert_edge_1,
                                 ack_from_insert_edge_2,
-                                ack_from_insert_edge_3,
-                                ack_from_insert_edge_4,
+                                // ack_from_insert_edge_3,
+                                // ack_from_insert_edge_4,
                                 cmd_to_insert_edge_1,
                                 cmd_to_insert_edge_2,
-                                cmd_to_insert_edge_3,
-                                cmd_to_insert_edge_4,
+                                // cmd_to_insert_edge_3,
+                                // cmd_to_insert_edge_4,
                                 msg_buffer, count
                             );
                             msg_buffer[hash][count[hash]] = msg;

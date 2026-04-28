@@ -51,7 +51,6 @@ void process_req(
                 //512bit -> 64byte
                 for (int i = 0 ; i < len / 64 ; i++)
                 {
-                    #pragma HLS PIPELINE II=1
                     ap_axiu<512, 0, 0, 0> pkt;
                     pkt = data_from_edge.read();
                     hbm_ptr[(start / 64) + i] = pkt.data;
@@ -64,7 +63,6 @@ void process_req(
                 int len = cmd.len;
                 for (int i = 0 ; i < len / 64 ; i++)
                 {
-                    #pragma HLS PIPELINE II=1
                     auto pkt = hbm_ptr[(start / 64) + i];
                     ap_axiu<512,0,0,0> out_pkt;
                     out_pkt.data = pkt;

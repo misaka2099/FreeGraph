@@ -14,7 +14,7 @@ INCLUDE_HEADERS := /home/sail/lyf/pma_demo/stream/include/data_type.h /home/sail
 
 %.xo: %.cpp $(INCLUDE_HEADERS)
 	@echo "---- Building kernel $* -> $@ (target=$(TARGET)) ----"
-	$(VPP) -c -g -t $(TARGET) $(INCLUDES) --save-temps --platform $(PLATFORM) -k $* -o $@ $< 
+	$(VPP) -c -g -t $(TARGET) $(INCLUDES) --kernel_frequency=150 --save-temps --platform $(PLATFORM) -k $* -o $@ $< 
 	@echo "---- done: $@ ----"
 clean:
 	@echo "Cleaning .xo and build artifacts..."
