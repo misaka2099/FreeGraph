@@ -16296,3 +16296,696 @@ Tue Apr 28 09:27:26 2026: SERVER: destructor for server bound to port 44583
 Tue Apr 28 09:27:26 2026: XCD main fifo: Good unlink of /tmp/xcdmain40c35ce5-62d4-497e-a5d7-ec18f3132e7c
 Tue Apr 28 09:27:26 2026: Server exiting with status 0.
 Tue Apr 28 09:27:26 2026: Closing log file.
+Wed Apr 29 20:16:58 2026: Running xcd server. This server was built by gradle.
+Wed Apr 29 20:16:58 2026: Server was asked to start on port: '38525'
+Wed Apr 29 20:16:58 2026: Server is using token UUID: '8e8cf83a-1727-41e7-9968-36082fafb198'
+Wed Apr 29 20:16:58 2026: SESSION_MGR: creating session with session uuid: '6d04a3e9-ade5-4ab9-8d63-1f78fcd2ec76' and name 'default'
+Wed Apr 29 20:16:59 2026: Attempting to start server on port '38525'
+Wed Apr 29 20:16:59 2026: XCD main fifo: created main fifo '/tmp/xcdmain8e8cf83a-1727-41e7-9968-36082fafb198', fd read = 13
+Wed Apr 29 20:16:59 2026: Running Dispatch Server
+Wed Apr 29 20:16:59 2026: Version 2.2.0
+Wed Apr 29 20:17:07 2026: Dispatch Server: Accepted socket connection from client
+Wed Apr 29 20:17:07 2026: Starting Socket connection
+Wed Apr 29 20:17:07 2026: EXCHANGE_TOKEN received, server token: 8e8cf83a-1727-41e7-9968-36082fafb198, passed token: 8e8cf83a-1727-41e7-9968-36082fafb198
+Wed Apr 29 20:17:07 2026: DISPATCH_HANDLER: Adding handler from function makeHandler in library libxv_system_diagram
+Wed Apr 29 20:17:07 2026: SESSION_MGR: creating session with session uuid: '68459014-e4fa-45b6-880c-938b5b55b45a' and name 'v++_compile_update_message_generator'
+Wed Apr 29 20:17:07 2026: KERNEL_SVC: creating session with uuid: '68459014-e4fa-45b6-880c-938b5b55b45a' and name 'v++_compile_update_message_generator'
+Wed Apr 29 20:17:07 2026: GUIDANCE_SMGR: creating guidance session with uuid: '68459014-e4fa-45b6-880c-938b5b55b45a' and name 'v++_compile_update_message_generator'
+Wed Apr 29 20:17:07 2026: SYSTEM_DIAGRAM: creating session with uuid: '68459014-e4fa-45b6-880c-938b5b55b45a' and name 'v++_compile_update_message_generator'
+Wed Apr 29 20:17:16 2026: Dispatch Server: Accepted socket connection from client
+Wed Apr 29 20:17:16 2026: Starting Socket connection
+Wed Apr 29 20:17:47 2026: SESSION_MGR: closing session for UUID '68459014-e4fa-45b6-880c-938b5b55b45a' with name 'v++_compile_update_message_generator'
+Wed Apr 29 20:17:47 2026: KERNEL_SVC: closing session for UUID '68459014-e4fa-45b6-880c-938b5b55b45a' with name 'v++_compile_update_message_generator'
+Wed Apr 29 20:17:47 2026: GUIDANCE_SMGR: closing session for UUID '68459014-e4fa-45b6-880c-938b5b55b45a' with name 'v++_compile_update_message_generator'
+Wed Apr 29 20:17:47 2026: SYSTEM_DIAGRAM: closing session for UUID '68459014-e4fa-45b6-880c-938b5b55b45a' with name 'v++_compile_update_message_generator'
+Wed Apr 29 20:17:47 2026: STOP_SERVER received, server token: 8e8cf83a-1727-41e7-9968-36082fafb198, passed token: 8e8cf83a-1727-41e7-9968-36082fafb198
+Wed Apr 29 20:17:47 2026: Socket received request to stop server.
+Wed Apr 29 20:17:47 2026: Dispatch Server: do_await_stop
+Wed Apr 29 20:17:47 2026: Dispatch Server: stopping mainFifo_
+Wed Apr 29 20:17:47 2026: XCD main fifo: Stopping
+Wed Apr 29 20:17:47 2026: XCD main fifo: do_read error code: Operation canceled
+Wed Apr 29 20:17:47 2026: XCD main fifo: bytes_transferred: 0
+Wed Apr 29 20:17:47 2026: SERVER: destructor for server bound to port 38525
+Wed Apr 29 20:17:47 2026: XCD main fifo: Good unlink of /tmp/xcdmain8e8cf83a-1727-41e7-9968-36082fafb198
+Wed Apr 29 20:17:47 2026: Server exiting with status 0.
+Wed Apr 29 20:17:47 2026: Closing log file.
+Wed Apr 29 20:17:50 2026: Running xcd server. This server was built by gradle.
+Wed Apr 29 20:17:50 2026: Server was asked to start on port: '41673'
+Wed Apr 29 20:17:50 2026: Server is using token UUID: '2daee473-504c-40d7-841e-057774fbf060'
+Wed Apr 29 20:17:50 2026: SESSION_MGR: creating session with session uuid: '6d04a3e9-ade5-4ab9-8d63-1f78fcd2ec76' and name 'default'
+Wed Apr 29 20:17:50 2026: Attempting to start server on port '41673'
+Wed Apr 29 20:17:50 2026: XCD main fifo: created main fifo '/tmp/xcdmain2daee473-504c-40d7-841e-057774fbf060', fd read = 13
+Wed Apr 29 20:17:50 2026: Running Dispatch Server
+Wed Apr 29 20:17:50 2026: Version 2.2.0
+Wed Apr 29 20:17:58 2026: Dispatch Server: Accepted socket connection from client
+Wed Apr 29 20:17:58 2026: Starting Socket connection
+Wed Apr 29 20:17:58 2026: EXCHANGE_TOKEN received, server token: 2daee473-504c-40d7-841e-057774fbf060, passed token: 2daee473-504c-40d7-841e-057774fbf060
+Wed Apr 29 20:17:59 2026: DISPATCH_HANDLER: Adding handler from function makeHandler in library libxv_system_diagram
+Wed Apr 29 20:17:59 2026: SESSION_MGR: creating session with session uuid: '10249163-fb69-4ca3-bd3d-794dbbf90b37' and name 'v++_compile_update_message_router'
+Wed Apr 29 20:17:59 2026: KERNEL_SVC: creating session with uuid: '10249163-fb69-4ca3-bd3d-794dbbf90b37' and name 'v++_compile_update_message_router'
+Wed Apr 29 20:17:59 2026: GUIDANCE_SMGR: creating guidance session with uuid: '10249163-fb69-4ca3-bd3d-794dbbf90b37' and name 'v++_compile_update_message_router'
+Wed Apr 29 20:17:59 2026: SYSTEM_DIAGRAM: creating session with uuid: '10249163-fb69-4ca3-bd3d-794dbbf90b37' and name 'v++_compile_update_message_router'
+Wed Apr 29 20:18:07 2026: Dispatch Server: Accepted socket connection from client
+Wed Apr 29 20:18:07 2026: Starting Socket connection
+Wed Apr 29 20:18:50 2026: SESSION_MGR: closing session for UUID '10249163-fb69-4ca3-bd3d-794dbbf90b37' with name 'v++_compile_update_message_router'
+Wed Apr 29 20:18:50 2026: KERNEL_SVC: closing session for UUID '10249163-fb69-4ca3-bd3d-794dbbf90b37' with name 'v++_compile_update_message_router'
+Wed Apr 29 20:18:50 2026: GUIDANCE_SMGR: closing session for UUID '10249163-fb69-4ca3-bd3d-794dbbf90b37' with name 'v++_compile_update_message_router'
+Wed Apr 29 20:18:50 2026: SYSTEM_DIAGRAM: closing session for UUID '10249163-fb69-4ca3-bd3d-794dbbf90b37' with name 'v++_compile_update_message_router'
+Wed Apr 29 20:18:50 2026: STOP_SERVER received, server token: 2daee473-504c-40d7-841e-057774fbf060, passed token: 2daee473-504c-40d7-841e-057774fbf060
+Wed Apr 29 20:18:50 2026: Socket received request to stop server.
+Wed Apr 29 20:18:50 2026: Dispatch Server: do_await_stop
+Wed Apr 29 20:18:50 2026: Dispatch Server: stopping mainFifo_
+Wed Apr 29 20:18:50 2026: XCD main fifo: Stopping
+Wed Apr 29 20:18:50 2026: XCD main fifo: do_read error code: Operation canceled
+Wed Apr 29 20:18:50 2026: XCD main fifo: bytes_transferred: 0
+Wed Apr 29 20:18:50 2026: SERVER: destructor for server bound to port 41673
+Wed Apr 29 20:18:50 2026: XCD main fifo: Good unlink of /tmp/xcdmain2daee473-504c-40d7-841e-057774fbf060
+Wed Apr 29 20:18:50 2026: Server exiting with status 0.
+Wed Apr 29 20:18:50 2026: Closing log file.
+Wed Apr 29 20:18:53 2026: Running xcd server. This server was built by gradle.
+Wed Apr 29 20:18:53 2026: Server was asked to start on port: '41155'
+Wed Apr 29 20:18:53 2026: Server is using token UUID: 'fe99b0d9-e487-49e7-bb90-20df056eb406'
+Wed Apr 29 20:18:53 2026: SESSION_MGR: creating session with session uuid: '6d04a3e9-ade5-4ab9-8d63-1f78fcd2ec76' and name 'default'
+Wed Apr 29 20:18:53 2026: Attempting to start server on port '41155'
+Wed Apr 29 20:18:53 2026: XCD main fifo: created main fifo '/tmp/xcdmainfe99b0d9-e487-49e7-bb90-20df056eb406', fd read = 12
+Wed Apr 29 20:18:53 2026: Running Dispatch Server
+Wed Apr 29 20:18:53 2026: Version 2.2.0
+Wed Apr 29 20:19:02 2026: Dispatch Server: Accepted socket connection from client
+Wed Apr 29 20:19:02 2026: Starting Socket connection
+Wed Apr 29 20:19:02 2026: EXCHANGE_TOKEN received, server token: fe99b0d9-e487-49e7-bb90-20df056eb406, passed token: fe99b0d9-e487-49e7-bb90-20df056eb406
+Wed Apr 29 20:19:02 2026: DISPATCH_HANDLER: Adding handler from function makeHandler in library libxv_system_diagram
+Wed Apr 29 20:19:02 2026: SESSION_MGR: creating session with session uuid: '15d6c3fa-6dc7-47e9-8b46-96639067f495' and name 'v++_compile_pma_insert_edge'
+Wed Apr 29 20:19:02 2026: KERNEL_SVC: creating session with uuid: '15d6c3fa-6dc7-47e9-8b46-96639067f495' and name 'v++_compile_pma_insert_edge'
+Wed Apr 29 20:19:02 2026: GUIDANCE_SMGR: creating guidance session with uuid: '15d6c3fa-6dc7-47e9-8b46-96639067f495' and name 'v++_compile_pma_insert_edge'
+Wed Apr 29 20:19:02 2026: SYSTEM_DIAGRAM: creating session with uuid: '15d6c3fa-6dc7-47e9-8b46-96639067f495' and name 'v++_compile_pma_insert_edge'
+Wed Apr 29 20:19:11 2026: Dispatch Server: Accepted socket connection from client
+Wed Apr 29 20:19:11 2026: Starting Socket connection
+Wed Apr 29 20:20:36 2026: SESSION_MGR: closing session for UUID '15d6c3fa-6dc7-47e9-8b46-96639067f495' with name 'v++_compile_pma_insert_edge'
+Wed Apr 29 20:20:36 2026: KERNEL_SVC: closing session for UUID '15d6c3fa-6dc7-47e9-8b46-96639067f495' with name 'v++_compile_pma_insert_edge'
+Wed Apr 29 20:20:36 2026: GUIDANCE_SMGR: closing session for UUID '15d6c3fa-6dc7-47e9-8b46-96639067f495' with name 'v++_compile_pma_insert_edge'
+Wed Apr 29 20:20:36 2026: SYSTEM_DIAGRAM: closing session for UUID '15d6c3fa-6dc7-47e9-8b46-96639067f495' with name 'v++_compile_pma_insert_edge'
+Wed Apr 29 20:20:36 2026: STOP_SERVER received, server token: fe99b0d9-e487-49e7-bb90-20df056eb406, passed token: fe99b0d9-e487-49e7-bb90-20df056eb406
+Wed Apr 29 20:20:36 2026: Socket received request to stop server.
+Wed Apr 29 20:20:36 2026: Dispatch Server: do_await_stop
+Wed Apr 29 20:20:36 2026: Dispatch Server: stopping mainFifo_
+Wed Apr 29 20:20:36 2026: XCD main fifo: Stopping
+Wed Apr 29 20:20:36 2026: XCD main fifo: do_read error code: Operation canceled
+Wed Apr 29 20:20:36 2026: XCD main fifo: bytes_transferred: 0
+Wed Apr 29 20:20:36 2026: SERVER: destructor for server bound to port 41155
+Wed Apr 29 20:20:36 2026: XCD main fifo: Good unlink of /tmp/xcdmainfe99b0d9-e487-49e7-bb90-20df056eb406
+Wed Apr 29 20:20:36 2026: Server exiting with status 0.
+Wed Apr 29 20:20:36 2026: Closing log file.
+Wed Apr 29 20:20:39 2026: Running xcd server. This server was built by gradle.
+Wed Apr 29 20:20:39 2026: Server was asked to start on port: '38129'
+Wed Apr 29 20:20:39 2026: Server is using token UUID: '608adc27-0663-412a-b67a-b867b32fa1fb'
+Wed Apr 29 20:20:39 2026: SESSION_MGR: creating session with session uuid: '6d04a3e9-ade5-4ab9-8d63-1f78fcd2ec76' and name 'default'
+Wed Apr 29 20:20:39 2026: Attempting to start server on port '38129'
+Wed Apr 29 20:20:39 2026: XCD main fifo: created main fifo '/tmp/xcdmain608adc27-0663-412a-b67a-b867b32fa1fb', fd read = 13
+Wed Apr 29 20:20:39 2026: Running Dispatch Server
+Wed Apr 29 20:20:39 2026: Version 2.2.0
+Wed Apr 29 20:20:47 2026: Dispatch Server: Accepted socket connection from client
+Wed Apr 29 20:20:47 2026: Starting Socket connection
+Wed Apr 29 20:20:47 2026: EXCHANGE_TOKEN received, server token: 608adc27-0663-412a-b67a-b867b32fa1fb, passed token: 608adc27-0663-412a-b67a-b867b32fa1fb
+Wed Apr 29 20:20:48 2026: DISPATCH_HANDLER: Adding handler from function makeHandler in library libxv_system_diagram
+Wed Apr 29 20:20:48 2026: SESSION_MGR: creating session with session uuid: '27ddfb4c-8a16-49c2-a0a6-1fa09904b179' and name 'v++_compile_pma_read_router_kernel'
+Wed Apr 29 20:20:48 2026: KERNEL_SVC: creating session with uuid: '27ddfb4c-8a16-49c2-a0a6-1fa09904b179' and name 'v++_compile_pma_read_router_kernel'
+Wed Apr 29 20:20:48 2026: GUIDANCE_SMGR: creating guidance session with uuid: '27ddfb4c-8a16-49c2-a0a6-1fa09904b179' and name 'v++_compile_pma_read_router_kernel'
+Wed Apr 29 20:20:48 2026: SYSTEM_DIAGRAM: creating session with uuid: '27ddfb4c-8a16-49c2-a0a6-1fa09904b179' and name 'v++_compile_pma_read_router_kernel'
+Wed Apr 29 20:20:57 2026: Dispatch Server: Accepted socket connection from client
+Wed Apr 29 20:20:57 2026: Starting Socket connection
+Wed Apr 29 20:21:23 2026: SESSION_MGR: closing session for UUID '27ddfb4c-8a16-49c2-a0a6-1fa09904b179' with name 'v++_compile_pma_read_router_kernel'
+Wed Apr 29 20:21:23 2026: KERNEL_SVC: closing session for UUID '27ddfb4c-8a16-49c2-a0a6-1fa09904b179' with name 'v++_compile_pma_read_router_kernel'
+Wed Apr 29 20:21:23 2026: GUIDANCE_SMGR: closing session for UUID '27ddfb4c-8a16-49c2-a0a6-1fa09904b179' with name 'v++_compile_pma_read_router_kernel'
+Wed Apr 29 20:21:23 2026: SYSTEM_DIAGRAM: closing session for UUID '27ddfb4c-8a16-49c2-a0a6-1fa09904b179' with name 'v++_compile_pma_read_router_kernel'
+Wed Apr 29 20:21:23 2026: STOP_SERVER received, server token: 608adc27-0663-412a-b67a-b867b32fa1fb, passed token: 608adc27-0663-412a-b67a-b867b32fa1fb
+Wed Apr 29 20:21:23 2026: Socket received request to stop server.
+Wed Apr 29 20:21:23 2026: Dispatch Server: do_await_stop
+Wed Apr 29 20:21:23 2026: Dispatch Server: stopping mainFifo_
+Wed Apr 29 20:21:23 2026: XCD main fifo: Stopping
+Wed Apr 29 20:21:23 2026: XCD main fifo: do_read error code: Operation canceled
+Wed Apr 29 20:21:23 2026: XCD main fifo: bytes_transferred: 0
+Wed Apr 29 20:21:23 2026: SERVER: destructor for server bound to port 38129
+Wed Apr 29 20:21:23 2026: XCD main fifo: Good unlink of /tmp/xcdmain608adc27-0663-412a-b67a-b867b32fa1fb
+Wed Apr 29 20:21:23 2026: Server exiting with status 0.
+Wed Apr 29 20:21:23 2026: Closing log file.
+Wed Apr 29 20:21:26 2026: Running xcd server. This server was built by gradle.
+Wed Apr 29 20:21:26 2026: Server was asked to start on port: '45171'
+Wed Apr 29 20:21:26 2026: Server is using token UUID: 'e6ce1315-ab7f-4d7e-8d27-101f9394cc5e'
+Wed Apr 29 20:21:26 2026: SESSION_MGR: creating session with session uuid: '6d04a3e9-ade5-4ab9-8d63-1f78fcd2ec76' and name 'default'
+Wed Apr 29 20:21:26 2026: Attempting to start server on port '45171'
+Wed Apr 29 20:21:26 2026: XCD main fifo: created main fifo '/tmp/xcdmaine6ce1315-ab7f-4d7e-8d27-101f9394cc5e', fd read = 13
+Wed Apr 29 20:21:26 2026: Running Dispatch Server
+Wed Apr 29 20:21:26 2026: Version 2.2.0
+Wed Apr 29 20:21:34 2026: Dispatch Server: Accepted socket connection from client
+Wed Apr 29 20:21:34 2026: Starting Socket connection
+Wed Apr 29 20:21:34 2026: EXCHANGE_TOKEN received, server token: e6ce1315-ab7f-4d7e-8d27-101f9394cc5e, passed token: e6ce1315-ab7f-4d7e-8d27-101f9394cc5e
+Wed Apr 29 20:21:35 2026: DISPATCH_HANDLER: Adding handler from function makeHandler in library libxv_system_diagram
+Wed Apr 29 20:21:35 2026: SESSION_MGR: creating session with session uuid: '65e933a2-bb2d-42cd-b736-ded30d0358fe' and name 'v++_compile_pma_read_worker_kernel'
+Wed Apr 29 20:21:35 2026: KERNEL_SVC: creating session with uuid: '65e933a2-bb2d-42cd-b736-ded30d0358fe' and name 'v++_compile_pma_read_worker_kernel'
+Wed Apr 29 20:21:35 2026: GUIDANCE_SMGR: creating guidance session with uuid: '65e933a2-bb2d-42cd-b736-ded30d0358fe' and name 'v++_compile_pma_read_worker_kernel'
+Wed Apr 29 20:21:35 2026: SYSTEM_DIAGRAM: creating session with uuid: '65e933a2-bb2d-42cd-b736-ded30d0358fe' and name 'v++_compile_pma_read_worker_kernel'
+Wed Apr 29 20:21:44 2026: Dispatch Server: Accepted socket connection from client
+Wed Apr 29 20:21:44 2026: Starting Socket connection
+Wed Apr 29 20:22:21 2026: SESSION_MGR: closing session for UUID '65e933a2-bb2d-42cd-b736-ded30d0358fe' with name 'v++_compile_pma_read_worker_kernel'
+Wed Apr 29 20:22:21 2026: KERNEL_SVC: closing session for UUID '65e933a2-bb2d-42cd-b736-ded30d0358fe' with name 'v++_compile_pma_read_worker_kernel'
+Wed Apr 29 20:22:21 2026: GUIDANCE_SMGR: closing session for UUID '65e933a2-bb2d-42cd-b736-ded30d0358fe' with name 'v++_compile_pma_read_worker_kernel'
+Wed Apr 29 20:22:21 2026: SYSTEM_DIAGRAM: closing session for UUID '65e933a2-bb2d-42cd-b736-ded30d0358fe' with name 'v++_compile_pma_read_worker_kernel'
+Wed Apr 29 20:22:21 2026: STOP_SERVER received, server token: e6ce1315-ab7f-4d7e-8d27-101f9394cc5e, passed token: e6ce1315-ab7f-4d7e-8d27-101f9394cc5e
+Wed Apr 29 20:22:21 2026: Socket received request to stop server.
+Wed Apr 29 20:22:21 2026: Dispatch Server: do_await_stop
+Wed Apr 29 20:22:21 2026: Dispatch Server: stopping mainFifo_
+Wed Apr 29 20:22:21 2026: XCD main fifo: Stopping
+Wed Apr 29 20:22:21 2026: XCD main fifo: do_read error code: Operation canceled
+Wed Apr 29 20:22:21 2026: XCD main fifo: bytes_transferred: 0
+Wed Apr 29 20:22:21 2026: SERVER: destructor for server bound to port 45171
+Wed Apr 29 20:22:21 2026: XCD main fifo: Good unlink of /tmp/xcdmaine6ce1315-ab7f-4d7e-8d27-101f9394cc5e
+Wed Apr 29 20:22:21 2026: Server exiting with status 0.
+Wed Apr 29 20:22:21 2026: Closing log file.
+Wed Apr 29 20:22:24 2026: Running xcd server. This server was built by gradle.
+Wed Apr 29 20:22:24 2026: Server was asked to start on port: '42661'
+Wed Apr 29 20:22:24 2026: Server is using token UUID: 'a9e6c390-7d83-43a8-bc4b-f91550d2b286'
+Wed Apr 29 20:22:24 2026: SESSION_MGR: creating session with session uuid: '6d04a3e9-ade5-4ab9-8d63-1f78fcd2ec76' and name 'default'
+Wed Apr 29 20:22:24 2026: Attempting to start server on port '42661'
+Wed Apr 29 20:22:24 2026: XCD main fifo: created main fifo '/tmp/xcdmaina9e6c390-7d83-43a8-bc4b-f91550d2b286', fd read = 13
+Wed Apr 29 20:22:24 2026: Running Dispatch Server
+Wed Apr 29 20:22:24 2026: Version 2.2.0
+Wed Apr 29 20:22:33 2026: Dispatch Server: Accepted socket connection from client
+Wed Apr 29 20:22:33 2026: Starting Socket connection
+Wed Apr 29 20:22:33 2026: EXCHANGE_TOKEN received, server token: a9e6c390-7d83-43a8-bc4b-f91550d2b286, passed token: a9e6c390-7d83-43a8-bc4b-f91550d2b286
+Wed Apr 29 20:22:33 2026: DISPATCH_HANDLER: Adding handler from function makeHandler in library libxv_system_diagram
+Wed Apr 29 20:22:33 2026: SESSION_MGR: creating session with session uuid: 'a612d8d9-d0c7-469b-8ff6-5af2ec1981ec' and name 'v++_compile_pma_read_merger_kernel'
+Wed Apr 29 20:22:33 2026: KERNEL_SVC: creating session with uuid: 'a612d8d9-d0c7-469b-8ff6-5af2ec1981ec' and name 'v++_compile_pma_read_merger_kernel'
+Wed Apr 29 20:22:33 2026: GUIDANCE_SMGR: creating guidance session with uuid: 'a612d8d9-d0c7-469b-8ff6-5af2ec1981ec' and name 'v++_compile_pma_read_merger_kernel'
+Wed Apr 29 20:22:33 2026: SYSTEM_DIAGRAM: creating session with uuid: 'a612d8d9-d0c7-469b-8ff6-5af2ec1981ec' and name 'v++_compile_pma_read_merger_kernel'
+Wed Apr 29 20:22:42 2026: Dispatch Server: Accepted socket connection from client
+Wed Apr 29 20:22:42 2026: Starting Socket connection
+Wed Apr 29 20:23:09 2026: SESSION_MGR: closing session for UUID 'a612d8d9-d0c7-469b-8ff6-5af2ec1981ec' with name 'v++_compile_pma_read_merger_kernel'
+Wed Apr 29 20:23:09 2026: KERNEL_SVC: closing session for UUID 'a612d8d9-d0c7-469b-8ff6-5af2ec1981ec' with name 'v++_compile_pma_read_merger_kernel'
+Wed Apr 29 20:23:09 2026: GUIDANCE_SMGR: closing session for UUID 'a612d8d9-d0c7-469b-8ff6-5af2ec1981ec' with name 'v++_compile_pma_read_merger_kernel'
+Wed Apr 29 20:23:09 2026: SYSTEM_DIAGRAM: closing session for UUID 'a612d8d9-d0c7-469b-8ff6-5af2ec1981ec' with name 'v++_compile_pma_read_merger_kernel'
+Wed Apr 29 20:23:09 2026: STOP_SERVER received, server token: a9e6c390-7d83-43a8-bc4b-f91550d2b286, passed token: a9e6c390-7d83-43a8-bc4b-f91550d2b286
+Wed Apr 29 20:23:09 2026: Socket received request to stop server.
+Wed Apr 29 20:23:09 2026: Dispatch Server: do_await_stop
+Wed Apr 29 20:23:09 2026: Dispatch Server: stopping mainFifo_
+Wed Apr 29 20:23:09 2026: XCD main fifo: Stopping
+Wed Apr 29 20:23:09 2026: XCD main fifo: do_read error code: Operation canceled
+Wed Apr 29 20:23:09 2026: XCD main fifo: bytes_transferred: 0
+Wed Apr 29 20:23:09 2026: SERVER: destructor for server bound to port 42661
+Wed Apr 29 20:23:09 2026: XCD main fifo: Good unlink of /tmp/xcdmaina9e6c390-7d83-43a8-bc4b-f91550d2b286
+Wed Apr 29 20:23:09 2026: Server exiting with status 0.
+Wed Apr 29 20:23:09 2026: Closing log file.
+Wed Apr 29 20:23:12 2026: Running xcd server. This server was built by gradle.
+Wed Apr 29 20:23:12 2026: Server was asked to start on port: '41497'
+Wed Apr 29 20:23:12 2026: Server is using token UUID: '29073f58-4313-4500-b2b8-059b726984f1'
+Wed Apr 29 20:23:12 2026: SESSION_MGR: creating session with session uuid: '6d04a3e9-ade5-4ab9-8d63-1f78fcd2ec76' and name 'default'
+Wed Apr 29 20:23:12 2026: Attempting to start server on port '41497'
+Wed Apr 29 20:23:12 2026: XCD main fifo: created main fifo '/tmp/xcdmain29073f58-4313-4500-b2b8-059b726984f1', fd read = 13
+Wed Apr 29 20:23:12 2026: Running Dispatch Server
+Wed Apr 29 20:23:12 2026: Version 2.2.0
+Wed Apr 29 20:23:21 2026: Dispatch Server: Accepted socket connection from client
+Wed Apr 29 20:23:21 2026: Starting Socket connection
+Wed Apr 29 20:23:21 2026: EXCHANGE_TOKEN received, server token: 29073f58-4313-4500-b2b8-059b726984f1, passed token: 29073f58-4313-4500-b2b8-059b726984f1
+Wed Apr 29 20:23:21 2026: DISPATCH_HANDLER: Adding handler from function makeHandler in library libxv_system_diagram
+Wed Apr 29 20:23:21 2026: SESSION_MGR: creating session with session uuid: 'e47414c2-015d-4f85-92f7-6c3453330d50' and name 'v++_compile_check_kernel'
+Wed Apr 29 20:23:21 2026: KERNEL_SVC: creating session with uuid: 'e47414c2-015d-4f85-92f7-6c3453330d50' and name 'v++_compile_check_kernel'
+Wed Apr 29 20:23:21 2026: GUIDANCE_SMGR: creating guidance session with uuid: 'e47414c2-015d-4f85-92f7-6c3453330d50' and name 'v++_compile_check_kernel'
+Wed Apr 29 20:23:21 2026: SYSTEM_DIAGRAM: creating session with uuid: 'e47414c2-015d-4f85-92f7-6c3453330d50' and name 'v++_compile_check_kernel'
+Wed Apr 29 20:23:30 2026: Dispatch Server: Accepted socket connection from client
+Wed Apr 29 20:23:30 2026: Starting Socket connection
+Wed Apr 29 20:24:03 2026: SESSION_MGR: closing session for UUID 'e47414c2-015d-4f85-92f7-6c3453330d50' with name 'v++_compile_check_kernel'
+Wed Apr 29 20:24:03 2026: KERNEL_SVC: closing session for UUID 'e47414c2-015d-4f85-92f7-6c3453330d50' with name 'v++_compile_check_kernel'
+Wed Apr 29 20:24:03 2026: GUIDANCE_SMGR: closing session for UUID 'e47414c2-015d-4f85-92f7-6c3453330d50' with name 'v++_compile_check_kernel'
+Wed Apr 29 20:24:03 2026: SYSTEM_DIAGRAM: closing session for UUID 'e47414c2-015d-4f85-92f7-6c3453330d50' with name 'v++_compile_check_kernel'
+Wed Apr 29 20:24:03 2026: STOP_SERVER received, server token: 29073f58-4313-4500-b2b8-059b726984f1, passed token: 29073f58-4313-4500-b2b8-059b726984f1
+Wed Apr 29 20:24:03 2026: Socket received request to stop server.
+Wed Apr 29 20:24:03 2026: Dispatch Server: do_await_stop
+Wed Apr 29 20:24:03 2026: Dispatch Server: stopping mainFifo_
+Wed Apr 29 20:24:03 2026: XCD main fifo: Stopping
+Wed Apr 29 20:24:03 2026: XCD main fifo: do_read error code: Operation canceled
+Wed Apr 29 20:24:03 2026: XCD main fifo: bytes_transferred: 0
+Wed Apr 29 20:24:03 2026: SERVER: destructor for server bound to port 41497
+Wed Apr 29 20:24:03 2026: XCD main fifo: Good unlink of /tmp/xcdmain29073f58-4313-4500-b2b8-059b726984f1
+Wed Apr 29 20:24:03 2026: Server exiting with status 0.
+Wed Apr 29 20:24:03 2026: Closing log file.
+Wed Apr 29 21:08:50 2026: Running xcd server. This server was built by gradle.
+Wed Apr 29 21:08:50 2026: Server was asked to start on port: '37297'
+Wed Apr 29 21:08:50 2026: Server is using token UUID: '3214dc6a-4434-42c8-bf14-0b4ba4359d03'
+Wed Apr 29 21:08:50 2026: SESSION_MGR: creating session with session uuid: '6d04a3e9-ade5-4ab9-8d63-1f78fcd2ec76' and name 'default'
+Wed Apr 29 21:08:50 2026: Attempting to start server on port '37297'
+Wed Apr 29 21:08:50 2026: XCD main fifo: created main fifo '/tmp/xcdmain3214dc6a-4434-42c8-bf14-0b4ba4359d03', fd read = 13
+Wed Apr 29 21:08:50 2026: Running Dispatch Server
+Wed Apr 29 21:08:50 2026: Version 2.2.0
+Wed Apr 29 21:08:59 2026: Dispatch Server: Accepted socket connection from client
+Wed Apr 29 21:08:59 2026: Starting Socket connection
+Wed Apr 29 21:08:59 2026: EXCHANGE_TOKEN received, server token: 3214dc6a-4434-42c8-bf14-0b4ba4359d03, passed token: 3214dc6a-4434-42c8-bf14-0b4ba4359d03
+Wed Apr 29 21:08:59 2026: DISPATCH_HANDLER: Adding handler from function makeHandler in library libxv_system_diagram
+Wed Apr 29 21:08:59 2026: SESSION_MGR: creating session with session uuid: 'af5811f6-32a6-4cd8-81c1-213e3ca65377' and name 'v++_compile_update_message_router'
+Wed Apr 29 21:08:59 2026: KERNEL_SVC: creating session with uuid: 'af5811f6-32a6-4cd8-81c1-213e3ca65377' and name 'v++_compile_update_message_router'
+Wed Apr 29 21:08:59 2026: GUIDANCE_SMGR: creating guidance session with uuid: 'af5811f6-32a6-4cd8-81c1-213e3ca65377' and name 'v++_compile_update_message_router'
+Wed Apr 29 21:08:59 2026: SYSTEM_DIAGRAM: creating session with uuid: 'af5811f6-32a6-4cd8-81c1-213e3ca65377' and name 'v++_compile_update_message_router'
+Wed Apr 29 21:09:08 2026: Dispatch Server: Accepted socket connection from client
+Wed Apr 29 21:09:08 2026: Starting Socket connection
+Wed Apr 29 21:09:55 2026: SESSION_MGR: closing session for UUID 'af5811f6-32a6-4cd8-81c1-213e3ca65377' with name 'v++_compile_update_message_router'
+Wed Apr 29 21:09:55 2026: KERNEL_SVC: closing session for UUID 'af5811f6-32a6-4cd8-81c1-213e3ca65377' with name 'v++_compile_update_message_router'
+Wed Apr 29 21:09:55 2026: GUIDANCE_SMGR: closing session for UUID 'af5811f6-32a6-4cd8-81c1-213e3ca65377' with name 'v++_compile_update_message_router'
+Wed Apr 29 21:09:55 2026: SYSTEM_DIAGRAM: closing session for UUID 'af5811f6-32a6-4cd8-81c1-213e3ca65377' with name 'v++_compile_update_message_router'
+Wed Apr 29 21:09:55 2026: STOP_SERVER received, server token: 3214dc6a-4434-42c8-bf14-0b4ba4359d03, passed token: 3214dc6a-4434-42c8-bf14-0b4ba4359d03
+Wed Apr 29 21:09:55 2026: Socket received request to stop server.
+Wed Apr 29 21:09:55 2026: Dispatch Server: do_await_stop
+Wed Apr 29 21:09:55 2026: Dispatch Server: stopping mainFifo_
+Wed Apr 29 21:09:55 2026: XCD main fifo: Stopping
+Wed Apr 29 21:09:55 2026: XCD main fifo: do_read error code: Operation canceled
+Wed Apr 29 21:09:55 2026: XCD main fifo: bytes_transferred: 0
+Wed Apr 29 21:09:55 2026: SERVER: destructor for server bound to port 37297
+Wed Apr 29 21:09:55 2026: XCD main fifo: Good unlink of /tmp/xcdmain3214dc6a-4434-42c8-bf14-0b4ba4359d03
+Wed Apr 29 21:09:55 2026: Server exiting with status 0.
+Wed Apr 29 21:09:55 2026: Closing log file.
+Wed Apr 29 22:33:51 2026: Running xcd server. This server was built by gradle.
+Wed Apr 29 22:33:51 2026: Server was asked to start on port: '40857'
+Wed Apr 29 22:33:51 2026: Server is using token UUID: 'ca73cdb5-b7f4-4f23-be76-671265b87ecf'
+Wed Apr 29 22:33:51 2026: SESSION_MGR: creating session with session uuid: '6d04a3e9-ade5-4ab9-8d63-1f78fcd2ec76' and name 'default'
+Wed Apr 29 22:33:51 2026: Attempting to start server on port '40857'
+Wed Apr 29 22:33:51 2026: XCD main fifo: created main fifo '/tmp/xcdmainca73cdb5-b7f4-4f23-be76-671265b87ecf', fd read = 13
+Wed Apr 29 22:33:51 2026: Running Dispatch Server
+Wed Apr 29 22:33:51 2026: Version 2.2.0
+Wed Apr 29 22:34:00 2026: Dispatch Server: Accepted socket connection from client
+Wed Apr 29 22:34:00 2026: Starting Socket connection
+Wed Apr 29 22:34:00 2026: EXCHANGE_TOKEN received, server token: ca73cdb5-b7f4-4f23-be76-671265b87ecf, passed token: ca73cdb5-b7f4-4f23-be76-671265b87ecf
+Wed Apr 29 22:34:00 2026: DISPATCH_HANDLER: Adding handler from function makeHandler in library libxv_system_diagram
+Wed Apr 29 22:34:00 2026: SESSION_MGR: creating session with session uuid: 'a0a56f2b-f397-4a28-bbf2-376b7a9b9a37' and name 'v++_compile_update_message_router'
+Wed Apr 29 22:34:00 2026: KERNEL_SVC: creating session with uuid: 'a0a56f2b-f397-4a28-bbf2-376b7a9b9a37' and name 'v++_compile_update_message_router'
+Wed Apr 29 22:34:00 2026: GUIDANCE_SMGR: creating guidance session with uuid: 'a0a56f2b-f397-4a28-bbf2-376b7a9b9a37' and name 'v++_compile_update_message_router'
+Wed Apr 29 22:34:00 2026: SYSTEM_DIAGRAM: creating session with uuid: 'a0a56f2b-f397-4a28-bbf2-376b7a9b9a37' and name 'v++_compile_update_message_router'
+Wed Apr 29 22:34:09 2026: Dispatch Server: Accepted socket connection from client
+Wed Apr 29 22:34:09 2026: Starting Socket connection
+Wed Apr 29 22:34:55 2026: SESSION_MGR: closing session for UUID 'a0a56f2b-f397-4a28-bbf2-376b7a9b9a37' with name 'v++_compile_update_message_router'
+Wed Apr 29 22:34:55 2026: KERNEL_SVC: closing session for UUID 'a0a56f2b-f397-4a28-bbf2-376b7a9b9a37' with name 'v++_compile_update_message_router'
+Wed Apr 29 22:34:55 2026: GUIDANCE_SMGR: closing session for UUID 'a0a56f2b-f397-4a28-bbf2-376b7a9b9a37' with name 'v++_compile_update_message_router'
+Wed Apr 29 22:34:55 2026: SYSTEM_DIAGRAM: closing session for UUID 'a0a56f2b-f397-4a28-bbf2-376b7a9b9a37' with name 'v++_compile_update_message_router'
+Wed Apr 29 22:34:55 2026: STOP_SERVER received, server token: ca73cdb5-b7f4-4f23-be76-671265b87ecf, passed token: ca73cdb5-b7f4-4f23-be76-671265b87ecf
+Wed Apr 29 22:34:55 2026: Socket received request to stop server.
+Wed Apr 29 22:34:55 2026: Dispatch Server: do_await_stop
+Wed Apr 29 22:34:55 2026: Dispatch Server: stopping mainFifo_
+Wed Apr 29 22:34:55 2026: XCD main fifo: Stopping
+Wed Apr 29 22:34:55 2026: XCD main fifo: do_read error code: Operation canceled
+Wed Apr 29 22:34:55 2026: XCD main fifo: bytes_transferred: 0
+Wed Apr 29 22:34:55 2026: SERVER: destructor for server bound to port 40857
+Wed Apr 29 22:34:55 2026: XCD main fifo: Good unlink of /tmp/xcdmainca73cdb5-b7f4-4f23-be76-671265b87ecf
+Wed Apr 29 22:34:55 2026: Server exiting with status 0.
+Wed Apr 29 22:34:55 2026: Closing log file.
+Wed Apr 29 23:16:56 2026: Running xcd server. This server was built by gradle.
+Wed Apr 29 23:16:56 2026: Server was asked to start on port: '46513'
+Wed Apr 29 23:16:56 2026: Server is using token UUID: '5a525b62-8b08-469b-8f41-ff1823d5695f'
+Wed Apr 29 23:16:56 2026: SESSION_MGR: creating session with session uuid: '6d04a3e9-ade5-4ab9-8d63-1f78fcd2ec76' and name 'default'
+Wed Apr 29 23:16:56 2026: Attempting to start server on port '46513'
+Wed Apr 29 23:16:56 2026: XCD main fifo: created main fifo '/tmp/xcdmain5a525b62-8b08-469b-8f41-ff1823d5695f', fd read = 13
+Wed Apr 29 23:16:56 2026: Running Dispatch Server
+Wed Apr 29 23:16:56 2026: Version 2.2.0
+Wed Apr 29 23:17:05 2026: Dispatch Server: Accepted socket connection from client
+Wed Apr 29 23:17:05 2026: Starting Socket connection
+Wed Apr 29 23:17:05 2026: EXCHANGE_TOKEN received, server token: 5a525b62-8b08-469b-8f41-ff1823d5695f, passed token: 5a525b62-8b08-469b-8f41-ff1823d5695f
+Wed Apr 29 23:17:05 2026: DISPATCH_HANDLER: Adding handler from function makeHandler in library libxv_system_diagram
+Wed Apr 29 23:17:05 2026: SESSION_MGR: creating session with session uuid: '4f33b316-18ae-4cb6-b5b6-31fd49050fea' and name 'v++_compile_update_message_router'
+Wed Apr 29 23:17:05 2026: KERNEL_SVC: creating session with uuid: '4f33b316-18ae-4cb6-b5b6-31fd49050fea' and name 'v++_compile_update_message_router'
+Wed Apr 29 23:17:05 2026: GUIDANCE_SMGR: creating guidance session with uuid: '4f33b316-18ae-4cb6-b5b6-31fd49050fea' and name 'v++_compile_update_message_router'
+Wed Apr 29 23:17:05 2026: SYSTEM_DIAGRAM: creating session with uuid: '4f33b316-18ae-4cb6-b5b6-31fd49050fea' and name 'v++_compile_update_message_router'
+Wed Apr 29 23:17:16 2026: Dispatch Server: Accepted socket connection from client
+Wed Apr 29 23:17:16 2026: Starting Socket connection
+Wed Apr 29 23:18:05 2026: SESSION_MGR: closing session for UUID '4f33b316-18ae-4cb6-b5b6-31fd49050fea' with name 'v++_compile_update_message_router'
+Wed Apr 29 23:18:05 2026: KERNEL_SVC: closing session for UUID '4f33b316-18ae-4cb6-b5b6-31fd49050fea' with name 'v++_compile_update_message_router'
+Wed Apr 29 23:18:05 2026: GUIDANCE_SMGR: closing session for UUID '4f33b316-18ae-4cb6-b5b6-31fd49050fea' with name 'v++_compile_update_message_router'
+Wed Apr 29 23:18:05 2026: SYSTEM_DIAGRAM: closing session for UUID '4f33b316-18ae-4cb6-b5b6-31fd49050fea' with name 'v++_compile_update_message_router'
+Wed Apr 29 23:18:05 2026: STOP_SERVER received, server token: 5a525b62-8b08-469b-8f41-ff1823d5695f, passed token: 5a525b62-8b08-469b-8f41-ff1823d5695f
+Wed Apr 29 23:18:05 2026: Socket received request to stop server.
+Wed Apr 29 23:18:05 2026: Dispatch Server: do_await_stop
+Wed Apr 29 23:18:05 2026: Dispatch Server: stopping mainFifo_
+Wed Apr 29 23:18:05 2026: XCD main fifo: Stopping
+Wed Apr 29 23:18:05 2026: XCD main fifo: do_read error code: Operation canceled
+Wed Apr 29 23:18:05 2026: XCD main fifo: bytes_transferred: 0
+Wed Apr 29 23:18:05 2026: SERVER: destructor for server bound to port 46513
+Wed Apr 29 23:18:05 2026: XCD main fifo: Good unlink of /tmp/xcdmain5a525b62-8b08-469b-8f41-ff1823d5695f
+Wed Apr 29 23:18:05 2026: Server exiting with status 0.
+Wed Apr 29 23:18:05 2026: Closing log file.
+Wed Apr 29 23:57:50 2026: Running xcd server. This server was built by gradle.
+Wed Apr 29 23:57:50 2026: Server was asked to start on port: '33257'
+Wed Apr 29 23:57:50 2026: Server is using token UUID: '886ec5f0-65a6-4903-a552-48e6491fdcb1'
+Wed Apr 29 23:57:50 2026: SESSION_MGR: creating session with session uuid: '6d04a3e9-ade5-4ab9-8d63-1f78fcd2ec76' and name 'default'
+Wed Apr 29 23:57:50 2026: Attempting to start server on port '33257'
+Wed Apr 29 23:57:50 2026: XCD main fifo: created main fifo '/tmp/xcdmain886ec5f0-65a6-4903-a552-48e6491fdcb1', fd read = 13
+Wed Apr 29 23:57:50 2026: Running Dispatch Server
+Wed Apr 29 23:57:50 2026: Version 2.2.0
+Wed Apr 29 23:57:59 2026: Dispatch Server: Accepted socket connection from client
+Wed Apr 29 23:57:59 2026: Starting Socket connection
+Wed Apr 29 23:57:59 2026: EXCHANGE_TOKEN received, server token: 886ec5f0-65a6-4903-a552-48e6491fdcb1, passed token: 886ec5f0-65a6-4903-a552-48e6491fdcb1
+Wed Apr 29 23:57:59 2026: DISPATCH_HANDLER: Adding handler from function makeHandler in library libxv_system_diagram
+Wed Apr 29 23:57:59 2026: SESSION_MGR: creating session with session uuid: '9f3f83e1-6c34-478c-a0c4-28131c4c2e0f' and name 'v++_compile_update_message_generator'
+Wed Apr 29 23:57:59 2026: KERNEL_SVC: creating session with uuid: '9f3f83e1-6c34-478c-a0c4-28131c4c2e0f' and name 'v++_compile_update_message_generator'
+Wed Apr 29 23:57:59 2026: GUIDANCE_SMGR: creating guidance session with uuid: '9f3f83e1-6c34-478c-a0c4-28131c4c2e0f' and name 'v++_compile_update_message_generator'
+Wed Apr 29 23:57:59 2026: SYSTEM_DIAGRAM: creating session with uuid: '9f3f83e1-6c34-478c-a0c4-28131c4c2e0f' and name 'v++_compile_update_message_generator'
+Wed Apr 29 23:58:08 2026: Dispatch Server: Accepted socket connection from client
+Wed Apr 29 23:58:08 2026: Starting Socket connection
+Wed Apr 29 23:58:41 2026: SESSION_MGR: closing session for UUID '9f3f83e1-6c34-478c-a0c4-28131c4c2e0f' with name 'v++_compile_update_message_generator'
+Wed Apr 29 23:58:41 2026: KERNEL_SVC: closing session for UUID '9f3f83e1-6c34-478c-a0c4-28131c4c2e0f' with name 'v++_compile_update_message_generator'
+Wed Apr 29 23:58:41 2026: GUIDANCE_SMGR: closing session for UUID '9f3f83e1-6c34-478c-a0c4-28131c4c2e0f' with name 'v++_compile_update_message_generator'
+Wed Apr 29 23:58:41 2026: SYSTEM_DIAGRAM: closing session for UUID '9f3f83e1-6c34-478c-a0c4-28131c4c2e0f' with name 'v++_compile_update_message_generator'
+Wed Apr 29 23:58:41 2026: STOP_SERVER received, server token: 886ec5f0-65a6-4903-a552-48e6491fdcb1, passed token: 886ec5f0-65a6-4903-a552-48e6491fdcb1
+Wed Apr 29 23:58:41 2026: Socket received request to stop server.
+Wed Apr 29 23:58:41 2026: Dispatch Server: do_await_stop
+Wed Apr 29 23:58:41 2026: Dispatch Server: stopping mainFifo_
+Wed Apr 29 23:58:41 2026: XCD main fifo: Stopping
+Wed Apr 29 23:58:41 2026: XCD main fifo: do_read error code: Operation canceled
+Wed Apr 29 23:58:41 2026: XCD main fifo: bytes_transferred: 0
+Wed Apr 29 23:58:41 2026: SERVER: destructor for server bound to port 33257
+Wed Apr 29 23:58:41 2026: XCD main fifo: Good unlink of /tmp/xcdmain886ec5f0-65a6-4903-a552-48e6491fdcb1
+Wed Apr 29 23:58:41 2026: Server exiting with status 0.
+Wed Apr 29 23:58:41 2026: Closing log file.
+Wed Apr 29 23:58:44 2026: Running xcd server. This server was built by gradle.
+Wed Apr 29 23:58:44 2026: Server was asked to start on port: '45765'
+Wed Apr 29 23:58:44 2026: Server is using token UUID: '017aa24c-b58a-4af5-b8b3-b585f459abd8'
+Wed Apr 29 23:58:44 2026: SESSION_MGR: creating session with session uuid: '6d04a3e9-ade5-4ab9-8d63-1f78fcd2ec76' and name 'default'
+Wed Apr 29 23:58:44 2026: Attempting to start server on port '45765'
+Wed Apr 29 23:58:44 2026: XCD main fifo: created main fifo '/tmp/xcdmain017aa24c-b58a-4af5-b8b3-b585f459abd8', fd read = 13
+Wed Apr 29 23:58:44 2026: Running Dispatch Server
+Wed Apr 29 23:58:44 2026: Version 2.2.0
+Wed Apr 29 23:58:53 2026: Dispatch Server: Accepted socket connection from client
+Wed Apr 29 23:58:53 2026: Starting Socket connection
+Wed Apr 29 23:58:53 2026: EXCHANGE_TOKEN received, server token: 017aa24c-b58a-4af5-b8b3-b585f459abd8, passed token: 017aa24c-b58a-4af5-b8b3-b585f459abd8
+Wed Apr 29 23:58:53 2026: DISPATCH_HANDLER: Adding handler from function makeHandler in library libxv_system_diagram
+Wed Apr 29 23:58:53 2026: SESSION_MGR: creating session with session uuid: '90757f2d-8811-4ec5-b12c-609500de974f' and name 'v++_compile_update_message_router'
+Wed Apr 29 23:58:53 2026: KERNEL_SVC: creating session with uuid: '90757f2d-8811-4ec5-b12c-609500de974f' and name 'v++_compile_update_message_router'
+Wed Apr 29 23:58:53 2026: GUIDANCE_SMGR: creating guidance session with uuid: '90757f2d-8811-4ec5-b12c-609500de974f' and name 'v++_compile_update_message_router'
+Wed Apr 29 23:58:53 2026: SYSTEM_DIAGRAM: creating session with uuid: '90757f2d-8811-4ec5-b12c-609500de974f' and name 'v++_compile_update_message_router'
+Wed Apr 29 23:59:01 2026: Dispatch Server: Accepted socket connection from client
+Wed Apr 29 23:59:01 2026: Starting Socket connection
+Wed Apr 29 23:59:52 2026: SESSION_MGR: closing session for UUID '90757f2d-8811-4ec5-b12c-609500de974f' with name 'v++_compile_update_message_router'
+Wed Apr 29 23:59:52 2026: KERNEL_SVC: closing session for UUID '90757f2d-8811-4ec5-b12c-609500de974f' with name 'v++_compile_update_message_router'
+Wed Apr 29 23:59:52 2026: GUIDANCE_SMGR: closing session for UUID '90757f2d-8811-4ec5-b12c-609500de974f' with name 'v++_compile_update_message_router'
+Wed Apr 29 23:59:52 2026: SYSTEM_DIAGRAM: closing session for UUID '90757f2d-8811-4ec5-b12c-609500de974f' with name 'v++_compile_update_message_router'
+Wed Apr 29 23:59:52 2026: STOP_SERVER received, server token: 017aa24c-b58a-4af5-b8b3-b585f459abd8, passed token: 017aa24c-b58a-4af5-b8b3-b585f459abd8
+Wed Apr 29 23:59:52 2026: Socket received request to stop server.
+Wed Apr 29 23:59:52 2026: Dispatch Server: do_await_stop
+Wed Apr 29 23:59:52 2026: Dispatch Server: stopping mainFifo_
+Wed Apr 29 23:59:52 2026: XCD main fifo: Stopping
+Wed Apr 29 23:59:52 2026: XCD main fifo: do_read error code: Operation canceled
+Wed Apr 29 23:59:52 2026: XCD main fifo: bytes_transferred: 0
+Wed Apr 29 23:59:52 2026: SERVER: destructor for server bound to port 45765
+Wed Apr 29 23:59:52 2026: XCD main fifo: Good unlink of /tmp/xcdmain017aa24c-b58a-4af5-b8b3-b585f459abd8
+Wed Apr 29 23:59:52 2026: Server exiting with status 0.
+Wed Apr 29 23:59:52 2026: Closing log file.
+Thu Apr 30 01:10:19 2026: Running xcd server. This server was built by gradle.
+Thu Apr 30 01:10:19 2026: Server was asked to start on port: '33893'
+Thu Apr 30 01:10:19 2026: Server is using token UUID: 'bc5acc9d-c8f7-4526-9777-f05c13801b37'
+Thu Apr 30 01:10:19 2026: SESSION_MGR: creating session with session uuid: '6d04a3e9-ade5-4ab9-8d63-1f78fcd2ec76' and name 'default'
+Thu Apr 30 01:10:19 2026: Attempting to start server on port '33893'
+Thu Apr 30 01:10:19 2026: XCD main fifo: created main fifo '/tmp/xcdmainbc5acc9d-c8f7-4526-9777-f05c13801b37', fd read = 13
+Thu Apr 30 01:10:19 2026: Running Dispatch Server
+Thu Apr 30 01:10:19 2026: Version 2.2.0
+Thu Apr 30 01:10:28 2026: Dispatch Server: Accepted socket connection from client
+Thu Apr 30 01:10:28 2026: Starting Socket connection
+Thu Apr 30 01:10:28 2026: EXCHANGE_TOKEN received, server token: bc5acc9d-c8f7-4526-9777-f05c13801b37, passed token: bc5acc9d-c8f7-4526-9777-f05c13801b37
+Thu Apr 30 01:10:28 2026: DISPATCH_HANDLER: Adding handler from function makeHandler in library libxv_system_diagram
+Thu Apr 30 01:10:28 2026: SESSION_MGR: creating session with session uuid: '71a8979b-3665-48a4-aed4-c73ad6e90c6f' and name 'v++_compile_update_message_router'
+Thu Apr 30 01:10:28 2026: KERNEL_SVC: creating session with uuid: '71a8979b-3665-48a4-aed4-c73ad6e90c6f' and name 'v++_compile_update_message_router'
+Thu Apr 30 01:10:28 2026: GUIDANCE_SMGR: creating guidance session with uuid: '71a8979b-3665-48a4-aed4-c73ad6e90c6f' and name 'v++_compile_update_message_router'
+Thu Apr 30 01:10:28 2026: SYSTEM_DIAGRAM: creating session with uuid: '71a8979b-3665-48a4-aed4-c73ad6e90c6f' and name 'v++_compile_update_message_router'
+Thu Apr 30 01:10:37 2026: Dispatch Server: Accepted socket connection from client
+Thu Apr 30 01:10:37 2026: Starting Socket connection
+Thu Apr 30 01:11:30 2026: SESSION_MGR: closing session for UUID '71a8979b-3665-48a4-aed4-c73ad6e90c6f' with name 'v++_compile_update_message_router'
+Thu Apr 30 01:11:30 2026: KERNEL_SVC: closing session for UUID '71a8979b-3665-48a4-aed4-c73ad6e90c6f' with name 'v++_compile_update_message_router'
+Thu Apr 30 01:11:30 2026: GUIDANCE_SMGR: closing session for UUID '71a8979b-3665-48a4-aed4-c73ad6e90c6f' with name 'v++_compile_update_message_router'
+Thu Apr 30 01:11:30 2026: SYSTEM_DIAGRAM: closing session for UUID '71a8979b-3665-48a4-aed4-c73ad6e90c6f' with name 'v++_compile_update_message_router'
+Thu Apr 30 01:11:30 2026: STOP_SERVER received, server token: bc5acc9d-c8f7-4526-9777-f05c13801b37, passed token: bc5acc9d-c8f7-4526-9777-f05c13801b37
+Thu Apr 30 01:11:30 2026: Socket received request to stop server.
+Thu Apr 30 01:11:30 2026: Dispatch Server: do_await_stop
+Thu Apr 30 01:11:30 2026: Dispatch Server: stopping mainFifo_
+Thu Apr 30 01:11:30 2026: XCD main fifo: Stopping
+Thu Apr 30 01:11:30 2026: XCD main fifo: do_read error code: Operation canceled
+Thu Apr 30 01:11:30 2026: XCD main fifo: bytes_transferred: 0
+Thu Apr 30 01:11:30 2026: SERVER: destructor for server bound to port 33893
+Thu Apr 30 01:11:30 2026: XCD main fifo: Good unlink of /tmp/xcdmainbc5acc9d-c8f7-4526-9777-f05c13801b37
+Thu Apr 30 01:11:30 2026: Server exiting with status 0.
+Thu Apr 30 01:11:30 2026: Closing log file.
+Thu Apr 30 01:11:33 2026: Running xcd server. This server was built by gradle.
+Thu Apr 30 01:11:33 2026: Server was asked to start on port: '40083'
+Thu Apr 30 01:11:33 2026: Server is using token UUID: 'b92f8561-106c-463d-bd5e-fc818ebd844c'
+Thu Apr 30 01:11:33 2026: SESSION_MGR: creating session with session uuid: '6d04a3e9-ade5-4ab9-8d63-1f78fcd2ec76' and name 'default'
+Thu Apr 30 01:11:33 2026: Attempting to start server on port '40083'
+Thu Apr 30 01:11:33 2026: XCD main fifo: created main fifo '/tmp/xcdmainb92f8561-106c-463d-bd5e-fc818ebd844c', fd read = 13
+Thu Apr 30 01:11:33 2026: Running Dispatch Server
+Thu Apr 30 01:11:33 2026: Version 2.2.0
+Thu Apr 30 01:11:42 2026: Dispatch Server: Accepted socket connection from client
+Thu Apr 30 01:11:42 2026: Starting Socket connection
+Thu Apr 30 01:11:42 2026: EXCHANGE_TOKEN received, server token: b92f8561-106c-463d-bd5e-fc818ebd844c, passed token: b92f8561-106c-463d-bd5e-fc818ebd844c
+Thu Apr 30 01:11:42 2026: DISPATCH_HANDLER: Adding handler from function makeHandler in library libxv_system_diagram
+Thu Apr 30 01:11:42 2026: SESSION_MGR: creating session with session uuid: 'bfe6afb3-fbb9-45dc-b13b-820036e30b25' and name 'v++_compile_pma_insert_edge'
+Thu Apr 30 01:11:42 2026: KERNEL_SVC: creating session with uuid: 'bfe6afb3-fbb9-45dc-b13b-820036e30b25' and name 'v++_compile_pma_insert_edge'
+Thu Apr 30 01:11:42 2026: GUIDANCE_SMGR: creating guidance session with uuid: 'bfe6afb3-fbb9-45dc-b13b-820036e30b25' and name 'v++_compile_pma_insert_edge'
+Thu Apr 30 01:11:42 2026: SYSTEM_DIAGRAM: creating session with uuid: 'bfe6afb3-fbb9-45dc-b13b-820036e30b25' and name 'v++_compile_pma_insert_edge'
+Thu Apr 30 01:11:51 2026: Dispatch Server: Accepted socket connection from client
+Thu Apr 30 01:11:51 2026: Starting Socket connection
+Thu Apr 30 01:13:42 2026: SESSION_MGR: closing session for UUID 'bfe6afb3-fbb9-45dc-b13b-820036e30b25' with name 'v++_compile_pma_insert_edge'
+Thu Apr 30 01:13:42 2026: KERNEL_SVC: closing session for UUID 'bfe6afb3-fbb9-45dc-b13b-820036e30b25' with name 'v++_compile_pma_insert_edge'
+Thu Apr 30 01:13:42 2026: GUIDANCE_SMGR: closing session for UUID 'bfe6afb3-fbb9-45dc-b13b-820036e30b25' with name 'v++_compile_pma_insert_edge'
+Thu Apr 30 01:13:42 2026: SYSTEM_DIAGRAM: closing session for UUID 'bfe6afb3-fbb9-45dc-b13b-820036e30b25' with name 'v++_compile_pma_insert_edge'
+Thu Apr 30 01:13:42 2026: STOP_SERVER received, server token: b92f8561-106c-463d-bd5e-fc818ebd844c, passed token: b92f8561-106c-463d-bd5e-fc818ebd844c
+Thu Apr 30 01:13:42 2026: Socket received request to stop server.
+Thu Apr 30 01:13:42 2026: Dispatch Server: do_await_stop
+Thu Apr 30 01:13:42 2026: Dispatch Server: stopping mainFifo_
+Thu Apr 30 01:13:42 2026: XCD main fifo: Stopping
+Thu Apr 30 01:13:42 2026: XCD main fifo: do_read error code: Operation canceled
+Thu Apr 30 01:13:42 2026: XCD main fifo: bytes_transferred: 0
+Thu Apr 30 01:13:42 2026: SERVER: destructor for server bound to port 40083
+Thu Apr 30 01:13:42 2026: XCD main fifo: Good unlink of /tmp/xcdmainb92f8561-106c-463d-bd5e-fc818ebd844c
+Thu Apr 30 01:13:42 2026: Server exiting with status 0.
+Thu Apr 30 01:13:42 2026: Closing log file.
+Thu Apr 30 12:17:38 2026: Running xcd server. This server was built by gradle.
+Thu Apr 30 12:17:38 2026: Server was asked to start on port: '39099'
+Thu Apr 30 12:17:38 2026: Server is using token UUID: '464a7967-99f2-4a45-8a46-616110dddd6c'
+Thu Apr 30 12:17:38 2026: SESSION_MGR: creating session with session uuid: '6d04a3e9-ade5-4ab9-8d63-1f78fcd2ec76' and name 'default'
+Thu Apr 30 12:17:38 2026: Attempting to start server on port '39099'
+Thu Apr 30 12:17:38 2026: XCD main fifo: created main fifo '/tmp/xcdmain464a7967-99f2-4a45-8a46-616110dddd6c', fd read = 13
+Thu Apr 30 12:17:38 2026: Running Dispatch Server
+Thu Apr 30 12:17:38 2026: Version 2.2.0
+Thu Apr 30 12:17:47 2026: Dispatch Server: Accepted socket connection from client
+Thu Apr 30 12:17:47 2026: Starting Socket connection
+Thu Apr 30 12:17:47 2026: EXCHANGE_TOKEN received, server token: 464a7967-99f2-4a45-8a46-616110dddd6c, passed token: 464a7967-99f2-4a45-8a46-616110dddd6c
+Thu Apr 30 12:17:47 2026: DISPATCH_HANDLER: Adding handler from function makeHandler in library libxv_system_diagram
+Thu Apr 30 12:17:47 2026: SESSION_MGR: creating session with session uuid: '9dbd5450-d99a-4ae9-9733-31bf535f8794' and name 'v++_compile_update_message_router'
+Thu Apr 30 12:17:47 2026: KERNEL_SVC: creating session with uuid: '9dbd5450-d99a-4ae9-9733-31bf535f8794' and name 'v++_compile_update_message_router'
+Thu Apr 30 12:17:47 2026: GUIDANCE_SMGR: creating guidance session with uuid: '9dbd5450-d99a-4ae9-9733-31bf535f8794' and name 'v++_compile_update_message_router'
+Thu Apr 30 12:17:47 2026: SYSTEM_DIAGRAM: creating session with uuid: '9dbd5450-d99a-4ae9-9733-31bf535f8794' and name 'v++_compile_update_message_router'
+Thu Apr 30 12:18:15 2026: Dispatch Server: Accepted socket connection from client
+Thu Apr 30 12:18:15 2026: Starting Socket connection
+Thu Apr 30 12:23:24 2026: SESSION_MGR: closing session for UUID '9dbd5450-d99a-4ae9-9733-31bf535f8794' with name 'v++_compile_update_message_router'
+Thu Apr 30 12:23:24 2026: KERNEL_SVC: closing session for UUID '9dbd5450-d99a-4ae9-9733-31bf535f8794' with name 'v++_compile_update_message_router'
+Thu Apr 30 12:23:24 2026: GUIDANCE_SMGR: closing session for UUID '9dbd5450-d99a-4ae9-9733-31bf535f8794' with name 'v++_compile_update_message_router'
+Thu Apr 30 12:23:24 2026: SYSTEM_DIAGRAM: closing session for UUID '9dbd5450-d99a-4ae9-9733-31bf535f8794' with name 'v++_compile_update_message_router'
+Thu Apr 30 12:23:24 2026: STOP_SERVER received, server token: 464a7967-99f2-4a45-8a46-616110dddd6c, passed token: 464a7967-99f2-4a45-8a46-616110dddd6c
+Thu Apr 30 12:23:24 2026: Socket received request to stop server.
+Thu Apr 30 12:23:24 2026: Dispatch Server: do_await_stop
+Thu Apr 30 12:23:24 2026: Dispatch Server: stopping mainFifo_
+Thu Apr 30 12:23:24 2026: XCD main fifo: Stopping
+Thu Apr 30 12:23:24 2026: XCD main fifo: do_read error code: Operation canceled
+Thu Apr 30 12:23:24 2026: XCD main fifo: bytes_transferred: 0
+Thu Apr 30 12:23:24 2026: SERVER: destructor for server bound to port 39099
+Thu Apr 30 12:23:24 2026: XCD main fifo: Good unlink of /tmp/xcdmain464a7967-99f2-4a45-8a46-616110dddd6c
+Thu Apr 30 12:23:24 2026: Server exiting with status 0.
+Thu Apr 30 12:23:24 2026: Closing log file.
+Thu Apr 30 13:20:52 2026: Running xcd server. This server was built by gradle.
+Thu Apr 30 13:20:52 2026: Server was asked to start on port: '39235'
+Thu Apr 30 13:20:52 2026: Server is using token UUID: 'a58b5d6f-51d5-4bc5-8c3b-695ffc338054'
+Thu Apr 30 13:20:52 2026: SESSION_MGR: creating session with session uuid: '6d04a3e9-ade5-4ab9-8d63-1f78fcd2ec76' and name 'default'
+Thu Apr 30 13:20:52 2026: Attempting to start server on port '39235'
+Thu Apr 30 13:20:52 2026: XCD main fifo: created main fifo '/tmp/xcdmaina58b5d6f-51d5-4bc5-8c3b-695ffc338054', fd read = 13
+Thu Apr 30 13:20:52 2026: Running Dispatch Server
+Thu Apr 30 13:20:52 2026: Version 2.2.0
+Thu Apr 30 13:21:01 2026: Dispatch Server: Accepted socket connection from client
+Thu Apr 30 13:21:01 2026: Starting Socket connection
+Thu Apr 30 13:21:01 2026: EXCHANGE_TOKEN received, server token: a58b5d6f-51d5-4bc5-8c3b-695ffc338054, passed token: a58b5d6f-51d5-4bc5-8c3b-695ffc338054
+Thu Apr 30 13:21:01 2026: DISPATCH_HANDLER: Adding handler from function makeHandler in library libxv_system_diagram
+Thu Apr 30 13:21:01 2026: SESSION_MGR: creating session with session uuid: 'd152e46a-fb1d-47bf-986b-d9b4b65e69de' and name 'v++_compile_update_message_generator'
+Thu Apr 30 13:21:01 2026: KERNEL_SVC: creating session with uuid: 'd152e46a-fb1d-47bf-986b-d9b4b65e69de' and name 'v++_compile_update_message_generator'
+Thu Apr 30 13:21:01 2026: GUIDANCE_SMGR: creating guidance session with uuid: 'd152e46a-fb1d-47bf-986b-d9b4b65e69de' and name 'v++_compile_update_message_generator'
+Thu Apr 30 13:21:01 2026: SYSTEM_DIAGRAM: creating session with uuid: 'd152e46a-fb1d-47bf-986b-d9b4b65e69de' and name 'v++_compile_update_message_generator'
+Thu Apr 30 13:21:09 2026: Dispatch Server: Accepted socket connection from client
+Thu Apr 30 13:21:09 2026: Starting Socket connection
+Thu Apr 30 13:21:36 2026: SESSION_MGR: closing session for UUID 'd152e46a-fb1d-47bf-986b-d9b4b65e69de' with name 'v++_compile_update_message_generator'
+Thu Apr 30 13:21:36 2026: KERNEL_SVC: closing session for UUID 'd152e46a-fb1d-47bf-986b-d9b4b65e69de' with name 'v++_compile_update_message_generator'
+Thu Apr 30 13:21:36 2026: GUIDANCE_SMGR: closing session for UUID 'd152e46a-fb1d-47bf-986b-d9b4b65e69de' with name 'v++_compile_update_message_generator'
+Thu Apr 30 13:21:36 2026: SYSTEM_DIAGRAM: closing session for UUID 'd152e46a-fb1d-47bf-986b-d9b4b65e69de' with name 'v++_compile_update_message_generator'
+Thu Apr 30 13:21:36 2026: STOP_SERVER received, server token: a58b5d6f-51d5-4bc5-8c3b-695ffc338054, passed token: a58b5d6f-51d5-4bc5-8c3b-695ffc338054
+Thu Apr 30 13:21:36 2026: Socket received request to stop server.
+Thu Apr 30 13:21:36 2026: Dispatch Server: do_await_stop
+Thu Apr 30 13:21:36 2026: Dispatch Server: stopping mainFifo_
+Thu Apr 30 13:21:36 2026: XCD main fifo: Stopping
+Thu Apr 30 13:21:36 2026: XCD main fifo: do_read error code: Operation canceled
+Thu Apr 30 13:21:36 2026: XCD main fifo: bytes_transferred: 0
+Thu Apr 30 13:21:36 2026: SERVER: destructor for server bound to port 39235
+Thu Apr 30 13:21:36 2026: XCD main fifo: Good unlink of /tmp/xcdmaina58b5d6f-51d5-4bc5-8c3b-695ffc338054
+Thu Apr 30 13:21:36 2026: Server exiting with status 0.
+Thu Apr 30 13:21:36 2026: Closing log file.
+Thu Apr 30 13:21:39 2026: Running xcd server. This server was built by gradle.
+Thu Apr 30 13:21:39 2026: Server was asked to start on port: '38535'
+Thu Apr 30 13:21:39 2026: Server is using token UUID: '0c005e5d-43ca-4026-bb79-378c63baee75'
+Thu Apr 30 13:21:39 2026: SESSION_MGR: creating session with session uuid: '6d04a3e9-ade5-4ab9-8d63-1f78fcd2ec76' and name 'default'
+Thu Apr 30 13:21:39 2026: Attempting to start server on port '38535'
+Thu Apr 30 13:21:39 2026: XCD main fifo: created main fifo '/tmp/xcdmain0c005e5d-43ca-4026-bb79-378c63baee75', fd read = 13
+Thu Apr 30 13:21:39 2026: Running Dispatch Server
+Thu Apr 30 13:21:39 2026: Version 2.2.0
+Thu Apr 30 13:21:48 2026: Dispatch Server: Accepted socket connection from client
+Thu Apr 30 13:21:48 2026: Starting Socket connection
+Thu Apr 30 13:21:48 2026: EXCHANGE_TOKEN received, server token: 0c005e5d-43ca-4026-bb79-378c63baee75, passed token: 0c005e5d-43ca-4026-bb79-378c63baee75
+Thu Apr 30 13:21:48 2026: DISPATCH_HANDLER: Adding handler from function makeHandler in library libxv_system_diagram
+Thu Apr 30 13:21:48 2026: SESSION_MGR: creating session with session uuid: '0599c14b-5bcc-4f88-b163-f8ed4e4f441d' and name 'v++_compile_update_message_router'
+Thu Apr 30 13:21:48 2026: KERNEL_SVC: creating session with uuid: '0599c14b-5bcc-4f88-b163-f8ed4e4f441d' and name 'v++_compile_update_message_router'
+Thu Apr 30 13:21:48 2026: GUIDANCE_SMGR: creating guidance session with uuid: '0599c14b-5bcc-4f88-b163-f8ed4e4f441d' and name 'v++_compile_update_message_router'
+Thu Apr 30 13:21:48 2026: SYSTEM_DIAGRAM: creating session with uuid: '0599c14b-5bcc-4f88-b163-f8ed4e4f441d' and name 'v++_compile_update_message_router'
+Thu Apr 30 13:21:57 2026: Dispatch Server: Accepted socket connection from client
+Thu Apr 30 13:21:57 2026: Starting Socket connection
+Thu Apr 30 13:22:37 2026: SESSION_MGR: closing session for UUID '0599c14b-5bcc-4f88-b163-f8ed4e4f441d' with name 'v++_compile_update_message_router'
+Thu Apr 30 13:22:37 2026: KERNEL_SVC: closing session for UUID '0599c14b-5bcc-4f88-b163-f8ed4e4f441d' with name 'v++_compile_update_message_router'
+Thu Apr 30 13:22:37 2026: GUIDANCE_SMGR: closing session for UUID '0599c14b-5bcc-4f88-b163-f8ed4e4f441d' with name 'v++_compile_update_message_router'
+Thu Apr 30 13:22:37 2026: SYSTEM_DIAGRAM: closing session for UUID '0599c14b-5bcc-4f88-b163-f8ed4e4f441d' with name 'v++_compile_update_message_router'
+Thu Apr 30 13:22:37 2026: STOP_SERVER received, server token: 0c005e5d-43ca-4026-bb79-378c63baee75, passed token: 0c005e5d-43ca-4026-bb79-378c63baee75
+Thu Apr 30 13:22:37 2026: Socket received request to stop server.
+Thu Apr 30 13:22:37 2026: Dispatch Server: do_await_stop
+Thu Apr 30 13:22:37 2026: Dispatch Server: stopping mainFifo_
+Thu Apr 30 13:22:37 2026: XCD main fifo: Stopping
+Thu Apr 30 13:22:37 2026: XCD main fifo: do_read error code: Operation canceled
+Thu Apr 30 13:22:37 2026: XCD main fifo: bytes_transferred: 0
+Thu Apr 30 13:22:37 2026: SERVER: destructor for server bound to port 38535
+Thu Apr 30 13:22:37 2026: XCD main fifo: Good unlink of /tmp/xcdmain0c005e5d-43ca-4026-bb79-378c63baee75
+Thu Apr 30 13:22:37 2026: Server exiting with status 0.
+Thu Apr 30 13:22:37 2026: Closing log file.
+Thu Apr 30 14:26:47 2026: Running xcd server. This server was built by gradle.
+Thu Apr 30 14:26:47 2026: Server was asked to start on port: '44533'
+Thu Apr 30 14:26:47 2026: Server is using token UUID: 'cde74e9b-cbd2-4a17-8d95-bb5d34cad64b'
+Thu Apr 30 14:26:47 2026: SESSION_MGR: creating session with session uuid: '6d04a3e9-ade5-4ab9-8d63-1f78fcd2ec76' and name 'default'
+Thu Apr 30 14:26:47 2026: Attempting to start server on port '44533'
+Thu Apr 30 14:26:47 2026: XCD main fifo: created main fifo '/tmp/xcdmaincde74e9b-cbd2-4a17-8d95-bb5d34cad64b', fd read = 13
+Thu Apr 30 14:26:47 2026: Running Dispatch Server
+Thu Apr 30 14:26:47 2026: Version 2.2.0
+Thu Apr 30 14:26:56 2026: Dispatch Server: Accepted socket connection from client
+Thu Apr 30 14:26:56 2026: Starting Socket connection
+Thu Apr 30 14:26:56 2026: EXCHANGE_TOKEN received, server token: cde74e9b-cbd2-4a17-8d95-bb5d34cad64b, passed token: cde74e9b-cbd2-4a17-8d95-bb5d34cad64b
+Thu Apr 30 14:26:56 2026: DISPATCH_HANDLER: Adding handler from function makeHandler in library libxv_system_diagram
+Thu Apr 30 14:26:56 2026: SESSION_MGR: creating session with session uuid: '533471c1-25d6-4ba4-a7a8-26d1a967f14f' and name 'v++_compile_update_message_router'
+Thu Apr 30 14:26:56 2026: KERNEL_SVC: creating session with uuid: '533471c1-25d6-4ba4-a7a8-26d1a967f14f' and name 'v++_compile_update_message_router'
+Thu Apr 30 14:26:56 2026: GUIDANCE_SMGR: creating guidance session with uuid: '533471c1-25d6-4ba4-a7a8-26d1a967f14f' and name 'v++_compile_update_message_router'
+Thu Apr 30 14:26:56 2026: SYSTEM_DIAGRAM: creating session with uuid: '533471c1-25d6-4ba4-a7a8-26d1a967f14f' and name 'v++_compile_update_message_router'
+Thu Apr 30 14:27:05 2026: Dispatch Server: Accepted socket connection from client
+Thu Apr 30 14:27:05 2026: Starting Socket connection
+Thu Apr 30 14:27:49 2026: SESSION_MGR: closing session for UUID '533471c1-25d6-4ba4-a7a8-26d1a967f14f' with name 'v++_compile_update_message_router'
+Thu Apr 30 14:27:49 2026: KERNEL_SVC: closing session for UUID '533471c1-25d6-4ba4-a7a8-26d1a967f14f' with name 'v++_compile_update_message_router'
+Thu Apr 30 14:27:49 2026: GUIDANCE_SMGR: closing session for UUID '533471c1-25d6-4ba4-a7a8-26d1a967f14f' with name 'v++_compile_update_message_router'
+Thu Apr 30 14:27:49 2026: SYSTEM_DIAGRAM: closing session for UUID '533471c1-25d6-4ba4-a7a8-26d1a967f14f' with name 'v++_compile_update_message_router'
+Thu Apr 30 14:27:49 2026: STOP_SERVER received, server token: cde74e9b-cbd2-4a17-8d95-bb5d34cad64b, passed token: cde74e9b-cbd2-4a17-8d95-bb5d34cad64b
+Thu Apr 30 14:27:49 2026: Socket received request to stop server.
+Thu Apr 30 14:27:49 2026: Dispatch Server: do_await_stop
+Thu Apr 30 14:27:49 2026: Dispatch Server: stopping mainFifo_
+Thu Apr 30 14:27:49 2026: XCD main fifo: Stopping
+Thu Apr 30 14:27:49 2026: XCD main fifo: do_read error code: Operation canceled
+Thu Apr 30 14:27:49 2026: XCD main fifo: bytes_transferred: 0
+Thu Apr 30 14:27:49 2026: SERVER: destructor for server bound to port 44533
+Thu Apr 30 14:27:49 2026: XCD main fifo: Good unlink of /tmp/xcdmaincde74e9b-cbd2-4a17-8d95-bb5d34cad64b
+Thu Apr 30 14:27:49 2026: Server exiting with status 0.
+Thu Apr 30 14:27:49 2026: Closing log file.
+Thu Apr 30 15:34:59 2026: Running xcd server. This server was built by gradle.
+Thu Apr 30 15:34:59 2026: Server was asked to start on port: '38855'
+Thu Apr 30 15:34:59 2026: Server is using token UUID: '660e81a6-e2e9-4052-86c7-43e1db77b7f0'
+Thu Apr 30 15:34:59 2026: SESSION_MGR: creating session with session uuid: '6d04a3e9-ade5-4ab9-8d63-1f78fcd2ec76' and name 'default'
+Thu Apr 30 15:34:59 2026: Attempting to start server on port '38855'
+Thu Apr 30 15:34:59 2026: XCD main fifo: created main fifo '/tmp/xcdmain660e81a6-e2e9-4052-86c7-43e1db77b7f0', fd read = 13
+Thu Apr 30 15:34:59 2026: Running Dispatch Server
+Thu Apr 30 15:34:59 2026: Version 2.2.0
+Thu Apr 30 15:35:08 2026: Dispatch Server: Accepted socket connection from client
+Thu Apr 30 15:35:08 2026: Starting Socket connection
+Thu Apr 30 15:35:08 2026: EXCHANGE_TOKEN received, server token: 660e81a6-e2e9-4052-86c7-43e1db77b7f0, passed token: 660e81a6-e2e9-4052-86c7-43e1db77b7f0
+Thu Apr 30 15:35:08 2026: DISPATCH_HANDLER: Adding handler from function makeHandler in library libxv_system_diagram
+Thu Apr 30 15:35:08 2026: SESSION_MGR: creating session with session uuid: 'ac773f3b-ffc1-467b-9d20-69f0e9f488ca' and name 'v++_compile_update_message_router'
+Thu Apr 30 15:35:08 2026: KERNEL_SVC: creating session with uuid: 'ac773f3b-ffc1-467b-9d20-69f0e9f488ca' and name 'v++_compile_update_message_router'
+Thu Apr 30 15:35:08 2026: GUIDANCE_SMGR: creating guidance session with uuid: 'ac773f3b-ffc1-467b-9d20-69f0e9f488ca' and name 'v++_compile_update_message_router'
+Thu Apr 30 15:35:08 2026: SYSTEM_DIAGRAM: creating session with uuid: 'ac773f3b-ffc1-467b-9d20-69f0e9f488ca' and name 'v++_compile_update_message_router'
+Thu Apr 30 15:35:17 2026: Dispatch Server: Accepted socket connection from client
+Thu Apr 30 15:35:17 2026: Starting Socket connection
+Thu Apr 30 15:36:02 2026: SESSION_MGR: closing session for UUID 'ac773f3b-ffc1-467b-9d20-69f0e9f488ca' with name 'v++_compile_update_message_router'
+Thu Apr 30 15:36:02 2026: KERNEL_SVC: closing session for UUID 'ac773f3b-ffc1-467b-9d20-69f0e9f488ca' with name 'v++_compile_update_message_router'
+Thu Apr 30 15:36:02 2026: GUIDANCE_SMGR: closing session for UUID 'ac773f3b-ffc1-467b-9d20-69f0e9f488ca' with name 'v++_compile_update_message_router'
+Thu Apr 30 15:36:02 2026: SYSTEM_DIAGRAM: closing session for UUID 'ac773f3b-ffc1-467b-9d20-69f0e9f488ca' with name 'v++_compile_update_message_router'
+Thu Apr 30 15:36:02 2026: STOP_SERVER received, server token: 660e81a6-e2e9-4052-86c7-43e1db77b7f0, passed token: 660e81a6-e2e9-4052-86c7-43e1db77b7f0
+Thu Apr 30 15:36:02 2026: Socket received request to stop server.
+Thu Apr 30 15:36:02 2026: Dispatch Server: do_await_stop
+Thu Apr 30 15:36:02 2026: Dispatch Server: stopping mainFifo_
+Thu Apr 30 15:36:02 2026: XCD main fifo: Stopping
+Thu Apr 30 15:36:02 2026: XCD main fifo: do_read error code: Operation canceled
+Thu Apr 30 15:36:02 2026: XCD main fifo: bytes_transferred: 0
+Thu Apr 30 15:36:02 2026: SERVER: destructor for server bound to port 38855
+Thu Apr 30 15:36:02 2026: XCD main fifo: Good unlink of /tmp/xcdmain660e81a6-e2e9-4052-86c7-43e1db77b7f0
+Thu Apr 30 15:36:02 2026: Server exiting with status 0.
+Thu Apr 30 15:36:02 2026: Closing log file.
+Thu Apr 30 15:36:05 2026: Running xcd server. This server was built by gradle.
+Thu Apr 30 15:36:05 2026: Server was asked to start on port: '34841'
+Thu Apr 30 15:36:05 2026: Server is using token UUID: '0e45b29f-44dc-4330-92ec-f554dc15b55c'
+Thu Apr 30 15:36:05 2026: SESSION_MGR: creating session with session uuid: '6d04a3e9-ade5-4ab9-8d63-1f78fcd2ec76' and name 'default'
+Thu Apr 30 15:36:05 2026: Attempting to start server on port '34841'
+Thu Apr 30 15:36:05 2026: XCD main fifo: created main fifo '/tmp/xcdmain0e45b29f-44dc-4330-92ec-f554dc15b55c', fd read = 12
+Thu Apr 30 15:36:05 2026: Running Dispatch Server
+Thu Apr 30 15:36:05 2026: Version 2.2.0
+Thu Apr 30 15:36:14 2026: Dispatch Server: Accepted socket connection from client
+Thu Apr 30 15:36:14 2026: Starting Socket connection
+Thu Apr 30 15:36:14 2026: EXCHANGE_TOKEN received, server token: 0e45b29f-44dc-4330-92ec-f554dc15b55c, passed token: 0e45b29f-44dc-4330-92ec-f554dc15b55c
+Thu Apr 30 15:36:14 2026: DISPATCH_HANDLER: Adding handler from function makeHandler in library libxv_system_diagram
+Thu Apr 30 15:36:14 2026: SESSION_MGR: creating session with session uuid: '4582c631-e408-4742-83ba-d1a92f981f4f' and name 'v++_compile_pma_insert_edge'
+Thu Apr 30 15:36:14 2026: KERNEL_SVC: creating session with uuid: '4582c631-e408-4742-83ba-d1a92f981f4f' and name 'v++_compile_pma_insert_edge'
+Thu Apr 30 15:36:14 2026: GUIDANCE_SMGR: creating guidance session with uuid: '4582c631-e408-4742-83ba-d1a92f981f4f' and name 'v++_compile_pma_insert_edge'
+Thu Apr 30 15:36:14 2026: SYSTEM_DIAGRAM: creating session with uuid: '4582c631-e408-4742-83ba-d1a92f981f4f' and name 'v++_compile_pma_insert_edge'
+Thu Apr 30 15:36:23 2026: Dispatch Server: Accepted socket connection from client
+Thu Apr 30 15:36:23 2026: Starting Socket connection
+Thu Apr 30 15:37:38 2026: SESSION_MGR: closing session for UUID '4582c631-e408-4742-83ba-d1a92f981f4f' with name 'v++_compile_pma_insert_edge'
+Thu Apr 30 15:37:38 2026: KERNEL_SVC: closing session for UUID '4582c631-e408-4742-83ba-d1a92f981f4f' with name 'v++_compile_pma_insert_edge'
+Thu Apr 30 15:37:38 2026: GUIDANCE_SMGR: closing session for UUID '4582c631-e408-4742-83ba-d1a92f981f4f' with name 'v++_compile_pma_insert_edge'
+Thu Apr 30 15:37:38 2026: SYSTEM_DIAGRAM: closing session for UUID '4582c631-e408-4742-83ba-d1a92f981f4f' with name 'v++_compile_pma_insert_edge'
+Thu Apr 30 15:37:38 2026: STOP_SERVER received, server token: 0e45b29f-44dc-4330-92ec-f554dc15b55c, passed token: 0e45b29f-44dc-4330-92ec-f554dc15b55c
+Thu Apr 30 15:37:38 2026: Socket received request to stop server.
+Thu Apr 30 15:37:38 2026: Dispatch Server: do_await_stop
+Thu Apr 30 15:37:38 2026: Dispatch Server: stopping mainFifo_
+Thu Apr 30 15:37:38 2026: XCD main fifo: Stopping
+Thu Apr 30 15:37:38 2026: XCD main fifo: do_read error code: Operation canceled
+Thu Apr 30 15:37:38 2026: XCD main fifo: bytes_transferred: 0
+Thu Apr 30 15:37:38 2026: SERVER: destructor for server bound to port 34841
+Thu Apr 30 15:37:38 2026: XCD main fifo: Good unlink of /tmp/xcdmain0e45b29f-44dc-4330-92ec-f554dc15b55c
+Thu Apr 30 15:37:38 2026: Server exiting with status 0.
+Thu Apr 30 15:37:38 2026: Closing log file.
+Thu Apr 30 17:59:34 2026: Running xcd server. This server was built by gradle.
+Thu Apr 30 17:59:34 2026: Server was asked to start on port: '41001'
+Thu Apr 30 17:59:34 2026: Server is using token UUID: '54522c26-1836-4617-b032-7a04f8eb956d'
+Thu Apr 30 17:59:34 2026: SESSION_MGR: creating session with session uuid: '6d04a3e9-ade5-4ab9-8d63-1f78fcd2ec76' and name 'default'
+Thu Apr 30 17:59:34 2026: Attempting to start server on port '41001'
+Thu Apr 30 17:59:34 2026: XCD main fifo: created main fifo '/tmp/xcdmain54522c26-1836-4617-b032-7a04f8eb956d', fd read = 13
+Thu Apr 30 17:59:34 2026: Running Dispatch Server
+Thu Apr 30 17:59:34 2026: Version 2.2.0
+Thu Apr 30 17:59:43 2026: Dispatch Server: Accepted socket connection from client
+Thu Apr 30 17:59:43 2026: Starting Socket connection
+Thu Apr 30 17:59:43 2026: EXCHANGE_TOKEN received, server token: 54522c26-1836-4617-b032-7a04f8eb956d, passed token: 54522c26-1836-4617-b032-7a04f8eb956d
+Thu Apr 30 17:59:43 2026: DISPATCH_HANDLER: Adding handler from function makeHandler in library libxv_system_diagram
+Thu Apr 30 17:59:43 2026: SESSION_MGR: creating session with session uuid: '977eb1eb-2237-40bd-acae-67e6f8d124f8' and name 'v++_compile_pma_insert_edge'
+Thu Apr 30 17:59:43 2026: KERNEL_SVC: creating session with uuid: '977eb1eb-2237-40bd-acae-67e6f8d124f8' and name 'v++_compile_pma_insert_edge'
+Thu Apr 30 17:59:43 2026: GUIDANCE_SMGR: creating guidance session with uuid: '977eb1eb-2237-40bd-acae-67e6f8d124f8' and name 'v++_compile_pma_insert_edge'
+Thu Apr 30 17:59:43 2026: SYSTEM_DIAGRAM: creating session with uuid: '977eb1eb-2237-40bd-acae-67e6f8d124f8' and name 'v++_compile_pma_insert_edge'
+Thu Apr 30 17:59:51 2026: Dispatch Server: Accepted socket connection from client
+Thu Apr 30 17:59:51 2026: Starting Socket connection
+Thu Apr 30 18:01:05 2026: SESSION_MGR: closing session for UUID '977eb1eb-2237-40bd-acae-67e6f8d124f8' with name 'v++_compile_pma_insert_edge'
+Thu Apr 30 18:01:05 2026: KERNEL_SVC: closing session for UUID '977eb1eb-2237-40bd-acae-67e6f8d124f8' with name 'v++_compile_pma_insert_edge'
+Thu Apr 30 18:01:05 2026: GUIDANCE_SMGR: closing session for UUID '977eb1eb-2237-40bd-acae-67e6f8d124f8' with name 'v++_compile_pma_insert_edge'
+Thu Apr 30 18:01:05 2026: SYSTEM_DIAGRAM: closing session for UUID '977eb1eb-2237-40bd-acae-67e6f8d124f8' with name 'v++_compile_pma_insert_edge'
+Thu Apr 30 18:01:05 2026: STOP_SERVER received, server token: 54522c26-1836-4617-b032-7a04f8eb956d, passed token: 54522c26-1836-4617-b032-7a04f8eb956d
+Thu Apr 30 18:01:05 2026: Socket received request to stop server.
+Thu Apr 30 18:01:05 2026: Dispatch Server: do_await_stop
+Thu Apr 30 18:01:05 2026: Dispatch Server: stopping mainFifo_
+Thu Apr 30 18:01:05 2026: XCD main fifo: Stopping
+Thu Apr 30 18:01:05 2026: XCD main fifo: do_read error code: Operation canceled
+Thu Apr 30 18:01:05 2026: XCD main fifo: bytes_transferred: 0
+Thu Apr 30 18:01:05 2026: SERVER: destructor for server bound to port 41001
+Thu Apr 30 18:01:05 2026: XCD main fifo: Good unlink of /tmp/xcdmain54522c26-1836-4617-b032-7a04f8eb956d
+Thu Apr 30 18:01:05 2026: Server exiting with status 0.
+Thu Apr 30 18:01:05 2026: Closing log file.

@@ -58,7 +58,7 @@ static void update_inflight_from_ack(
     int &in_flight_count,
     hls::stream<COMMAND_STREAM> &ack_stream)
 {
-    #pragma HLS INLINE off
+    #pragma HLS INLINE
     COMMAND_STREAM ack;
     if (ack_stream.read_nb(ack))
     {
@@ -92,7 +92,7 @@ static void check_ack_back_array(
     // hls::stream<COMMAND_STREAM>& ack_from_insert_edge_4
 )
 {
-    #pragma HLS INLINE off
+    #pragma HLS INLINE
     update_inflight_from_ack(in_flight_arr, in_flight_count, ack_from_insert_edge_1);
     update_inflight_from_ack(in_flight_arr, in_flight_count, ack_from_insert_edge_2);
     // update_inflight_from_ack(in_flight_arr, in_flight_count, ack_from_insert_edge_3);
@@ -205,127 +205,112 @@ extern "C"
         // hls::print("in_flight_count %d\n", in_flight_count);
         for (int i = 0 ; i < MAX_COMMAND_BUFFER_NUM ; i++)
         {
-            // for (int j = 0 ; j < MAX_COMMAND_BUFFER_LENGTH ; j++)
-            // {
-            //     #pragma HLS UNROLL
-            //     msg_buffer[i][j] = 0;
-            // }
             count[i] = 0;
         }
 
-        int stage = 2;
-        PMA_UPDATE_MESSAGE msg;
-        bool quit = false;
         while (true)
-        {
-            switch (stage)
+        { 
+            check_ack_back_array(
+                in_flight,
+                in_flight_count,
+                ack_from_insert_edge_1,
+                ack_from_insert_edge_2
+                // ack_from_insert_edge_3,
+                // ack_from_insert_edge_4
+            );
+            ap_wait();
+            PMA_UPDATE_MESSAGE msg;
+            if(cmd_from_generator.read_nb(msg))
             {
-                
-                case 2:
+                if (msg.opcode == PMA_UPDATE_STOP)
                 {
-                    check_ack_back_array(
-                        in_flight,
-                        in_flight_count,
-                        ack_from_insert_edge_1,
-                        ack_from_insert_edge_2
-                        // ack_from_insert_edge_3,
-                        // ack_from_insert_edge_4
-                    );
-                    if(cmd_from_generator.read_nb(msg))
+                    for (int i = 0 ; i < MAX_COMMAND_BUFFER_NUM ; i++)
                     {
-                        if (msg.opcode == PMA_UPDATE_STOP)
+                        if (count[i] > 0)
                         {
-                            for (int i = 0 ; i < MAX_COMMAND_BUFFER_NUM ; i++)
-                            {
-                                if (count[i] > 0)
-                                {
-                                    flush_and_add_inflight(
-                                        i, msg_buffer[i][0].src / VERTEX_PER_PMA,
-                                        in_flight, in_flight_count,
-                                        ack_from_insert_edge_1,
-                                        ack_from_insert_edge_2,
-                                        // ack_from_insert_edge_3,
-                                        // ack_from_insert_edge_4,
-                                        cmd_to_insert_edge_1,
-                                        cmd_to_insert_edge_2,
-                                        // cmd_to_insert_edge_3,
-                                        // cmd_to_insert_edge_4,
-                                        msg_buffer, count
-                                    );
-                                }
-                            }
-                            while (in_flight_count > 0)
-                            {
-                                check_ack_back_array(
-                                    in_flight,
-                                    in_flight_count,
-                                    ack_from_insert_edge_1,
-                                    ack_from_insert_edge_2
-                                    // ack_from_insert_edge_3,
-                                    // ack_from_insert_edge_4
-                                );
-                                ap_wait();
-                            }
-                            hls::print("in_flight_count after flush %d\n", in_flight_count);
-                            if (msg.last == 1)
-                            {
-                                msg.opcode = PMA_UPDATE_STOP;
-                                cmd_to_insert_edge_1.write(msg);
-                                cmd_to_insert_edge_2.write(msg);
-                                // cmd_to_insert_edge_3.write(msg);
-                                // cmd_to_insert_edge_4.write(msg);
-                                quit = true;
-                                stage++;
-                            }
-                            else
-                            {
-                                stage = 0;
-                            }
-                            WHOLE_ACK ack_pkt;
-                            ack_pkt.data = 1;
-                            ack_pkt.keep = (ap_uint<4>)0xF;
-                            ack_pkt.strb = (ap_uint<4>)0xF;
-                            ack_pkt.last = 1;
-                            ack_to_generator.write(ack_pkt);
-                            break;
+                            flush_and_add_inflight(
+                                i, msg_buffer[i][0].src / VERTEX_PER_PMA,
+                                in_flight, in_flight_count,
+                                ack_from_insert_edge_1,
+                                ack_from_insert_edge_2,
+                                // ack_from_insert_edge_3,
+                                // ack_from_insert_edge_4,
+                                cmd_to_insert_edge_1,
+                                cmd_to_insert_edge_2,
+                                // cmd_to_insert_edge_3,
+                                // cmd_to_insert_edge_4,
+                                msg_buffer, count
+                            );
                         }
-
-                        int src = msg.src;
-                        int pma_idx = src / VERTEX_PER_PMA;
-                        int hash = -1;
+                    }
+                    while (in_flight_count > 0)
+                    {
+                        check_ack_back_array(
+                            in_flight,
+                            in_flight_count,
+                            ack_from_insert_edge_1,
+                            ack_from_insert_edge_2
+                            // ack_from_insert_edge_3,
+                            // ack_from_insert_edge_4
+                        );
                         ap_wait();
-                        get_hash_value(pma_idx, hash);
-                        ap_wait();
-                        if (count[hash] == 0)   
+                    }
+                    hls::print("in_flight_count after flush %d\n", in_flight_count);
+                   
+                    if (msg.last == 1)
+                    {
+                        msg.opcode = PMA_UPDATE_STOP;
+                        cmd_to_insert_edge_1.write(msg);
+                        cmd_to_insert_edge_2.write(msg);
+                        #pragma HLS protocol fixed
+                        auto ack_1 = ack_from_insert_edge_1.read();
+                        auto ack_2 = ack_from_insert_edge_2.read();
+                        #pragma HLS protocol fixed
+                        WHOLE_ACK ack_pkt;
+                        ack_pkt.data = 1;
+                        ack_pkt.keep = (ap_uint<4>)0xF;
+                        ack_pkt.strb = (ap_uint<4>)0xF;
+                        ack_pkt.last = 1;
+                        ack_to_generator.write(ack_pkt);
+                        break;
+                    }
+                    else
+                    {
+                        msg.opcode = PMA_UPDATE_FLUSH_CACHE;
+                        cmd_to_insert_edge_1.write(msg);
+                        cmd_to_insert_edge_2.write(msg);
+                        #pragma HLS protocol fixed
+                        auto ack_1 = ack_from_insert_edge_1.read();
+                        auto ack_2 = ack_from_insert_edge_2.read();
+                        #pragma HLS protocol fixed
+                        WHOLE_ACK ack_pkt;
+                        ack_pkt.data = 1;
+                        ack_pkt.keep = (ap_uint<4>)0xF;
+                        ack_pkt.strb = (ap_uint<4>)0xF;
+                        ack_pkt.last = 1;
+                        ack_to_generator.write(ack_pkt);
+                    }
+                }
+                else  
+                {
+                    
+                    int src = msg.src;
+                    int pma_idx = src / VERTEX_PER_PMA;
+                    int hash = -1;
+                    // ap_wait();
+                    get_hash_value(pma_idx, hash);
+                    // ap_wait();
+                    if (count[hash] == 0)   
+                    {
+                        msg_buffer[hash][count[hash]] = msg;
+                        count[hash]++;
+                    }
+                    else if (count[hash] < MAX_COMMAND_BUFFER_LENGTH)
+                    {
+                        if (msg_buffer[hash][0].src / VERTEX_PER_PMA == msg.src / VERTEX_PER_PMA)
                         {
                             msg_buffer[hash][count[hash]] = msg;
                             count[hash]++;
-                        }
-                        else if (count[hash] < MAX_COMMAND_BUFFER_LENGTH)
-                        {
-                            if (msg_buffer[hash][0].src / VERTEX_PER_PMA == msg.src / VERTEX_PER_PMA)
-                            {
-                                msg_buffer[hash][count[hash]] = msg;
-                                count[hash]++;
-                            }
-                            else
-                            {
-                                flush_and_add_inflight(
-                                    hash, msg_buffer[hash][0].src / VERTEX_PER_PMA,
-                                    in_flight, in_flight_count,
-                                    ack_from_insert_edge_1,
-                                    ack_from_insert_edge_2,
-                                    // ack_from_insert_edge_3,
-                                    // ack_from_insert_edge_4,
-                                    cmd_to_insert_edge_1,
-                                    cmd_to_insert_edge_2,
-                                    // cmd_to_insert_edge_3,
-                                    // cmd_to_insert_edge_4,
-                                    msg_buffer, count
-                                );
-                                msg_buffer[hash][count[hash]] = msg;
-                                count[hash]++;
-                            }
                         }
                         else
                         {
@@ -346,19 +331,26 @@ extern "C"
                             count[hash]++;
                         }
                     }
-                    break;
+                    else
+                    {
+                        flush_and_add_inflight(
+                            hash, msg_buffer[hash][0].src / VERTEX_PER_PMA,
+                            in_flight, in_flight_count,
+                            ack_from_insert_edge_1,
+                            ack_from_insert_edge_2,
+                            // ack_from_insert_edge_3,
+                            // ack_from_insert_edge_4,
+                            cmd_to_insert_edge_1,
+                            cmd_to_insert_edge_2,
+                            // cmd_to_insert_edge_3,
+                            // cmd_to_insert_edge_4,
+                            msg_buffer, count
+                        );
+                        msg_buffer[hash][count[hash]] = msg;
+                        count[hash]++;
+                    }
                 }
-                case 3:
-                {
-                    quit = true;
-                    break;
-                }
-            }
-            if (quit)
-            {
-                break;
             }
         }
-        // hls::print("in_flight_count after end %d\n", in_flight_count);
     }
 }

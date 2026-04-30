@@ -50,7 +50,7 @@ extern "C"
                 default:
                     msg.opcode = PMA_UPDATE_INSERT_EDGE; // default to insert edge if unknown opcode
             }
-            msg.last = last;
+            msg.last = 0;
             cmd_to_router.write(msg);
         }
         HERE
@@ -59,6 +59,5 @@ extern "C"
         WHOLE_ACK ack_pkt;
         // blocking read to ensure router processed the whole batch
         ack_from_router.read(ack_pkt);
-        // optionally we could check ack_pkt.data
     }
 }

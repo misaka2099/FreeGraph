@@ -55,7 +55,7 @@ enum PMA_UPDATE_OPCODE
     PMA_UPDATE_INSERT_VERTEX = 2,
     PMA_UPDATE_DELETE_VERTEX = 3,
     PMA_UPDATE_STOP = 4,
-    PMA_FLASH_CACHE = 5,
+    PMA_UPDATE_FLUSH_CACHE = 5,
 };
 struct PMA_UPDATE_MESSAGE
 {
@@ -105,15 +105,20 @@ struct INTRA_PMA_UPDATE_MESSAGE
 
 
 #define MAX_COMMAND_BUFFER_LENGTH 16
-#define MAX_COMMAND_BUFFER_NUM 16
+#define MAX_COMMAND_BUFFER_NUM 128
 #define MAX_CMD_NUM 16
 // #define LOAD_BITMAP 19
-
+enum control_type
+{
+    INSERT_STOP = 0,
+    INSERT_FLUSH_CACHE = 1,
+    INSERT_GOING = 2
+};
 struct pma_idx_info
 {
     int pma_idx;
     // int direction;
-    int last;
+    control_type command_type;
 };
 //range(31,0) start
 //range(63,32) len
@@ -130,7 +135,8 @@ enum PMA_INFO_ACCESS_TYPE
     PMA_SEGMENT_READ = 2,
     PMA_SEGMENT_WRITE = 3,
     PMA_FINISH = 4,
-    PMA_EXTEND = 5
+    PMA_EXTEND = 5,
+    PMA_FLUSH
 };
 struct PMA_INFO_ACCESS_COMMAND
 {
