@@ -153,6 +153,11 @@ void cache_mechanism(
     ap_uint<32> cache_new_len[CACHE_LINE_SIZE];
     int cache_pma_idx[CACHE_LINE_SIZE];
 
+    const int MAX_BS_HELPER_SIZE = (MAX_CACHE_SIZE - (int)(sizeof(PMA_HEADER) / 64)) / (SEGMENT_SIZE * (int)sizeof(int) / 64);
+    ap_uint<CACHE_LINE_SIZE> bs_helper_valid = 0;
+    int bs_helper_cache[CACHE_LINE_SIZE][MAX_BS_HELPER_SIZE];
+    #pragma HLS bind_storage variable=bs_helper_cache type=ram_2p impl=URAM
+
     ap_uint<MEM_REQUEST_NUM> finish_flag = -1; // all bits set to 1, meaning all requests are not finished
     for (int i = 0 ; i < CACHE_LINE_SIZE ; i++)
     {
@@ -283,6 +288,7 @@ void cache_mechanism(
                     cache_old_len[evict_line] = vec_info.range(63,32);
                     cache_new_len[evict_line] = vec_info.range(63,32);
                     cache_pma_idx[evict_line] = pma_idx;
+                    bs_helper_valid[evict_line] = 0;
                 }
                 //if not exists in mem_access, inital a brand new pma, update in the cache
                 else
@@ -293,6 +299,7 @@ void cache_mechanism(
                     cache_old_len[evict_line] = 0;
                     cache_new_len[evict_line] = sizeof(PMA_HEADER) + 16*SEGMENT_SIZE*sizeof(int); // initialize with max size for simplicity
                     cache_pma_idx[evict_line] = pma_idx;
+                    bs_helper_valid[evict_line] = 0;
                     //write empty header to cache_buffer
                     ap_uint<512> header_buffer[4];
                     // for (int j = 0 ; j < 4 ; j++)
@@ -418,6 +425,30 @@ void cache_mechanism(
                     cache_buffer[active_line][0] = new_range_packet;
                     cache_new_len[active_line] = sizeof(PMA_HEADER) + new_total_seg * SEGMENT_SIZE * sizeof(int);
                     cache_dirty[active_line] = 1;
+                    bs_helper_valid[active_line] = 0;
+                }
+            }
+            else if (cmd.command_type == PMA_BS_HELPER_READ)
+            {
+                if (!bs_helper_valid[active_line])
+                {
+                    int total_segs = (int)cache_buffer[active_line][0].range(15 * 32 + 31, 15 * 32);
+                    int header_words = (int)(sizeof(PMA_HEADER) / 64);
+                    int seg_words_per_seg = SEGMENT_SIZE * (int)sizeof(int) / 64;
+                    for (int s = 0; s < total_segs; s++)
+                    {
+                        int seg_word_start = header_words + s * seg_words_per_seg;
+                        bs_helper_cache[active_line][s] = cache_buffer[active_line][seg_word_start].range(31, 0);
+                    }
+                    bs_helper_valid[active_line] = 1;
+                }
+                int total_segs = (int)cache_buffer[active_line][0].range(15 * 32 + 31, 15 * 32);
+                for (int s = 0; s < total_segs; s++)
+                {
+                    #pragma HLS PIPELINE II=1
+                    ap_uint<512> out = 0;
+                    out.range(31, 0) = bs_helper_cache[active_line][s];
+                    data_to_app[i].write(out);
                 }
             }
             else if (cmd.command_type == PMA_FLUSH)
@@ -723,24 +754,25 @@ void get_bs_helper(
 }
 void sub_search(
     int* cache_bs_helper,
-    int cache_size, //num of int
+    int seg_low,
+    int seg_high,
     int dst,
     int &searched_seg_number
 )
 {
     #pragma HLS INLINE off
-    int low = 0;
-    int high = cache_size - 1;
+    int low = seg_low;
+    int high = seg_high - 1;
     searched_seg_number = -1;
     while (low <= high) {
         #pragma HLS PIPELINE off
         int mid = (low + high) / 2;
         if (cache_bs_helper[mid] == dst) {
-            searched_seg_number = mid;
+            searched_seg_number = mid - seg_low;
             return;
         } else if (cache_bs_helper[mid] < dst) {
             low = mid + 1;
-            searched_seg_number = mid; // Record the last position where cache_bs_helper[mid] < src
+            searched_seg_number = mid - seg_low;
         } else {
             high = mid - 1;
         }
@@ -803,8 +835,22 @@ void binary_search_insert_cu(
 
         int bs_helper[10240];
         #pragma HLS BIND_STORAGE variable=bs_helper type=RAM_2P impl=URAM
-        int bs_helper_size = 0;
-        int last_cached_src = -1;
+        // read all segment first-words from cache_mechanism via PMA_BS_HELPER_READ
+        {
+            PMA_INFO_ACCESS_COMMAND bs_cmd = {};
+            bs_cmd.command_type = PMA_BS_HELPER_READ;
+            bs_cmd.pma_idx = signal.pma_idx;
+            bs_cmd.seg_start = 0;
+            bs_cmd.seg_len = 0;
+            memory_access_stream.write(bs_cmd);
+            ap_wait();
+            int total_segs = header.vertex_range[VERTEX_PER_PMA - 1];
+            for (int s = 0; s < total_segs; s++)
+            {
+                #pragma HLS PIPELINE II=1
+                bs_helper[s] = data_from_mem.read().range(31, 0);
+            }
+        }
         int insert_idx = 0;
         int delete_idx = 0;
 
@@ -826,15 +872,11 @@ void binary_search_insert_cu(
             if (opcode == PMA_UPDATE_INSERT_EDGE)
             {
                 int local_src = src % VERTEX_PER_PMA;
-
-                if (last_cached_src != src)
-                {
-                    get_bs_helper(header, src, bs_helper, bs_helper_size, memory_access_stream, data_from_mem);
-                    last_cached_src = src;
-                }
+                int low_seg = local_src == 0 ? 0 : header.vertex_range[local_src - 1];
+                int high_seg = header.vertex_range[local_src];
 
                 int searched_seg_number = -1;
-                sub_search(bs_helper, bs_helper_size, dst, searched_seg_number);
+                sub_search(bs_helper, low_seg, high_seg, dst, searched_seg_number);
                 if (searched_seg_number == -1)
                 {
                     searched_seg_number = 0;
@@ -850,15 +892,11 @@ void binary_search_insert_cu(
             else if (opcode == PMA_UPDATE_DELETE_EDGE)
             {
                 int local_src = src % VERTEX_PER_PMA;
-
-                if (last_cached_src != src)
-                {
-                    get_bs_helper(header, src, bs_helper, bs_helper_size, memory_access_stream, data_from_mem);
-                    last_cached_src = src;
-                }
+                int low_seg = local_src == 0 ? 0 : header.vertex_range[local_src - 1];
+                int high_seg = header.vertex_range[local_src];
 
                 int searched_seg_number = -1;
-                sub_search(bs_helper, bs_helper_size, dst, searched_seg_number);
+                sub_search(bs_helper, low_seg, high_seg, dst, searched_seg_number);
                 if (searched_seg_number == -1)
                 {
                     searched_seg_number = 0;
