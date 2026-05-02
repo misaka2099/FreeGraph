@@ -117,6 +117,8 @@ struct INTRA_PMA_UPDATE_MESSAGE
 #define HOT_PMA_THRESHOLD 3       // HBM miss 次数阈值, 超过则提升为热点
 #define PROFILE_TABLE_SIZE 64     // 片下访问追踪表条目数
 #define TOTAL_CACHE_LINES (LARGE_CACHE_LINES + SMALL_CACHE_LINES)
+#define BYPASS_EDGE_THRESHOLD 4   // 少于该边数的 PMA 直接 HBM bypass, 不进 cache
+#define BYPASS_BUFFER_SIZE 256    // bypass 临时 buffer (words), 容纳 ~60 segments
 
 // #define LOAD_BITMAP 19
 enum control_type
@@ -128,7 +130,6 @@ enum control_type
 struct pma_idx_info
 {
     int pma_idx;
-    // int direction;
     control_type command_type;
 };
 //range(31,0) start
@@ -148,6 +149,7 @@ enum PMA_INFO_ACCESS_TYPE
     PMA_FINISH = 4,
     PMA_EXTEND = 5,
     PMA_BS_HELPER_READ = 6,
+    PMA_HEADER_READ_HINTED = 7,  // PMA_HEADER_READ + edge_count hint in seg_start
     PMA_FLUSH
 };
 struct PMA_INFO_ACCESS_COMMAND
