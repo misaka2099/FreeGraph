@@ -107,6 +107,17 @@ struct INTRA_PMA_UPDATE_MESSAGE
 #define MAX_COMMAND_BUFFER_LENGTH 16
 #define MAX_COMMAND_BUFFER_NUM 128
 #define MAX_CMD_NUM 16
+
+// --- Tiered Cache Configuration ---
+#define LARGE_CACHE_LINES 4       // 大缓存: 用于热点 PMA
+#define SMALL_CACHE_LINES 4       // 小缓存: 用于初始化和普通 PMA
+#define LARGE_CACHE_SIZE 8192     // 大缓存每行 word 数 (512b/word)
+#define SMALL_CACHE_SIZE 1024     // 小缓存每行 word 数 (64KB)
+#define SMALL_TO_LARGE_SEG_THRESHOLD 64  // 超过此 segment 数的 PMA 必须进大缓存
+#define HOT_PMA_THRESHOLD 3       // HBM miss 次数阈值, 超过则提升为热点
+#define PROFILE_TABLE_SIZE 64     // 片下访问追踪表条目数
+#define TOTAL_CACHE_LINES (LARGE_CACHE_LINES + SMALL_CACHE_LINES)
+
 // #define LOAD_BITMAP 19
 enum control_type
 {
