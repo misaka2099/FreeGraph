@@ -131,6 +131,7 @@ struct pma_idx_info
 {
     int pma_idx;
     control_type command_type;
+    int last;
 };
 //range(31,0) start
 //range(63,32) len
