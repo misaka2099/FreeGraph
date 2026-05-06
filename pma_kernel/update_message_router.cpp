@@ -5,227 +5,156 @@
 #include "hls_stream.h"
 #include <cstdio>
 
-#ifndef POOL_SIZE
-#define POOL_SIZE 32
-#endif
-#ifndef POOL_QUEUE_DEPTH
-#define POOL_QUEUE_DEPTH 64
-#endif
 #ifndef MAX_INFLIGHT_NUM
 #define MAX_INFLIGHT_NUM 16
 #endif
 
 #define ROUTER_WORKERS CHANNEL_NUM
 
-// ---- Pool: per-PMA slots for unsent messages ----
-
-struct PoolSlot {
-    int  pma_idx;       // -1 = free
-    int  worker_id;
-    int  q_head;
-    int  q_tail;
-    int  q_count;
-    PMA_UPDATE_MESSAGE queue[POOL_QUEUE_DEPTH];
-};
-
-// ============================================================
-// Pool slot ops
-// ============================================================
-
-static int slot_find(PoolSlot p[POOL_SIZE], int pma) {
-    #pragma HLS INLINE
-    for (int i = 0; i < POOL_SIZE; i++) {
-        if (p[i].pma_idx == pma && p[i].q_count < POOL_QUEUE_DEPTH)
-            return i;
-    }
-    for (int i = 0; i < POOL_SIZE; i++) {
-        if (p[i].pma_idx == pma) return i;
-    }
-    return -1;
-}
-
-static int slot_find_shortest(PoolSlot p[POOL_SIZE], int pma) {
-    #pragma HLS INLINE
-    int best = -1;
-    int best_len = POOL_QUEUE_DEPTH + 1;
-    for (int i = 0; i < POOL_SIZE; i++) {
-        if (p[i].pma_idx == pma && p[i].q_count > 0 && p[i].q_count < best_len) {
-            best = i;
-            best_len = p[i].q_count;
-        }
-    }
-    return best;
-}
-
-static int slot_alloc(PoolSlot p[POOL_SIZE], int pma, int wid) {
-    #pragma HLS INLINE
-    for (int i = 0; i < POOL_SIZE; i++) {
-        if (p[i].pma_idx == -1) {
-            p[i].pma_idx   = pma;
-            p[i].worker_id = wid;
-            p[i].q_head    = 0;
-            p[i].q_tail    = 0;
-            p[i].q_count   = 0;
-            return i;
-        }
-    }
-    return -1;
-}
-
-static bool slot_enq(PoolSlot p[POOL_SIZE], int s, PMA_UPDATE_MESSAGE m) {
-    #pragma HLS INLINE
-    if (p[s].q_count >= POOL_QUEUE_DEPTH) return false;
-    p[s].queue[p[s].q_head] = m;
-    p[s].q_head = (p[s].q_head + 1) % POOL_QUEUE_DEPTH;
-    p[s].q_count++;
-    return true;
-}
-
-static PMA_UPDATE_MESSAGE slot_deq(PoolSlot p[POOL_SIZE], int s) {
-    #pragma HLS INLINE
-    PMA_UPDATE_MESSAGE m = p[s].queue[p[s].q_tail];
-    p[s].q_tail = (p[s].q_tail + 1) % POOL_QUEUE_DEPTH;
-    p[s].q_count--;
-    if (p[s].q_count == 0)
-    {
-        p[s].pma_idx = -1;
-    }
-    return m;
-}
-
-// ============================================================
-// In-flight table ops (PMA-level, not slot-level)
-// ============================================================
-
-static bool inflight_check(int t[MAX_INFLIGHT_NUM], int pma) {
-    #pragma HLS INLINE
-    for (int i = 0; i < MAX_INFLIGHT_NUM; i++) {
-        if (t[i] == pma) return true;
-    }
-    return false;
-}
-
-static void inflight_add(int t[MAX_INFLIGHT_NUM], int &cnt, int pma) {
-    #pragma HLS INLINE
-    // Prevent duplicate: if already tracked, don't add again.
-    if (inflight_check(t, pma)) return;
-    if (cnt >= MAX_INFLIGHT_NUM) return;
-    for (int i = 0; i < MAX_INFLIGHT_NUM; i++) {
-        if (t[i] == -1) {
-            t[i] = pma;
-            cnt++;
-            return;
-        }
-    }
-}
-
-static void inflight_remove(int t[MAX_INFLIGHT_NUM], int &cnt, int pma) {
-    #pragma HLS INLINE
-    for (int i = 0; i < MAX_INFLIGHT_NUM; i++) {
-        if (t[i] == pma) {
-            t[i] = -1;
-            cnt--;
-            return;
-        }
-    }
-    // PMA not found in table — table/count is now out of sync.
-    hls::print("[ROUTER] RM FAIL pma=%d\n", pma);
-    return;
-}
-
-// ============================================================
-// Flush at most MAX_CMD_NUM messages from one slot.
-// Returns true if messages were actually sent.
-// ============================================================
-
-static bool slot_flush_one_batch(
-    PoolSlot p[POOL_SIZE], int s,
-    hls::stream<PMA_UPDATE_MESSAGE> &c0,
-    hls::stream<PMA_UPDATE_MESSAGE> &c1)
+void flush_buffer_aux(
+    int buffer_idx,
+    hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_pma,
+    PMA_UPDATE_MESSAGE msg_buffer[MAX_COMMAND_BUFFER_NUM][MAX_COMMAND_BUFFER_LENGTH],
+    int *count_arr
+)
 {
-    #pragma HLS INLINE
-    int n = p[s].q_count;
-    if (n == 0) {
-        p[s].pma_idx = -1;
-        return false;
-    }
-    int wid = p[s].worker_id;
-    int batch = (n < MAX_CMD_NUM) ? n : MAX_CMD_NUM;
-    for (int i = 0; i < batch; i++) {
+    #pragma HLS INLINE 
+    int c = count_arr[buffer_idx];
+    for (int j = 0 ; j < c; j++) {
         #pragma HLS PIPELINE II=1
-        PMA_UPDATE_MESSAGE m = slot_deq(p, s);
-        m.last = (i == batch - 1) ? 1 : 0;
-        if (wid == 0) c0.write(m); else c1.write(m);
+        PMA_UPDATE_MESSAGE tmp;
+        tmp = msg_buffer[buffer_idx][j];
+        tmp.last = (j == c - 1) ? 1 : 0;
+        cmd_to_pma.write(tmp);
     }
-    return true;
+    // hls::print("Flushed buffer with %d messages\n", c);
+    count_arr[buffer_idx] = 0;
 }
 
-// ============================================================
-// Step 1: Poll ACKs — only remove from in_flight, no dispatch.
-// ============================================================
+bool check_inflight(int *in_flight_arr, int pma_idx)
+{
+    #pragma HLS INLINE 
+    bool found = false;
+    for (int i = 0 ; i < MAX_INFLIGHT_NUM ; i++)
+    {
+        #pragma HLS PIPELINE II=1
+        if (in_flight_arr[i] == pma_idx)
+            found = true;
+    }
+    return found;
+}
 
-static void poll_ack(
-    int t[MAX_INFLIGHT_NUM], int &t_cnt,
-    hls::stream<COMMAND_STREAM> &ack_st)
+void get_hash_value(int pma_idx, int &hash_value)
+{
+    #pragma HLS INLINE 
+    ap_uint<32> x = (ap_uint<32>)pma_idx;
+    x ^= (x >> 16);
+    x *= (ap_uint<32>)2654435761u;
+    hash_value = (int)(x % MAX_COMMAND_BUFFER_NUM);
+}
+
+static void update_inflight_from_ack(
+    int *in_flight_arr,
+    int &in_flight_count,
+    hls::stream<COMMAND_STREAM> &ack_stream)
 {
     #pragma HLS INLINE
     COMMAND_STREAM ack;
-    if (ack_st.read_nb(ack))
+    if (ack_stream.read_nb(ack))
     {
-        inflight_remove(t, t_cnt, ack.data);
-    }
-}
-
-// ============================================================
-// Eviction candidate: non-in_flight PMA, shortest queue.
-// ============================================================
-
-static int slot_evict(
-    PoolSlot p[POOL_SIZE],
-    int t[MAX_INFLIGHT_NUM],
-    int for_pma)
-{
-    #pragma HLS INLINE
-    int best = -1;
-    int best_len = POOL_QUEUE_DEPTH + 1;
-    for (int i = 0; i < POOL_SIZE; i++) {
-        int ev_pma = p[i].pma_idx;
-        if (ev_pma == -1 || ev_pma == for_pma) continue;
-        if (inflight_check(t, ev_pma)) continue;
-        if (p[i].q_count < best_len) {
-            best = i;
-            best_len = p[i].q_count;
+        int pma_idx = ack.data;
+        int find_idx = -1;
+        for (int i = 0 ; i < MAX_INFLIGHT_NUM ; i++)
+        {
+            if (in_flight_arr[i] == pma_idx)
+            {
+                // in_flight_arr[i] = -1;
+                // in_flight_count--;
+                // // hls::print("infight removed, count %d\n", in_flight_count);
+                // break;
+                find_idx = i;
+            }
+        }
+        if (find_idx != -1)
+        {
+            in_flight_arr[find_idx] = -1;
+            in_flight_count--;
         }
     }
-    return best;
 }
 
-// ============================================================
-// Step 3 helper: longest non-in_flight PMA queue.
-// ============================================================
-
-static int step3_find_best(
-    PoolSlot p[POOL_SIZE],
-    int t[MAX_INFLIGHT_NUM],
-    int min_len)
+static void check_ack_back_array(
+    int *in_flight_arr,
+    int &in_flight_count,
+    hls::stream<COMMAND_STREAM>& ack_from_insert_edge_1,
+    hls::stream<COMMAND_STREAM>& ack_from_insert_edge_2
+    // hls::stream<COMMAND_STREAM>& ack_from_insert_edge_3,
+    // hls::stream<COMMAND_STREAM>& ack_from_insert_edge_4
+)
 {
     #pragma HLS INLINE
-    int best = -1;
-    int best_len = min_len - 1;
-    for (int i = 0; i < POOL_SIZE; i++) {
-        if (p[i].pma_idx == -1 || p[i].q_count == 0) continue;
-        if (inflight_check(t, p[i].pma_idx)) continue;
-        if (p[i].q_count > best_len) {
-            best = i;
-            best_len = p[i].q_count;
-        }
-    }
-    return best;
+    update_inflight_from_ack(in_flight_arr, in_flight_count, ack_from_insert_edge_1);
+    update_inflight_from_ack(in_flight_arr, in_flight_count, ack_from_insert_edge_2);
+    // update_inflight_from_ack(in_flight_arr, in_flight_count, ack_from_insert_edge_3);
+    // update_inflight_from_ack(in_flight_arr, in_flight_count, ack_from_insert_edge_4);
 }
 
-// ============================================================
-// Main kernel
-// ============================================================
+void add_inflight(int *in_flight_arr, int &in_flight_count, int pma_idx)
+{
+    for (int i  = 0 ; i < MAX_INFLIGHT_NUM ; i++)
+    {
+        if (in_flight_arr[i] == -1)
+        {
+            in_flight_arr[i] = pma_idx;
+            in_flight_count++;
+            // hls::print("infight added, count %d\n", in_flight_count);
+            break;
+        }
+    }
+}
+
+void flush_and_add_inflight(
+    int hash,
+    int pma_idx,
+    int *in_flight_arr,
+    int &in_flight_count,
+    hls::stream<COMMAND_STREAM>& ack_from_insert_edge_1,
+    hls::stream<COMMAND_STREAM>& ack_from_insert_edge_2,
+    // hls::stream<COMMAND_STREAM>& ack_from_insert_edge_3,
+    // hls::stream<COMMAND_STREAM>& ack_from_insert_edge_4,
+    hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_1,
+    hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_2,
+    // hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_3,
+    // hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_4,
+    PMA_UPDATE_MESSAGE msg_buffer[MAX_COMMAND_BUFFER_NUM][MAX_COMMAND_BUFFER_LENGTH],
+    int *count_arr)
+{
+    while (check_inflight(in_flight_arr, pma_idx) || in_flight_count >= MAX_INFLIGHT_NUM)
+    {
+        check_ack_back_array(
+            in_flight_arr,
+            in_flight_count,
+            ack_from_insert_edge_1,
+            ack_from_insert_edge_2
+            // ack_from_insert_edge_3,
+            // ack_from_insert_edge_4
+        );
+        ap_wait();
+    }
+
+    if (count_arr[hash] > 0) {
+        int worker = pma_idx % ROUTER_WORKERS;
+        switch (worker)
+        {
+            case 0: flush_buffer_aux(hash, cmd_to_insert_edge_1, msg_buffer, count_arr); break;
+            case 1: flush_buffer_aux(hash, cmd_to_insert_edge_2, msg_buffer, count_arr); break;
+            // case 2: flush_buffer_aux(hash, cmd_to_insert_edge_3, msg_buffer, count_arr); break;
+            // case 3: flush_buffer_aux(hash, cmd_to_insert_edge_4, msg_buffer, count_arr); break;
+            default: break;
+        }
+        add_inflight(in_flight_arr, in_flight_count, pma_idx);
+    }
+}
 
 extern "C"
 {
@@ -233,250 +162,193 @@ extern "C"
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_from_generator,
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_1,
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_2,
+        // hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_3,
+        // hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_4,
         hls::stream<COMMAND_STREAM> &ack_from_insert_edge_1,
         hls::stream<COMMAND_STREAM> &ack_from_insert_edge_2,
+        // hls::stream<COMMAND_STREAM> &ack_from_insert_edge_3,
+        // hls::stream<COMMAND_STREAM> &ack_from_insert_edge_4,
         hls::stream<WHOLE_ACK> &ack_to_generator
     )
     {
         #pragma HLS INTERFACE axis port=cmd_from_generator
         #pragma HLS INTERFACE axis port=cmd_to_insert_edge_1
         #pragma HLS INTERFACE axis port=cmd_to_insert_edge_2
+        // #pragma HLS INTERFACE axis port=cmd_to_insert_edge_3
+        // #pragma HLS INTERFACE axis port=cmd_to_insert_edge_4
         #pragma HLS INTERFACE axis port=ack_from_insert_edge_1
         #pragma HLS INTERFACE axis port=ack_from_insert_edge_2
+        // #pragma HLS INTERFACE axis port=ack_from_insert_edge_3
+        // #pragma HLS INTERFACE axis port=ack_from_insert_edge_4
         #pragma HLS INTERFACE axis port=ack_to_generator
 
         #pragma HLS STREAM variable=cmd_from_generator depth=16
         #pragma HLS STREAM variable=cmd_to_insert_edge_1 depth=16
         #pragma HLS STREAM variable=cmd_to_insert_edge_2 depth=16
+        // #pragma HLS STREAM variable=cmd_to_insert_edge_3 depth=16
+        // #pragma HLS STREAM variable=cmd_to_insert_edge_4 depth=16
         #pragma HLS STREAM variable=ack_from_insert_edge_1 depth=16
         #pragma HLS STREAM variable=ack_from_insert_edge_2 depth=16
+        // #pragma HLS STREAM variable=ack_from_insert_edge_3 depth=16
+        // #pragma HLS STREAM variable=ack_from_insert_edge_4 depth=16
         #pragma HLS STREAM variable=ack_to_generator depth=16
 
-        PoolSlot pool[POOL_SIZE];
-        #pragma HLS BIND_STORAGE variable=pool type=RAM_2P impl=URAM
-        for (int i = 0; i < POOL_SIZE; i++) {
-            pool[i].pma_idx   = -1;
-            pool[i].q_head    = 0;
-            pool[i].q_tail    = 0;
-            pool[i].q_count   = 0;
-        }
+        PMA_UPDATE_MESSAGE msg_buffer[MAX_COMMAND_BUFFER_NUM][MAX_COMMAND_BUFFER_LENGTH];
+        #pragma HLS BIND_STORAGE variable=msg_buffer type=RAM_2P impl=URAM
+        int count[MAX_COMMAND_BUFFER_NUM];
+        #pragma HLS ARRAY_PARTITION variable=count complete
 
         int in_flight[MAX_INFLIGHT_NUM];
         #pragma HLS ARRAY_PARTITION variable=in_flight complete
-        for (int i = 0; i < MAX_INFLIGHT_NUM; i++) in_flight[i] = -1;
+        for (int i = 0 ; i < MAX_INFLIGHT_NUM ; i++) in_flight[i] = -1;
         int in_flight_count = 0;
+        // hls::print("in_flight_count %d\n", in_flight_count);
+        for (int i = 0 ; i < MAX_COMMAND_BUFFER_NUM ; i++)
+        {
+            count[i] = 0;
+        }
 
-        while (true) {
-
-            // ==================================================
-            // Step 1: Poll ACKs — only remove from in_flight.
-            // ==================================================
-            {
-                poll_ack(in_flight, in_flight_count,
-                    ack_from_insert_edge_1);
-                poll_ack(in_flight, in_flight_count,
-                    ack_from_insert_edge_2);
-            }
-
-            // ==================================================
-            // Step 2: Read one message, enqueue.
-            // Spins within this cycle if pool full / eviction
-            // needed.  Handles its own ACK polling + dispatch
-            // for the eviction target only.
-            // ==================================================
+        while (true)
+        { 
+            check_ack_back_array(
+                in_flight,
+                in_flight_count,
+                ack_from_insert_edge_1,
+                ack_from_insert_edge_2
+                // ack_from_insert_edge_3,
+                // ack_from_insert_edge_4
+            );
+            ap_wait();
             PMA_UPDATE_MESSAGE msg;
-            if (cmd_from_generator.read_nb(msg)) {
-
-                if (msg.opcode == PMA_UPDATE_STOP) {
-                    hls::print("[ROUTER] STOP in_flight=%d\n", in_flight_count);
-
-                    // Flush all pending messages.
-                    // For each non-empty slot: drain completely,
-                    // dispatching batches and waiting for ACKs.
-                    for (int i = 0; i < POOL_SIZE; i++) {
-                        if (pool[i].pma_idx == -1 || pool[i].q_count == 0)
-                            continue;
-                        int pma_i = pool[i].pma_idx;
-                        while (pool[i].q_count > 0) {
-                            // Wait until PMA not in_flight and table has room
-                            
-                            #pragma HLS PIPELINE off
-                            while (inflight_check(in_flight, pma_i)
-                                   || in_flight_count >= MAX_INFLIGHT_NUM) {
-                                
-                                #pragma HLS PIPELINE off
-                                hls::print("[ROUTER] STOP wait pma=%d\n", pma_i);
-                                hls::print("[ROUTER] STOP wait cnt=%d\n", in_flight_count);
-                                poll_ack(in_flight, in_flight_count,
-                                    ack_from_insert_edge_1);
-                                poll_ack(in_flight, in_flight_count,
-                                    ack_from_insert_edge_2);
-                                ap_wait();
-                            }
-                            if (slot_flush_one_batch(pool, i,
-                                cmd_to_insert_edge_1, cmd_to_insert_edge_2))
-                                inflight_add(in_flight, in_flight_count, pma_i);
+            if(cmd_from_generator.read_nb(msg))
+            {
+                if (msg.opcode == PMA_UPDATE_STOP)
+                {
+                    for (int i = 0 ; i < MAX_COMMAND_BUFFER_NUM ; i++)
+                    {
+                        if (count[i] > 0)
+                        {
+                            flush_and_add_inflight(
+                                i, msg_buffer[i][0].src / VERTEX_PER_PMA,
+                                in_flight, in_flight_count,
+                                ack_from_insert_edge_1,
+                                ack_from_insert_edge_2,
+                                // ack_from_insert_edge_3,
+                                // ack_from_insert_edge_4,
+                                cmd_to_insert_edge_1,
+                                cmd_to_insert_edge_2,
+                                // cmd_to_insert_edge_3,
+                                // cmd_to_insert_edge_4,
+                                msg_buffer, count
+                            );
                         }
-                        // Slot fully drained; mark it free.
-                        pool[i].pma_idx   = -1;
-                        pool[i].q_head    = 0;
-                        pool[i].q_tail    = 0;
                     }
-
-                    // Drain remaining in_flight.
-                    // All slots were drained by the for loop above;
-                    // just wait for the last ACKs to arrive.
-                    while (in_flight_count > 0) {
-                        poll_ack(in_flight, in_flight_count,
-                            ack_from_insert_edge_1);
-                        poll_ack(in_flight, in_flight_count,
-                            ack_from_insert_edge_2);
+                    while (in_flight_count > 0)
+                    {
+                        check_ack_back_array(
+                            in_flight,
+                            in_flight_count,
+                            ack_from_insert_edge_1,
+                            ack_from_insert_edge_2
+                            // ack_from_insert_edge_3,
+                            // ack_from_insert_edge_4
+                        );
                         ap_wait();
                     }
-
-                    if (msg.last == 1) {
+                    hls::print("in_flight_count after flush %d\n", in_flight_count);
+                   
+                    if (msg.last == 1)
+                    {
                         msg.opcode = PMA_UPDATE_STOP;
                         cmd_to_insert_edge_1.write(msg);
                         cmd_to_insert_edge_2.write(msg);
                         #pragma HLS protocol fixed
-                        auto a1 = ack_from_insert_edge_1.read();
-                        auto a2 = ack_from_insert_edge_2.read();
+                        auto ack_1 = ack_from_insert_edge_1.read();
+                        auto ack_2 = ack_from_insert_edge_2.read();
                         #pragma HLS protocol fixed
-                        WHOLE_ACK pkt;
-                        pkt.data = 1;
-                        pkt.keep = (ap_uint<4>)0xF;
-                        pkt.strb = (ap_uint<4>)0xF;
-                        pkt.last = 1;
-                        ack_to_generator.write(pkt);
+                        WHOLE_ACK ack_pkt;
+                        ack_pkt.data = 1;
+                        ack_pkt.keep = (ap_uint<4>)0xF;
+                        ack_pkt.strb = (ap_uint<4>)0xF;
+                        ack_pkt.last = 1;
+                        ack_to_generator.write(ack_pkt);
                         break;
-                    } else {
+                    }
+                    else
+                    {
                         msg.opcode = PMA_UPDATE_FLUSH_CACHE;
                         cmd_to_insert_edge_1.write(msg);
                         cmd_to_insert_edge_2.write(msg);
                         #pragma HLS protocol fixed
-                        auto a1 = ack_from_insert_edge_1.read();
-                        auto a2 = ack_from_insert_edge_2.read();
+                        auto ack_1 = ack_from_insert_edge_1.read();
+                        auto ack_2 = ack_from_insert_edge_2.read();
                         #pragma HLS protocol fixed
-                        WHOLE_ACK pkt;
-                        pkt.data = 1;
-                        pkt.keep = (ap_uint<4>)0xF;
-                        pkt.strb = (ap_uint<4>)0xF;
-                        pkt.last = 1;
-                        ack_to_generator.write(pkt);
-                    }
-
-                } else {
-                    // ---- Normal edge ----
-                    int pma = msg.src / VERTEX_PER_PMA;
-                    int wid = pma % ROUTER_WORKERS;
-                    int slot = slot_find(pool, pma);
-
-                    if (slot == -1) {
-                        slot = slot_alloc(pool, pma, wid);
-                    } else if (pool[slot].q_count >= POOL_QUEUE_DEPTH) {
-                        int ns = slot_alloc(pool, pma, wid);
-                        if (ns != -1) slot = ns;
-                    }
-
-                    // Spin until message is enqueued.
-                    bool enqueued = false;
-                    while (!enqueued) {
-
-                        // ---- Still no slot: evict ----
-                        while (slot == -1) {
-                            int ev = slot_evict(pool, in_flight, pma);
-                            if (ev == -1) {
-                                // All PMAs in flight: poll ACKs to free slots
-                                poll_ack(in_flight, in_flight_count,
-                                    ack_from_insert_edge_1);
-                                poll_ack(in_flight, in_flight_count,
-                                    ack_from_insert_edge_2);
-                                ap_wait();
-                                slot = slot_find(pool, pma);
-                                if (slot == -1 || pool[slot].q_count >= POOL_QUEUE_DEPTH) {
-                                    int ns = slot_alloc(pool, pma, wid);
-                                    if (ns != -1) slot = ns;
-                                }
-                                continue;
-                            }
-
-                            // Drain the eviction slot completely.
-                            int ev_pma = pool[ev].pma_idx;
-                            while (pool[ev].q_count > 0) {
-                                while (inflight_check(in_flight, ev_pma)
-                                       || in_flight_count >= MAX_INFLIGHT_NUM) {
-                                    poll_ack(in_flight, in_flight_count,
-                                        ack_from_insert_edge_1);
-                                    poll_ack(in_flight, in_flight_count,
-                                        ack_from_insert_edge_2);
-                                    ap_wait();
-                                }
-                                if (slot_flush_one_batch(pool, ev,
-                                    cmd_to_insert_edge_1, cmd_to_insert_edge_2))
-                                    inflight_add(in_flight, in_flight_count, ev_pma);
-                            }
-                            // Slot empty — reuse
-                            pool[ev].pma_idx   = pma;
-                            pool[ev].worker_id = wid;
-                            pool[ev].q_head    = 0;
-                            pool[ev].q_tail    = 0;
-                            pool[ev].q_count   = 0;
-                            slot = ev;
-                        }
-
-                        // ---- Enqueue ----
-                        if (slot_enq(pool, slot, msg)) {
-                            enqueued = true;
-                        } else {
-                            int ns = slot_alloc(pool, pma, wid);
-                            if (ns != -1) { slot = ns; continue; }
-                            int ev = slot_evict(pool, in_flight, pma);
-                            if (ev == -1) {
-                                poll_ack(in_flight, in_flight_count,
-                                    ack_from_insert_edge_1);
-                                poll_ack(in_flight, in_flight_count,
-                                    ack_from_insert_edge_2);
-                                ap_wait();
-                                continue;
-                            }
-                            int ev_pma = pool[ev].pma_idx;
-                            while (pool[ev].q_count > 0) {
-                                #pragma HLS PIPELINE off
-                                while (inflight_check(in_flight, ev_pma)
-                                       || in_flight_count >= MAX_INFLIGHT_NUM) {
-                                    poll_ack(in_flight, in_flight_count,
-                                        ack_from_insert_edge_1);
-                                    poll_ack(in_flight, in_flight_count,
-                                        ack_from_insert_edge_2);
-                                    ap_wait();
-                                }
-                                #pragma HLS PIPELINE off
-                                if (slot_flush_one_batch(pool, ev,
-                                    cmd_to_insert_edge_1, cmd_to_insert_edge_2))
-                                    inflight_add(in_flight, in_flight_count, ev_pma);
-                            }
-                            pool[ev].pma_idx   = pma;
-                            pool[ev].worker_id = wid;
-                            pool[ev].q_head    = 0;
-                            pool[ev].q_tail    = 0;
-                            pool[ev].q_count   = 0;
-                            slot = ev;
-                        }
+                        WHOLE_ACK ack_pkt;
+                        ack_pkt.data = 1;
+                        ack_pkt.keep = (ap_uint<4>)0xF;
+                        ack_pkt.strb = (ap_uint<4>)0xF;
+                        ack_pkt.last = 1;
+                        ack_to_generator.write(ack_pkt);
                     }
                 }
-            }
-
-            // ==================================================
-            // Step 3: Dispatch one batch — longest ready PMA.
-            // Only if in_flight table has room.
-            // ==================================================
-            {
-                int best = step3_find_best(pool, in_flight, 1);
-                if (best != -1 && in_flight_count < MAX_INFLIGHT_NUM) {
-                    int pma = pool[best].pma_idx;
-                    if (slot_flush_one_batch(pool, best,
-                        cmd_to_insert_edge_1, cmd_to_insert_edge_2))
-                        inflight_add(in_flight, in_flight_count, pma);
+                else  
+                {
+                    
+                    int src = msg.src;
+                    int pma_idx = src / VERTEX_PER_PMA;
+                    int hash = -1;
+                    // ap_wait();
+                    get_hash_value(pma_idx, hash);
+                    // ap_wait();
+                    if (count[hash] == 0)   
+                    {
+                        msg_buffer[hash][count[hash]] = msg;
+                        count[hash]++;
+                    }
+                    else if (count[hash] < MAX_COMMAND_BUFFER_LENGTH)
+                    {
+                        if (msg_buffer[hash][0].src / VERTEX_PER_PMA == msg.src / VERTEX_PER_PMA)
+                        {
+                            msg_buffer[hash][count[hash]] = msg;
+                            count[hash]++;
+                        }
+                        else
+                        {
+                            flush_and_add_inflight(
+                                hash, msg_buffer[hash][0].src / VERTEX_PER_PMA,
+                                in_flight, in_flight_count,
+                                ack_from_insert_edge_1,
+                                ack_from_insert_edge_2,
+                                // ack_from_insert_edge_3,
+                                // ack_from_insert_edge_4,
+                                cmd_to_insert_edge_1,
+                                cmd_to_insert_edge_2,
+                                // cmd_to_insert_edge_3,
+                                // cmd_to_insert_edge_4,
+                                msg_buffer, count
+                            );
+                            msg_buffer[hash][count[hash]] = msg;
+                            count[hash]++;
+                        }
+                    }
+                    else
+                    {
+                        flush_and_add_inflight(
+                            hash, msg_buffer[hash][0].src / VERTEX_PER_PMA,
+                            in_flight, in_flight_count,
+                            ack_from_insert_edge_1,
+                            ack_from_insert_edge_2,
+                            // ack_from_insert_edge_3,
+                            // ack_from_insert_edge_4,
+                            cmd_to_insert_edge_1,
+                            cmd_to_insert_edge_2,
+                            // cmd_to_insert_edge_3,
+                            // cmd_to_insert_edge_4,
+                            msg_buffer, count
+                        );
+                        msg_buffer[hash][count[hash]] = msg;
+                        count[hash]++;
+                    }
                 }
             }
         }
