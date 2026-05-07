@@ -455,7 +455,13 @@ void cache_mechanism(
                             for (int w = 0; w < seg_words; w++) {
                                 #pragma HLS PIPELINE II=1
                                 ap_axiu<512, 0, 0, 0> pkt;
-                                pkt.data = empty_pma_content;
+                                if (w == 3) {
+                                    ap_uint<512> val = empty_pma_content;
+                                    val.range(511, 480) = 0;
+                                    pkt.data = val;
+                                } else {
+                                    pkt.data = empty_pma_content;
+                                }
                                 pkt.last = (w == seg_words - 1) ? 1 : 0;
                                 data_to_mem_access.write(pkt);
                             }
@@ -596,7 +602,14 @@ void cache_mechanism(
                     for (int j = 4 ; j < 64 + 4 ; j++)
                     {
                         #pragma HLS PIPELINE II=1
-                        cache_buffer[evict_line][j] = empty_pma_content;
+                        // 4th word of each segment: set valid_count=0 at position 63
+                        if ((j % 4) == 3) {
+                            ap_uint<512> w = empty_pma_content;
+                            w.range(511, 480) = 0;
+                            cache_buffer[evict_line][j] = w;
+                        } else {
+                            cache_buffer[evict_line][j] = empty_pma_content;
+                        }
                     }
                 }
             }
@@ -698,7 +711,14 @@ void cache_mechanism(
                                 {
                                     #pragma HLS PIPELINE II=1
                                     int fill_word_idx = header_words + (fill_start_seg + s) * seg_words_per_seg + w;
-                                    cache_buffer[active_line][fill_word_idx] = empty_pma_content;
+                                    // 4th word: set valid_count=0 at position 63
+                                    if (w == 3) {
+                                        ap_uint<512> val = empty_pma_content;
+                                        val.range(511, 480) = 0;
+                                        cache_buffer[active_line][fill_word_idx] = val;
+                                    } else {
+                                        cache_buffer[active_line][fill_word_idx] = empty_pma_content;
+                                    }
                                 }
                             }
                         }
@@ -1265,11 +1285,12 @@ void binary_search_insert_cu(
         int current_cached_id = -1;
         bool is_dirty = false;
         int storage[SEGMENT_SIZE];
-        for (int i = 0 ; i < SEGMENT_SIZE ; i++)
+        for (int i = 0 ; i < EDGE_SLOTS_PER_SEG ; i++)
         {
             #pragma HLS UNROLL
             storage[i] = UNUSED_ICON;
         }
+        storage[VALID_COUNT_IDX] = 0; // valid_count starts at 0
 
         for (int i = 0 ; i < delete_vertex_ops_count; i++)
         {
@@ -1289,13 +1310,17 @@ void binary_search_insert_cu(
             command.seg_len = high_seg - low_seg;
             // hls::print("[pma] PMA_SEGMENT_WRITE delete_vertex pma_idx=%d\n", signal.pma_idx);
             memory_access_stream.write(command);
-            for (int s = low_seg; s < high_seg; s++)            
+            for (int s = low_seg; s < high_seg; s++)
             {
-                for (int k = 0; k < 4; k++)
-                {
-                    // hls::print("[pma] DATA_TO_MEM_FILL_UNUSED pma_idx=%d\n", signal.pma_idx);
-                    data_to_mem.write(-1);//UNUSED ICON = -1 OTHERWISE NEED TO BE INITIAL MANUALLY
-                }
+                #pragma HLS PIPELINE II=1
+                // Write 3 full words of UNUSED_ICON for edges 0-47
+                data_to_mem.write(-1);
+                data_to_mem.write(-1);
+                data_to_mem.write(-1);
+                // Word 3: edges 48-62 = UNUSED_ICON, position 63 = valid_count = 0
+                ap_uint<512> last_word = -1;
+                last_word.range(511, 480) = 0; // VALID_COUNT_IDX=63 → int 15 in word 3
+                data_to_mem.write(last_word);
             }
             header.edge_count[local_src] = 0;
         }
@@ -1324,9 +1349,9 @@ void binary_search_insert_cu(
                 is_dirty = false;
             }
             int found_idx_for_del = -1;
-            for (int j = 0; j < SEGMENT_SIZE; j++)
+            for (int j = 0; j < EDGE_SLOTS_PER_SEG; j++)
             {
-                #pragma HLS LOOP_TRIPCOUNT min=0 max=64
+                #pragma HLS LOOP_TRIPCOUNT min=0 max=63
                 if (storage[j] == dst)
                 {
                     found_idx_for_del = j;
@@ -1337,11 +1362,12 @@ void binary_search_insert_cu(
             {
                 continue;
             }
-            for (int j = found_idx_for_del + 1; j < SEGMENT_SIZE; j++)
+            for (int j = found_idx_for_del + 1; j < EDGE_SLOTS_PER_SEG; j++)
             {
                 storage[j - 1] = storage[j];
             }
-            storage[SEGMENT_SIZE - 1] = UNUSED_ICON;
+            storage[EDGE_SLOTS_PER_SEG - 1] = UNUSED_ICON;
+            storage[VALID_COUNT_IDX]--;
             is_dirty = true;
             header.edge_count[local_src]--;
         }
@@ -1368,9 +1394,9 @@ void binary_search_insert_cu(
                 current_cached_id = target_seg;
             }
             int found_idx_for_insert = -1;
-            for (int j = 0; j < SEGMENT_SIZE; j++)
+            for (int j = 0; j < EDGE_SLOTS_PER_SEG; j++)
             {
-                #pragma HLS LOOP_TRIPCOUNT min=0 max=64
+                #pragma HLS LOOP_TRIPCOUNT min=0 max=63
                 int storage_val = storage[j];
                 if (storage_val >= dst || storage_val == UNUSED_ICON)
                 {
@@ -1378,11 +1404,12 @@ void binary_search_insert_cu(
                     break;
                 }
             }
-            for (int j = SEGMENT_SIZE - 1; j > found_idx_for_insert; j--)
+            for (int j = EDGE_SLOTS_PER_SEG - 1; j > found_idx_for_insert; j--)
             {
                 storage[j] = storage[j - 1];
             }
             storage[found_idx_for_insert] = dst;
+            storage[VALID_COUNT_IDX]++;
             is_dirty = true;
             header.edge_count[local_src]++;
         }
@@ -1403,7 +1430,7 @@ void binary_search_insert_cu(
 static inline int density_capacity_from_seg_count(int seg_count)
 {
     #pragma HLS INLINE
-    return (seg_count * SEGMENT_SIZE * 3) >> 2;
+    return (seg_count * EDGE_SLOTS_PER_SEG * 3) >> 2;
 }
 
 void redistribute(
@@ -1420,37 +1447,38 @@ void redistribute(
     #pragma HLS BIND_STORAGE variable=tmp type=RAM_2P impl=URAM
     int tmp_idx = 0;
 
-    // 1. 读取所有段，收集所有非 UNUSED 元素
+    // 1. 读取所有段，收集所有非 UNUSED 元素 (skip valid_count at position 63)
     for (int s = seg_start; s < seg_end; s++) {
         int buf[SEGMENT_SIZE];
         read_seg(memory_access_stream, data_from_mem, buf, pma_idx, s);
-        for (int k = 0; k < SEGMENT_SIZE; k++) {
+        for (int k = 0; k < EDGE_SLOTS_PER_SEG; k++) {
             if (buf[k] != UNUSED_ICON) {
                 tmp[tmp_idx++] = buf[k];
             }
         }
     }
 
-    // 2. 均匀写入
+    // 2. 均匀写入，同时设置 valid_count
     int base = total_valid_count / total_segs;
     int extra = total_valid_count % total_segs;
     int pos = 0;
     for (int w = seg_start; w < seg_end; w++) {
         int fill = base + ((w - seg_start) < extra ? 1 : 0);
         int wbuf[SEGMENT_SIZE];
-        for (int k = 0; k < SEGMENT_SIZE; k++) {
+        for (int k = 0; k < EDGE_SLOTS_PER_SEG; k++) {
             if (k < fill && pos < total_valid_count) {
                 wbuf[k] = tmp[pos++];
             } else {
                 wbuf[k] = UNUSED_ICON;
             }
         }
+        wbuf[VALID_COUNT_IDX] = fill;
         write_seg(memory_access_stream, data_to_mem, wbuf, pma_idx, w);
     }
 }
 
 int valid_count(
-    int seg_start, int seg_end, 
+    int seg_start, int seg_end,
     hls::stream<PMA_INFO_ACCESS_COMMAND>& memory_access_stream,
     hls::stream<ap_uint<512>>& data_from_mem,
     int pma_idx
@@ -1460,32 +1488,24 @@ int valid_count(
     int total_segs = seg_end - seg_start;
     if (total_segs <= 0) return 0;
 
+    // Read all words: cache_mechanism returns seg_len * 4 words per PMA_SEGMENT_READ
     PMA_INFO_ACCESS_COMMAND command;
     command.pma_idx = pma_idx;
     command.seg_start = seg_start;
-    command.seg_len = seg_end - seg_start;
+    command.seg_len = total_segs;
     command.command_type = PMA_SEGMENT_READ;
-    // hls::print("[pma] VALID_COUNT PMA_SEGMENT_READ pma_idx=%d\n", pma_idx);
     memory_access_stream.write(command);
 
     int count = 0;
-    // Each segment has 4 * 512-bit words (assuming SEGMENT_SIZE=64)
-    int total_words = total_segs * 4; 
-    VALID_COUNT_LOOP:
+    int total_words = total_segs * 4;
     for (int i = 0 ; i < total_words ; i++)
     {
         #pragma HLS PIPELINE II=1
         ap_uint<512> val = data_from_mem.read();
-        int local_count = 0;//important to avoid HLS report dependency on count variable
-
-        for (int j = 0 ; j < 16 ; j++)
-        {
-            #pragma HLS UNROLL
-            int item = val.range(32 * (j + 1) - 1, 32 * j);
-            local_count += (item != UNUSED_ICON);
+        // Extract valid_count from word 3 within each segment (int 15 = bits 511:480)
+        if ((i % 4) == 3) {
+            count += (int)val.range(511, 480); // VALID_COUNT_IDX=63 → int 15 in word 3
         }
-
-        count += local_count;
     }
     return count;
 }

@@ -157,11 +157,10 @@ void pma_read_worker_kernel(
 
             for (int s = seg_start; s < seg_end; s++) {
                 read_seg(req_to_mem_access_ch, data_from_mem_access_ch, segment_buffer, pma_data_base_addr, s);
-                for (int j = 0; j < SEGMENT_SIZE; j++) {
+                int cnt = segment_buffer[VALID_COUNT_IDX];
+                for (int j = 0; j < cnt; j++) {
                     #pragma HLS PIPELINE II=1
-                    int neighbor = segment_buffer[j];
-                    if (neighbor == UNUSED_ICON) break;
-                    write_pkt(pkt_to_merger, (ap_uint<32>)neighbor, 0xFF, 0, KEEP64);
+                    write_pkt(pkt_to_merger, (ap_uint<32>)segment_buffer[j], 0xFF, 0, KEEP64);
                 }
             }
             write_pkt(pkt_to_merger, 0, 0xFF, 1, KEEP64);
@@ -200,10 +199,10 @@ void pma_read_worker_kernel(
                     int src = pma_idx * VERTEX_PER_PMA + local_v;
                     for (int s = seg_start; s < seg_end; s++) {
                         read_seg(req_to_mem_access_ch, data_from_mem_access_ch, segment_buffer, pma_data_base_addr, s);
-                        for (int j = 0; j < SEGMENT_SIZE; j++) {
+                        int cnt = segment_buffer[VALID_COUNT_IDX];
+                        for (int j = 0; j < cnt; j++) {
                             #pragma HLS PIPELINE II=1
                             int neighbor = segment_buffer[j];
-                            if (neighbor == UNUSED_ICON) break;
                             ap_uint<64> pair = ((ap_uint<64>)(ap_uint<32>)src << 32) | (ap_uint<32>)neighbor;
                             write_pkt(pkt_to_merger, pair, 0xFF, 0, KEEP64);
                         }

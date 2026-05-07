@@ -27,8 +27,10 @@ typedef ap_uint<8> BYTE;
 // #define PMA_GET_ALL_IN_EDGE_CSR 20
 #define PMA_GET_EDGE_COUNT_RANGE 21
 #define INIT_VEC_LEN_IN_BYTE 1024
-//64 elements
-#define SEGMENT_SIZE 64 
+//64 elements per segment, last element (idx 63) = valid_count
+#define SEGMENT_SIZE 64
+#define EDGE_SLOTS_PER_SEG 63  // SEGMENT_SIZE - 1, valid_count occupies the last slot
+#define VALID_COUNT_IDX 63
 #define DENSITY_BOUND 0.75
 //0-31 start address
 //32-63 length
