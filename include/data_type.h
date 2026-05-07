@@ -110,17 +110,31 @@ struct INTRA_PMA_UPDATE_MESSAGE
 #define MAX_COMMAND_BUFFER_NUM 128
 #define MAX_CMD_NUM 16
 
-// --- Tiered Cache Configuration ---
-#define LARGE_CACHE_LINES 4       // 大缓存: 用于热点 PMA
-#define SMALL_CACHE_LINES 4       // 小缓存: 用于初始化和普通 PMA
-#define LARGE_CACHE_SIZE 8192     // 大缓存每行 word 数 (512b/word)
-#define SMALL_CACHE_SIZE 1024     // 小缓存每行 word 数 (64KB)
-#define SMALL_TO_LARGE_SEG_THRESHOLD 64  // 超过此 segment 数的 PMA 必须进大缓存
-#define HOT_PMA_THRESHOLD 3       // HBM miss 次数阈值, 超过则提升为热点
-#define PROFILE_TABLE_SIZE 64     // 片下访问追踪表条目数
-#define TOTAL_CACHE_LINES (LARGE_CACHE_LINES + SMALL_CACHE_LINES)
-#define BYPASS_EDGE_THRESHOLD 4   // 少于该边数的 PMA 直接 HBM bypass, 不进 cache
-#define BYPASS_BUFFER_SIZE 256    // bypass 临时 buffer (words), 容纳 ~60 segments
+// --- Pyramid Cache Configuration ---
+// Three tiers: Large (super-hot), Medium (hot), Small (warm / new PMA init)
+#define LARGE_LINES   2          // 超级热 PMA
+#define MEDIUM_LINES  8          // 热 PMA
+#define SMALL_LINES   16         // 温 PMA / 新 PMA 初始化
+#define LARGE_SIZE    8192       // 每行 word 数
+#define MEDIUM_SIZE   4096
+#define SMALL_SIZE    1024
+#define TOTAL_CACHE_LINES (LARGE_LINES + MEDIUM_LINES + SMALL_LINES)  // = 26
+
+// Tier index ranges for search loops
+#define LARGE_START   0
+#define LARGE_END     LARGE_LINES
+#define MEDIUM_START  LARGE_LINES
+#define MEDIUM_END    (LARGE_LINES + MEDIUM_LINES)
+#define SMALL_START   (LARGE_LINES + MEDIUM_LINES)
+#define SMALL_END     TOTAL_CACHE_LINES
+
+// Write-through trigger: batch < THRESHOLD → direct HBM, avoid cache thrash
+#define BYPASS_EDGE_THRESHOLD 4
+
+// Profile table: tracks PMA access frequency across evictions
+#define PROFILE_TABLE_SIZE 64
+#define PROFILE_HOT_THRESHOLD  10  // access_count >= 10 → upgrade
+#define PROFILE_WARM_THRESHOLD 3   // access_count >= 3  → upgrade
 
 // #define LOAD_BITMAP 19
 enum control_type
