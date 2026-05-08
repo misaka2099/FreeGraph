@@ -519,7 +519,7 @@ extern "C"
             // Only if in_flight table has room.
             // ==================================================
             {
-                int best = step3_find_best(pool, in_flight, 1);
+                int best = step3_find_best(pool, in_flight, 8);
                 if (best != -1 && in_flight_count < MAX_INFLIGHT_NUM) {
                     int pma = pool[best].pma_idx;
                     if (slot_flush_one_batch(pool, best,
