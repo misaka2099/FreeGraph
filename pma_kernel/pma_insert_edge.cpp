@@ -171,13 +171,12 @@ void cache_mechanism(
     int cache_pma_idx[TOTAL_CACHE_LINES];
     // Per-tier max words for buffer access
     static const int tier_max_words[TOTAL_CACHE_LINES] = {
-        [0]=LARGE_SIZE, [1]=LARGE_SIZE,  // Large tier
-        [2]=MEDIUM_SIZE, [3]=MEDIUM_SIZE, [4]=MEDIUM_SIZE, [5]=MEDIUM_SIZE,
-        [6]=MEDIUM_SIZE, [7]=MEDIUM_SIZE, [8]=MEDIUM_SIZE, [9]=MEDIUM_SIZE,  // Medium
+        [0]=LARGE_SIZE, [1]=LARGE_SIZE,  // Large tier: lines 0-1
+        [2]=MEDIUM_SIZE, [3]=MEDIUM_SIZE, [4]=MEDIUM_SIZE, [5]=MEDIUM_SIZE,  // Medium: 2-5
+        [6]=SMALL_SIZE, [7]=SMALL_SIZE, [8]=SMALL_SIZE, [9]=SMALL_SIZE,
         [10]=SMALL_SIZE, [11]=SMALL_SIZE, [12]=SMALL_SIZE, [13]=SMALL_SIZE,
         [14]=SMALL_SIZE, [15]=SMALL_SIZE, [16]=SMALL_SIZE, [17]=SMALL_SIZE,
-        [18]=SMALL_SIZE, [19]=SMALL_SIZE, [20]=SMALL_SIZE, [21]=SMALL_SIZE,
-        [22]=SMALL_SIZE, [23]=SMALL_SIZE, [24]=SMALL_SIZE, [25]=SMALL_SIZE  // Small
+        [18]=SMALL_SIZE, [19]=SMALL_SIZE, [20]=SMALL_SIZE, [21]=SMALL_SIZE  // Small: 6-21
     };
 
     // ---- Tiered bs_helper caches ----

@@ -113,12 +113,12 @@ struct INTRA_PMA_UPDATE_MESSAGE
 // --- Pyramid Cache Configuration ---
 // Three tiers: Large (super-hot), Medium (hot), Small (warm / new PMA init)
 #define LARGE_LINES   2          // 超级热 PMA
-#define MEDIUM_LINES  8          // 热 PMA
+#define MEDIUM_LINES  4          // 热 PMA
 #define SMALL_LINES   16         // 温 PMA / 新 PMA 初始化
 #define LARGE_SIZE    8192       // 每行 word 数
 #define MEDIUM_SIZE   4096
 #define SMALL_SIZE    1024
-#define TOTAL_CACHE_LINES (LARGE_LINES + MEDIUM_LINES + SMALL_LINES)  // = 26
+#define TOTAL_CACHE_LINES (LARGE_LINES + MEDIUM_LINES + SMALL_LINES)  // = 22
 
 // Tier index ranges for search loops
 #define LARGE_START   0
