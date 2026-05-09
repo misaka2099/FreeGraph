@@ -129,7 +129,8 @@ struct INTRA_PMA_UPDATE_MESSAGE
 #define SMALL_END     TOTAL_CACHE_LINES
 
 // Write-through trigger: batch < THRESHOLD → direct HBM, avoid cache thrash
-#define BYPASS_EDGE_THRESHOLD 4
+// Set to 0 to disable write-through (avoids data corruption on random-order workloads)
+#define BYPASS_EDGE_THRESHOLD 0
 
 // Profile table: tracks PMA access frequency across evictions
 #define PROFILE_TABLE_SIZE 64
@@ -167,7 +168,8 @@ enum PMA_INFO_ACCESS_TYPE
     PMA_EXTEND = 5,
     PMA_BS_HELPER_READ = 6,
     PMA_HEADER_READ_HINTED = 7,  // PMA_HEADER_READ + edge_count hint in seg_start
-    PMA_FLUSH
+    PMA_FLUSH = 8,
+    PMA_VALID_COUNT_READ = 9     // return sum of valid_count over seg_start..seg_start+seg_len
 };
 struct PMA_INFO_ACCESS_COMMAND
 {

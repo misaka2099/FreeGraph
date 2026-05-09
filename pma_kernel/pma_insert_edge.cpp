@@ -15,17 +15,13 @@
 //cache by addr
 void add_timestamp(
     int now_op_cache_tag,
-    ap_uint<32> cache_time_stamp[TOTAL_CACHE_LINES]
+    ap_uint<32> cache_time_stamp[TOTAL_CACHE_LINES],
+    ap_uint<32> &global_ts
 )
 {
     #pragma HLS INLINE
-    ADD_TIMESTAMP:
-    for (int i = 0 ; i < TOTAL_CACHE_LINES ; i++)
-    {
-        #pragma HLS PIPELINE II=1
-        cache_time_stamp[i]++;
-    }
-    cache_time_stamp[now_op_cache_tag] = 0;
+    global_ts++;
+    cache_time_stamp[now_op_cache_tag] = global_ts;
 }
 
 void flush_1_cache(
@@ -165,6 +161,7 @@ void cache_mechanism(
     ap_uint<TOTAL_CACHE_LINES> cache_dirty = 0;
     ap_uint<32> cache_time_stamp[TOTAL_CACHE_LINES];
     #pragma HLS bind_storage variable=cache_time_stamp type=ram_1p impl=URAM
+    ap_uint<32> global_ts = 0;
     ap_uint<32> cache_old_len[TOTAL_CACHE_LINES];
     ap_uint<32> cache_old_start[TOTAL_CACHE_LINES];
     ap_uint<32> cache_new_len[TOTAL_CACHE_LINES];
@@ -212,6 +209,7 @@ void cache_mechanism(
     ap_uint<MEM_REQUEST_NUM> finish_flag = -1;
     for (int i = 0 ; i < TOTAL_CACHE_LINES ; i++)
     {
+        #pragma HLS UNROLL
         cache_time_stamp[i] = 0;
         cache_old_len[i] = 0;
         cache_old_start[i] = 0;
@@ -221,6 +219,7 @@ void cache_mechanism(
     ap_uint<512> empty_vertex_range = 0;
     for (int v = 0; v < VERTEX_PER_PMA; v++)
     {
+        #pragma HLS UNROLL
         empty_vertex_range.range(v * 32 + 31, v * 32) = v + 1;
     }
     const ap_uint<512> empty_pma_content = -1;
@@ -239,7 +238,10 @@ void cache_mechanism(
     int  wt_bs_data[WT_BS_CACHE_LINES][64];  // up to 64 segments per PMA
     int  wt_bs_segs[WT_BS_CACHE_LINES];       // number of valid segments in entry
     #pragma HLS BIND_STORAGE variable=wt_bs_data type=RAM_2P impl=BRAM
-    for (int e = 0; e < WT_BS_CACHE_LINES; e++) wt_bs_pma_idx[e] = -1;
+    for (int e = 0; e < WT_BS_CACHE_LINES; e++) {
+        #pragma HLS UNROLL
+        wt_bs_pma_idx[e] = -1;
+    }
 
     while (true)
     {
@@ -293,6 +295,7 @@ void cache_mechanism(
                 // Check if PMA is already in cache
                 bool in_cache = false;
                 for (int line = 0; line < TOTAL_CACHE_LINES; line++) {
+                    #pragma HLS UNROLL
                     if (cache_valid[line] && cache_pma_idx[line] == pma_idx)
                         in_cache = true;
                 }
@@ -472,6 +475,28 @@ void cache_mechanism(
                             data_to_app[i].write(out);
                         }
                     }
+                } else if (cmd.command_type == PMA_VALID_COUNT_READ) {
+                    // Write-through: read valid_count from HBM, sum, return
+                    int sum = 0;
+                    int seg_words = SEGMENT_SIZE * (int)sizeof(int) / 64;
+                    for (int s = seg_start; s < seg_start + seg_len; s++) {
+                        #pragma HLS PIPELINE II=1
+                        int offset = wt_hbm_start + (int)sizeof(PMA_HEADER)
+                                     + s * seg_words * 64 + 3 * 64;
+                        MEMORY_INFO_ACCESS_COMMAND rcmd = {};
+                        rcmd.command_type = MEMORY_READ;
+                        rcmd.pma_idx = pma_idx;
+                        rcmd.start = offset;
+                        rcmd.len = 8;  // read 64 bits (valid_count is at bits 511:480)
+                        rcmd.last = 0;
+                        req_to_mem_access.write(rcmd);
+                        #pragma HLS protocol fixed
+                        ap_wait();
+                        sum += (int)data_from_mem_access.read().data.range(511, 480);
+                    }
+                    ap_uint<512> out = 0;
+                    out.range(31, 0) = sum;
+                    data_to_app[i].write(out);
                 } else if (cmd.command_type == PMA_EXTEND) {
                     // Read new vertex_range
                     ap_uint<512> new_range_packet = data_from_app[i].read();
@@ -672,11 +697,11 @@ void cache_mechanism(
                     if (!cache_valid[line]) { evict_line = line; }
                 }
                 if (evict_line == -1) {
-                    ap_uint<32> max_ts = 0;
+                    ap_uint<32> min_ts = ~(ap_uint<32>)0;
                     for (int line = tier_start; line < tier_end; line++) {
                         #pragma HLS PIPELINE II=1
-                        if (line == tier_start || cache_time_stamp[line] > max_ts) {
-                            max_ts = cache_time_stamp[line]; evict_line = line;
+                        if (cache_time_stamp[line] < min_ts) {
+                            min_ts = cache_time_stamp[line]; evict_line = line;
                         }
                     }
                 }
@@ -742,7 +767,7 @@ void cache_mechanism(
             int active_line = (cache_line == -1) ? evict_line : cache_line;
             if (cache_line != -1) {
                 // Cache hit: update LRU order (22-line loop)
-                add_timestamp(active_line, cache_time_stamp);
+                add_timestamp(active_line, cache_time_stamp, global_ts);
             } else {
                 // Cache miss: new PMA just loaded, only reset this line's timestamp
                 cache_time_stamp[active_line] = 0;
@@ -927,6 +952,21 @@ void cache_mechanism(
                     data_to_app[i].write(out);
                 }
             }
+            else if (cmd.command_type == PMA_VALID_COUNT_READ)
+            {
+                // Sum valid_count over segment range, return single 32-bit result
+                int sum = 0;
+                int header_words = (int)(sizeof(PMA_HEADER) / 64);
+                int seg_words = SEGMENT_SIZE * (int)sizeof(int) / 64;
+                for (int s = seg_start; s < seg_start + seg_len; s++) {
+                    #pragma HLS PIPELINE II=1
+                    ap_uint<512> w = READ_BUF_WORD(active_line, header_words + s * seg_words + 3);
+                    sum += (int)w.range(511, 480);
+                }
+                ap_uint<512> out = 0;
+                out.range(31, 0) = sum;
+                data_to_app[i].write(out);
+            }
             else if (cmd.command_type == PMA_FLUSH)
             {
                 // Flush write-through header if dirty
@@ -1051,8 +1091,9 @@ void process_cmd(
                 if (first.last == 1) {
                     done = true;
                 }
-                for (int i = 1; i < MAX_CMD_NUM; i++) 
+                for (int i = 1; i < MAX_CMD_NUM; i++)
                 {
+                    #pragma HLS PIPELINE II=1
                     if (done) break;
                     PMA_UPDATE_MESSAGE cmd = cmd_stream.read();
                     cmd_batch[i] = cmd;
@@ -1379,6 +1420,7 @@ void binary_search_insert_cu(
         inserted_seg deleted_seg_info;
         for (int i = 0 ; i < 16 ; i++)
         {
+            #pragma HLS UNROLL
             inserted_seg_info.old_vertex_relative_seg_number[i] = -1;
             inserted_seg_info.vertex_number[i] = -1;
             deleted_seg_info.old_vertex_relative_seg_number[i] = -1;
@@ -1607,7 +1649,12 @@ void binary_search_insert_cu(
 
                 // Pass 2: 2-way merge seg_buf[0..new_valid) + ins_dst → tmp
                 int tmp[SEGMENT_SIZE];
-                #pragma HLS BIND_STORAGE variable=tmp type=RAM_2P impl=BRAM
+                #pragma HLS ARRAY_PARTITION variable=tmp complete
+                // Pre-fill with UNUSED (UNROLL — 1 cycle)
+                for (int e = 0; e < EDGE_SLOTS_PER_SEG; e++) {
+                    #pragma HLS UNROLL
+                    tmp[e] = UNUSED_ICON;
+                }
                 int s = 0, i = 0, n = 0;
                 while (s < new_valid && i < ins_cnt) {
                     #pragma HLS PIPELINE II=1
@@ -1623,10 +1670,6 @@ void binary_search_insert_cu(
                 while (i < ins_cnt) {
                     #pragma HLS PIPELINE II=1
                     tmp[n++] = ins_dst_local[i++];
-                }
-                while (n < EDGE_SLOTS_PER_SEG) {
-                    #pragma HLS PIPELINE II=1
-                    tmp[n++] = UNUSED_ICON;
                 }
                 tmp[VALID_COUNT_IDX] = new_valid + ins_cnt;
                 write_seg(memory_access_stream, data_to_mem, tmp, signal.pma_idx, seg);
@@ -1703,26 +1746,15 @@ int valid_count(
     int total_segs = seg_end - seg_start;
     if (total_segs <= 0) return 0;
 
-    // Read all words: cache_mechanism returns seg_len * 4 words per PMA_SEGMENT_READ
+    // cache_mechanism sums valid_count internally, returns single 32-bit result
     PMA_INFO_ACCESS_COMMAND command;
     command.pma_idx = pma_idx;
     command.seg_start = seg_start;
     command.seg_len = total_segs;
-    command.command_type = PMA_SEGMENT_READ;
+    command.command_type = PMA_VALID_COUNT_READ;
     memory_access_stream.write(command);
 
-    int count = 0;
-    int total_words = total_segs * 4;
-    for (int i = 0 ; i < total_words ; i++)
-    {
-        #pragma HLS PIPELINE II=1
-        ap_uint<512> val = data_from_mem.read();
-        // Extract valid_count from word 3 within each segment (int 15 = bits 511:480)
-        if ((i % 4) == 3) {
-            count += (int)val.range(511, 480); // VALID_COUNT_IDX=63 → int 15 in word 3
-        }
-    }
-    return count;
+    return (int)data_from_mem.read().range(31, 0);
 }
 void rebalance_cu(
     // ap_uint<512>* hbm_ptr,
@@ -1789,6 +1821,7 @@ void rebalance_cu(
         int enlarge_segs[16];
         for (int i = 0 ; i < 16 ; i++)
         {
+            #pragma HLS UNROLL
             enlarge_segs[i] = 0;
         }
         bool enlarged = false;
@@ -1826,7 +1859,7 @@ void rebalance_cu(
             ap_uint<512> new_range_packet = 0;
             for (int v = 0 ; v < VERTEX_PER_PMA ; v++)
             {
-                #pragma HLS PIPELINE II=1
+                #pragma HLS UNROLL
                 new_range_packet.range(v * 32 + 31, v * 32) = header.vertex_range[v];
             }
             // hls::print("[pma] DATA_TO_MEM new_range pma_idx=%d\n", signal.pma_idx);
@@ -1847,6 +1880,7 @@ void rebalance_cu(
         int last_reletive_seg = -10;
         for (int i = 0 ; i < 16 ; i++)//去除重复判定
         {
+            #pragma HLS PIPELINE II=1
             if (
                 to_check.old_vertex_relative_seg_number[i] == last_reletive_seg &&
                 to_check.vertex_number[i] == last_vertex

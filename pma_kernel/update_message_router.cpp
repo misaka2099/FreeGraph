@@ -78,8 +78,7 @@ static int slot_alloc(int tag[POOL_SIZE], int wid_arr[POOL_SIZE],
                       ap_uint<6> qc[POOL_SIZE], int pma, int wid) {
     #pragma HLS INLINE
     for (int i = 0; i < POOL_SIZE; i++) {
-        // #pragma HLS PIPELINE II=1
-        #pragma HLS UNROLL
+        #pragma HLS PIPELINE II=1
         if (tag[i] == POOL_TAG_FREE) {
             tag[i]      = pma;
             wid_arr[i]  = wid;
@@ -118,6 +117,7 @@ static PMA_UPDATE_MESSAGE slot_deq(PoolSlot p[POOL_SIZE], int tag[POOL_SIZE],
 static bool inflight_check(int t[MAX_INFLIGHT_NUM], int pma) {
     #pragma HLS INLINE
     for (int i = 0; i < MAX_INFLIGHT_NUM; i++) {
+        #pragma HLS UNROLL
         if (t[i] == pma) return true;
     }
     return false;
@@ -129,6 +129,7 @@ static void inflight_add(int t[MAX_INFLIGHT_NUM], int &cnt, int pma) {
     if (inflight_check(t, pma)) return;
     if (cnt >= MAX_INFLIGHT_NUM) return;
     for (int i = 0; i < MAX_INFLIGHT_NUM; i++) {
+        #pragma HLS UNROLL
         if (t[i] == -1) {
             t[i] = pma;
             cnt++;
@@ -140,6 +141,7 @@ static void inflight_add(int t[MAX_INFLIGHT_NUM], int &cnt, int pma) {
 static void inflight_remove(int t[MAX_INFLIGHT_NUM], int &cnt, int pma) {
     #pragma HLS INLINE
     for (int i = 0; i < MAX_INFLIGHT_NUM; i++) {
+        #pragma HLS UNROLL
         if (t[i] == pma) {
             t[i] = -1;
             cnt--;
