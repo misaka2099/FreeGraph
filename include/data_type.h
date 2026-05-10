@@ -129,8 +129,8 @@ struct INTRA_PMA_UPDATE_MESSAGE
 #define SMALL_END     TOTAL_CACHE_LINES
 
 // Write-through trigger: batch < THRESHOLD → direct HBM, avoid cache thrash
-// Set to 0 to disable write-through (avoids data corruption on random-order workloads)
-#define BYPASS_EDGE_THRESHOLD 0
+// Temporarily set to 0 to isolate write-through vs cache path hang
+#define BYPASS_EDGE_THRESHOLD 17
 
 // Profile table: tracks PMA access frequency across evictions
 #define PROFILE_TABLE_SIZE 64
