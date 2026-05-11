@@ -50,7 +50,7 @@ struct PoolSlot {
 // Register tag arrays — fully partitioned for 1-cycle parallel compare
 int   pool_tag[POOL_SIZE];
 int   pool_wid[POOL_SIZE];
-ap_uint<6> pool_qcnt[POOL_SIZE];  // 0..64
+int pool_qcnt[POOL_SIZE];
 
 #define POOL_QCNT_INIT 0
 #define POOL_TAG_FREE  -1
@@ -59,7 +59,7 @@ ap_uint<6> pool_qcnt[POOL_SIZE];  // 0..64
 // Pool slot ops
 // ============================================================
 
-static int slot_find(int tag[POOL_SIZE], ap_uint<6> qc[POOL_SIZE], int pma) {
+static int slot_find(int tag[POOL_SIZE], int qc[POOL_SIZE], int pma) {
     #pragma HLS INLINE
     // Priority 1: slot with matching PMA that has room
     for (int i = 0; i < POOL_SIZE; i++) {
@@ -75,21 +75,24 @@ static int slot_find(int tag[POOL_SIZE], ap_uint<6> qc[POOL_SIZE], int pma) {
 }
 
 static int slot_alloc(int tag[POOL_SIZE], int wid_arr[POOL_SIZE],
-                      ap_uint<6> qc[POOL_SIZE], int pma, int wid) {
+                      int qc[POOL_SIZE], int pma, int wid) {
     #pragma HLS INLINE
+    // Phase 1: find any free slot (32-way parallel, last match wins — no cross-iteration dependency)
+    int free_slot = -1;
     for (int i = 0; i < POOL_SIZE; i++) {
-        #pragma HLS PIPELINE II=1
-        if (tag[i] == POOL_TAG_FREE) {
-            tag[i]      = pma;
-            wid_arr[i]  = wid;
-            qc[i]       = 0;
-            return i;
-        }
+        #pragma HLS UNROLL
+        if (tag[i] == POOL_TAG_FREE) free_slot = i;
     }
-    return -1;
+    // Phase 2: allocate only that one slot
+    if (free_slot != -1) {
+        tag[free_slot]     = pma;
+        wid_arr[free_slot] = wid;
+        qc[free_slot]      = 0;
+    }
+    return free_slot;
 }
 
-static bool slot_enq(PoolSlot p[POOL_SIZE], ap_uint<6> qc[POOL_SIZE], int s, PMA_UPDATE_MESSAGE m) {
+static bool slot_enq(PoolSlot p[POOL_SIZE], int qc[POOL_SIZE], int s, PMA_UPDATE_MESSAGE m) {
     #pragma HLS INLINE
     if (qc[s] >= POOL_QUEUE_DEPTH) return false;
     p[s].queue[p[s].q_head] = m;
@@ -99,7 +102,7 @@ static bool slot_enq(PoolSlot p[POOL_SIZE], ap_uint<6> qc[POOL_SIZE], int s, PMA
 }
 
 static PMA_UPDATE_MESSAGE slot_deq(PoolSlot p[POOL_SIZE], int tag[POOL_SIZE],
-                                    ap_uint<6> qc[POOL_SIZE], int s) {
+                                    int qc[POOL_SIZE], int s) {
     #pragma HLS INLINE
     PMA_UPDATE_MESSAGE m = p[s].queue[p[s].q_tail];
     p[s].q_tail = (p[s].q_tail + 1) % POOL_QUEUE_DEPTH;
@@ -160,7 +163,7 @@ static void inflight_remove(int t[MAX_INFLIGHT_NUM], int &cnt, int pma) {
 
 static bool slot_flush_one_batch(
     PoolSlot p[POOL_SIZE], int tag[POOL_SIZE], int wid_arr[POOL_SIZE],
-    ap_uint<6> qc[POOL_SIZE], int s,
+    int qc[POOL_SIZE], int s,
     hls::stream<PMA_UPDATE_MESSAGE> &c0,
     hls::stream<PMA_UPDATE_MESSAGE> &c1,
     hls::stream<PMA_UPDATE_MESSAGE> &c2,
@@ -207,7 +210,7 @@ static void poll_ack(
 // ============================================================
 
 static int slot_evict(
-    int tag[POOL_SIZE], ap_uint<6> qc[POOL_SIZE],
+    int tag[POOL_SIZE], int qc[POOL_SIZE],
     int t[MAX_INFLIGHT_NUM],
     int for_pma)
 {
@@ -235,7 +238,7 @@ static int slot_evict(
 
 static int slot_evict_and_reuse(
     PoolSlot p[POOL_SIZE], int tag[POOL_SIZE], int wid_arr[POOL_SIZE],
-    ap_uint<6> qc[POOL_SIZE], int t[MAX_INFLIGHT_NUM], int &t_cnt,
+    int qc[POOL_SIZE], int t[MAX_INFLIGHT_NUM], int &t_cnt,
     int ev, int new_pma, int new_wid,
     int &eviction_cnt,
     hls::stream<PMA_UPDATE_MESSAGE> &c0,
@@ -272,7 +275,7 @@ static int slot_evict_and_reuse(
 // ============================================================
 
 static void rescan_wb(
-    int tag[POOL_SIZE], int wid_arr[POOL_SIZE], ap_uint<6> qc[POOL_SIZE],
+    int tag[POOL_SIZE], int wid_arr[POOL_SIZE], int qc[POOL_SIZE],
     int t[MAX_INFLIGHT_NUM],
     int w,
     WorkerBest wb[ROUTER_WORKERS])
@@ -301,7 +304,7 @@ static void rescan_wb(
 // ============================================================
 
 static int rescan_any(
-    int tag[POOL_SIZE], int wid_arr[POOL_SIZE], ap_uint<6> qc[POOL_SIZE],
+    int tag[POOL_SIZE], int wid_arr[POOL_SIZE], int qc[POOL_SIZE],
     int t[MAX_INFLIGHT_NUM],
     int w)
 {
