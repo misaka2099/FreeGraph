@@ -11,22 +11,8 @@
 
 #define MEM_REQUEST_NUM 2
 #define MAX_CACHE_SIZE 8192  // kept for backward compat only
-
-//cache by addr
-void add_timestamp(
-    int now_op_cache_tag,
-    ap_uint<32> cache_time_stamp[TOTAL_CACHE_LINES]
-)
-{
-    #pragma HLS INLINE
-    ADD_TIMESTAMP:
-    for (int i = 0 ; i < TOTAL_CACHE_LINES ; i++)
-    {
-        #pragma HLS PIPELINE II=1
-        cache_time_stamp[i]++;
-    }
-    cache_time_stamp[now_op_cache_tag] = 0;
-}
+#define HEADER_WORDS ((int)(sizeof(PMA_HEADER) / 64))
+#define SEG_WORDS_PER_SEG (SEGMENT_SIZE * (int)sizeof(int) / 64)
 
 void flush_1_cache(
     int to_flush_cache_id,
@@ -152,6 +138,7 @@ void cache_mechanism(
     #pragma HLS STREAM variable=data_from_app depth=16
     #pragma HLS STREAM variable=data_to_app depth=16
     #pragma HLS STREAM variable=req_from_app depth=16
+    #pragma HLS ALLOCATION function instances=flush_1_cache limit=1
     // ---- Pyramid Cache Buffers ----
     ap_uint<512> large_buf[LARGE_LINES][LARGE_SIZE];
     #pragma HLS bind_storage variable=large_buf type=ram_2p impl=URAM
@@ -169,6 +156,7 @@ void cache_mechanism(
     ap_uint<32> cache_old_start[TOTAL_CACHE_LINES];
     ap_uint<32> cache_new_len[TOTAL_CACHE_LINES];
     int cache_pma_idx[TOTAL_CACHE_LINES];
+    ap_uint<32> global_ts = 0;
     // Per-tier max words for buffer access
     static const int tier_max_words[TOTAL_CACHE_LINES] = {
         [0]=LARGE_SIZE, [1]=LARGE_SIZE,  // Large tier: lines 0-1
@@ -180,9 +168,9 @@ void cache_mechanism(
     };
 
     // ---- Tiered bs_helper caches ----
-    #define LARGE_BS_MAX  ((LARGE_SIZE  - 4) / (SEGMENT_SIZE * (int)sizeof(int) / 64))
-    #define MEDIUM_BS_MAX ((MEDIUM_SIZE - 4) / (SEGMENT_SIZE * (int)sizeof(int) / 64))
-    #define SMALL_BS_MAX  ((SMALL_SIZE  - 4) / (SEGMENT_SIZE * (int)sizeof(int) / 64))
+    #define LARGE_BS_MAX  ((LARGE_SIZE  - 4) / (SEG_WORDS_PER_SEG))
+    #define MEDIUM_BS_MAX ((MEDIUM_SIZE - 4) / (SEG_WORDS_PER_SEG))
+    #define SMALL_BS_MAX  ((SMALL_SIZE  - 4) / (SEG_WORDS_PER_SEG))
     ap_uint<TOTAL_CACHE_LINES> bs_helper_valid = 0;
     int large_bs_cache[LARGE_LINES][LARGE_BS_MAX];
     #pragma HLS bind_storage variable=large_bs_cache type=ram_2p impl=URAM
@@ -224,8 +212,6 @@ void cache_mechanism(
         empty_vertex_range.range(v * 32 + 31, v * 32) = v + 1;
     }
     const ap_uint<512> empty_pma_content = -1;
-    const int HEADER_WORDS = (int)(sizeof(PMA_HEADER) / 64);
-    const int SEG_WORDS_PER_SEG = SEGMENT_SIZE * (int)sizeof(int) / 64;
 
     // ---- Write-through state (transparent to binary_search / rebalance) ----
     int  wt_pma_idx = -1;          // active write-through PMA (-1 = none)
@@ -251,6 +237,7 @@ void cache_mechanism(
         //poll every req_from_app
         for (int i = 0 ; i < MEM_REQUEST_NUM ; i++)
         {
+            #pragma HLS PIPELINE II=2
             //determine if pma hit/miss
             if (!finish_flag[i]) continue;
             if (req_from_app[i].empty()) continue;
@@ -411,7 +398,7 @@ void cache_mechanism(
                     wt_header_dirty = true;
                 } else if (cmd.command_type == PMA_BS_HELPER_READ) {
                     int total_segs = (int)wt_header_buf[0].range(15*32+31, 15*32);
-                    int seg_words = SEGMENT_SIZE * (int)sizeof(int) / 64;
+                    int seg_words = SEG_WORDS_PER_SEG;
                     // Check bs_helper cache
                     int cache_e = -1;
                     for (int e = 0; e < WT_BS_CACHE_LINES; e++) {
@@ -420,7 +407,7 @@ void cache_mechanism(
                     }
                     if (cache_e != -1) {
                         // Cache hit: pack 16 segs per word
-                        int packed_words = (total_segs + 15) / 16;
+                        int packed_words = (total_segs + 15) >> 4;
                         for (int w = 0; w < packed_words; w++) {
                             #pragma HLS PIPELINE II=1
                             ap_uint<512> out = 0;
@@ -443,7 +430,7 @@ void cache_mechanism(
                         if (fill_e == -1) { fill_e = 0; }
                         wt_bs_pma_idx[fill_e] = pma_idx;
                         wt_bs_segs[fill_e] = total_segs;
-                        int packed_words = (total_segs + 15) / 16;
+                        int packed_words = (total_segs + 15) >> 4;
                         for (int w = 0; w < packed_words; w++) {
                             #pragma HLS PIPELINE II=1
                             ap_uint<512> out = 0;
@@ -485,7 +472,7 @@ void cache_mechanism(
                     int new_total_seg = new_range[VERTEX_PER_PMA - 1];
                     int old_size = (int)sizeof(PMA_HEADER) + old_total_seg * SEGMENT_SIZE * (int)sizeof(int);
                     int new_size = (int)sizeof(PMA_HEADER) + new_total_seg * SEGMENT_SIZE * (int)sizeof(int);
-                    int seg_words = SEGMENT_SIZE * (int)sizeof(int) / 64;
+                    int seg_words = SEG_WORDS_PER_SEG;
 
                     // Alloc new space
                     MEMORY_INFO_ACCESS_COMMAND alloc_cmd = {};
@@ -610,7 +597,7 @@ void cache_mechanism(
                 } else if (cmd.command_type == PMA_VALID_COUNT_READ) {
                     // Sum valid_count over [seg_start, seg_start+seg_len) from HBM
                     // Single bulk read, then extract word 3 of each segment
-                    int seg_words_per_seg = SEGMENT_SIZE * (int)sizeof(int) / 64;
+                    int seg_words_per_seg = SEG_WORDS_PER_SEG;
                     int offset = wt_hbm_start + (int)sizeof(PMA_HEADER)
                                  + seg_start * seg_words_per_seg * 64;
                     int total_bytes = seg_len * seg_words_per_seg * 64;
@@ -626,7 +613,7 @@ void cache_mechanism(
                     for (int j = 0; j < total_words; j++) {
                         #pragma HLS PIPELINE II=1
                         ap_uint<512> val = data_from_mem_access.read().data;
-                        if ((j % 4) == 3) {
+                        if ((j & 3) == 3) {
                             total += (int)val.range(511, 480);
                         }
                     }
@@ -637,7 +624,7 @@ void cache_mechanism(
                 continue; // write-through handled
             }
 
-            // === Cache lookup: search all lines (pipelined for timing) ===
+            // === Cache lookup: pipelined search ===
             int cache_line = -1;
             for (int line = 0; line < TOTAL_CACHE_LINES; line++)
             {
@@ -698,11 +685,11 @@ void cache_mechanism(
                     if (!cache_valid[line]) { evict_line = line; }
                 }
                 if (evict_line == -1) {
-                    ap_uint<32> max_ts = 0;
+                    ap_uint<32> min_ts = ~0u;
                     for (int line = tier_start; line < tier_end; line++) {
-                        #pragma HLS PIPELINE II=1
-                        if (line == tier_start || cache_time_stamp[line] > max_ts) {
-                            max_ts = cache_time_stamp[line]; evict_line = line;
+                        #pragma HLS PIPELINE II=2
+                        if (cache_time_stamp[line] < min_ts) {
+                            min_ts = cache_time_stamp[line]; evict_line = line;
                         }
                     }
                 }
@@ -750,7 +737,7 @@ void cache_mechanism(
                     WRITE_BUF_WORD(evict_line, 3, (ap_uint<512>)0);
                     for (int j = 4; j < init_words; j++) {
                         #pragma HLS PIPELINE II=1
-                        if ((j % 4) == 3) {
+                        if ((j & 3) == 3) {
                             ap_uint<512> w = empty_pma_content;
                             w.range(511, 480) = 0;
                             WRITE_BUF_WORD(evict_line, j, w);
@@ -766,18 +753,14 @@ void cache_mechanism(
                 evict_line = cache_line;
             }
             int active_line = (cache_line == -1) ? evict_line : cache_line;
-            if (cache_line != -1) {
-                // Cache hit: update LRU order (22-line loop)
-                add_timestamp(active_line, cache_time_stamp);
-            } else {
-                // Cache miss: new PMA just loaded, only reset this line's timestamp
-                cache_time_stamp[active_line] = 0;
-            }
+            // Update timestamp via global counter
+            cache_time_stamp[active_line] = global_ts;
+            global_ts++;
             //req to read_a_pma
             if (cmd.command_type == PMA_HEADER_READ
                 || cmd.command_type == PMA_HEADER_READ_HINTED)
             {
-                for (int j = 0 ; j < (int)(sizeof(PMA_HEADER) / 64) ; j++)
+                for (int j = 0 ; j < HEADER_WORDS ; j++)
                 {
                     #pragma HLS PIPELINE II=1
                     data_to_app[i].write(READ_BUF_WORD(active_line, j));
@@ -785,8 +768,8 @@ void cache_mechanism(
             }
             else if (cmd.command_type == PMA_SEGMENT_READ)
             {
-                int seg_word_start = (int)(sizeof(PMA_HEADER) / 64) + seg_start * (SEGMENT_SIZE * (int)sizeof(int) / 64);
-                int seg_words = seg_len * (SEGMENT_SIZE * (int)sizeof(int) / 64);
+                int seg_word_start = HEADER_WORDS + seg_start * (SEG_WORDS_PER_SEG);
+                int seg_words = seg_len * (SEG_WORDS_PER_SEG);
                 // Hoist tier check outside loop to reduce combinational depth
                 if (active_line < LARGE_LINES) {
                     for (int j = 0; j < seg_words; j++) {
@@ -809,8 +792,8 @@ void cache_mechanism(
             {
                 // Sum valid_count over [seg_start, seg_start+seg_len) directly from cache
                 int total = 0;
-                int seg_words_per_seg = SEGMENT_SIZE * (int)sizeof(int) / 64;
-                int header_words = (int)(sizeof(PMA_HEADER) / 64);
+                int seg_words_per_seg = SEG_WORDS_PER_SEG;
+                int header_words = HEADER_WORDS;
                 for (int s = 0; s < seg_len; s++) {
                     int seg_idx = seg_start + s;
                     int word_idx = header_words + seg_idx * seg_words_per_seg + 3;
@@ -823,7 +806,7 @@ void cache_mechanism(
             //req to write_a_pma
             else if (cmd.command_type == PMA_HEADER_WRITE)
             {
-                for (int j = 0 ; j < (int)(sizeof(PMA_HEADER) / 64) ; j++)
+                for (int j = 0 ; j < HEADER_WORDS ; j++)
                 {
                     #pragma HLS PIPELINE II=1
                     WRITE_BUF_WORD(active_line, j, data_from_app[i].read());
@@ -832,8 +815,8 @@ void cache_mechanism(
              }
             else if (cmd.command_type == PMA_SEGMENT_WRITE)
             {
-                int seg_word_start = (int)(sizeof(PMA_HEADER) / 64) + seg_start * (SEGMENT_SIZE * (int)sizeof(int) / 64);
-                int seg_words = seg_len * (SEGMENT_SIZE * (int)sizeof(int) / 64);
+                int seg_word_start = HEADER_WORDS + seg_start * (SEG_WORDS_PER_SEG);
+                int seg_words = seg_len * (SEG_WORDS_PER_SEG);
                 // Hoist tier check outside loop to reduce combinational depth
                 if (active_line < LARGE_LINES) {
                     for (int j = 0; j < seg_words; j++) {
@@ -866,10 +849,10 @@ void cache_mechanism(
                     new_range[v] = (int)new_range_packet.range(v * 32 + 31, v * 32);
                 }
 
-                int seg_words_per_seg = SEGMENT_SIZE * (int)sizeof(int) / 64;
+                int seg_words_per_seg = SEG_WORDS_PER_SEG;
                 int old_total_seg = old_range[VERTEX_PER_PMA - 1];
                 int new_total_seg = new_range[VERTEX_PER_PMA - 1];
-                int header_words = (int)(sizeof(PMA_HEADER) / 64);
+                int header_words = HEADER_WORDS;
                 int old_total_words = header_words + old_total_seg * seg_words_per_seg;
                 int new_total_words = header_words + new_total_seg * seg_words_per_seg;
                 if (new_total_seg >= old_total_seg && new_total_words <= tier_max_words[active_line])
@@ -885,6 +868,7 @@ void cache_mechanism(
                         {
                             for (int w = 0; w < seg_words_per_seg; w++)
                             {
+                                #pragma HLS PIPELINE II=1
                                 int src_word_idx = header_words + (old_start + s) * seg_words_per_seg + w;
                                 int dst_word_idx = header_words + (new_start + s) * seg_words_per_seg + w;
                                 WRITE_BUF_WORD(active_line, dst_word_idx, READ_BUF_WORD(active_line, src_word_idx));
@@ -1058,13 +1042,15 @@ void cache_mechanism(
                         // Find free line or evict LRU in target tier
                         int new_line = -1;
                         for (int line = new_tier_start; line < new_tier_end; line++) {
+                            #pragma HLS PIPELINE II=1
                             if (!cache_valid[line]) { new_line = line; break; }
                         }
                         if (new_line == -1) {
-                            ap_uint<32> max_ts = 0;
+                            ap_uint<32> min_ts = ~0u;
                             for (int line = new_tier_start; line < new_tier_end; line++) {
-                                if (line == new_tier_start || cache_time_stamp[line] > max_ts) {
-                                    max_ts = cache_time_stamp[line]; new_line = line;
+                                #pragma HLS PIPELINE II=2
+                                if (cache_time_stamp[line] < min_ts) {
+                                    min_ts = cache_time_stamp[line]; new_line = line;
                                 }
                             }
                             flush_1_cache(new_line, cache_valid, cache_dirty, cache_pma_idx,
@@ -1089,6 +1075,7 @@ void cache_mechanism(
                             int new_start = (v == 0) ? 0 : new_range[v - 1];
                             for (int s = old_seg_num - 1; s >= 0; s--) {
                                 for (int w = 0; w < seg_words_per_seg; w++) {
+                                    #pragma HLS PIPELINE II=1
                                     int src = header_words + (old_start + s) * seg_words_per_seg + w;
                                     int dst = header_words + (new_start + s) * seg_words_per_seg + w;
                                     WRITE_BUF_WORD(new_line, dst, READ_BUF_WORD(new_line, src));
@@ -1130,7 +1117,7 @@ void cache_mechanism(
                         cache_new_len[new_line]   = sizeof(PMA_HEADER) + new_total_seg * SEGMENT_SIZE * sizeof(int);
                         cache_valid[new_line] = 1;
                         cache_dirty[new_line] = 1;
-                        cache_time_stamp[new_line] = 0;
+                        cache_time_stamp[new_line] = global_ts; global_ts++;
                         bs_helper_valid[new_line] = 0;
 
                         // Release old line
@@ -1145,8 +1132,8 @@ void cache_mechanism(
                 if (!bs_helper_valid[active_line])
                 {
                     int total_segs = (int)READ_BUF_WORD(active_line, 0).range(15 * 32 + 31, 15 * 32);
-                    int header_words = (int)(sizeof(PMA_HEADER) / 64);
-                    int seg_words_per_seg = SEGMENT_SIZE * (int)sizeof(int) / 64;
+                    int header_words = HEADER_WORDS;
+                    int seg_words_per_seg = SEG_WORDS_PER_SEG;
                     for (int s = 0; s < total_segs; s++)
                     {
                         int seg_word_start = header_words + s * seg_words_per_seg;
@@ -1160,7 +1147,7 @@ void cache_mechanism(
                 }
                 int total_segs = (int)READ_BUF_WORD(active_line, 0).range(15 * 32 + 31, 15 * 32);
                 // Pack 16 segments per 512-bit word, padding with -1
-                int packed_words = (total_segs + 15) / 16;
+                int packed_words = (total_segs + 15) >> 4;
                 for (int w = 0; w < packed_words; w++)
                 {
                     #pragma HLS PIPELINE II=1
@@ -1401,7 +1388,7 @@ void write_seg(
     command.seg_len = 1;
     // hls::print("[pma] MEMORY_ACCESS_SEND PMA_SEGMENT_WRITE pma_idx=%d\n", pma_idx);
     memory_access_stream.write(command);
-    for (int j = 0; j < SEGMENT_SIZE * (int)sizeof(int) / 64; j++)
+    for (int j = 0; j < SEG_WORDS_PER_SEG; j++)
     {
         #pragma HLS PIPELINE II=1
         ap_uint<512> packet = 0;
@@ -1410,7 +1397,6 @@ void write_seg(
             #pragma HLS UNROLL
             packet.range(32 * (k + 1) - 1, 32 * k) = storage[j * 16 + k];
         }
-        // hls::print("[pma] DATA_TO_MEM packet pma_idx=%d\n", pma_idx);
         data_to_mem.write(packet);
     }
 }
@@ -1428,14 +1414,12 @@ void read_seg(
     command.pma_idx = pma_idx;
     command.seg_start = seg_idx;
     command.seg_len = 1;
-    // hls::print("[pma] MEMORY_ACCESS_SEND PMA_SEGMENT_READ pma_idx=%d\n", pma_idx);
     memory_access_stream.write(command);
     ap_wait();
-    for (int j = 0; j < SEGMENT_SIZE * (int)sizeof(int) / 64; j++)
+    for (int j = 0; j < SEG_WORDS_PER_SEG; j++)
     {
         #pragma HLS PIPELINE II=1
-        ap_uint<512> packet = 0;
-        packet = data_from_mem.read();
+        ap_uint<512> packet = data_from_mem.read();
         for (int k = 0; k < 16; k++)
         {
             #pragma HLS UNROLL
@@ -1459,7 +1443,7 @@ void write_header(
     // hls::print("[pma] MEMORY_ACCESS_SEND PMA_HEADER_WRITE pma_idx=%d\n", pma_idx);
     memory_access_stream.write(header_write_cmd);
     // pack PMA_HEADER into 4 x 512-bit words and write
-    ap_uint<512> buf[(int)(sizeof(PMA_HEADER) / 64)];
+    ap_uint<512> buf[HEADER_WORDS];
     for (int i = 0; i < 16; i++) {
         #pragma HLS UNROLL
         buf[0].range(32 * (i + 1) - 1, 32 * i) = header_to_write.vertex_range[i];
@@ -1470,10 +1454,9 @@ void write_header(
         buf[2].range(64 * (i + 1) - 1, 64 * i) = header_to_write.attr[i];
         buf[3].range(64 * (i + 1) - 1, 64 * i) = header_to_write.attr[i + 8];
     }
-    for (int j = 0 ; j < (int)(sizeof(PMA_HEADER) / 64) ; j++)
+    for (int j = 0 ; j < HEADER_WORDS ; j++)
     {
         #pragma HLS PIPELINE II=1
-        // hls::print("[pma] DATA_TO_MEM header_word pma_idx=%d\n", pma_idx);
         data_to_mem.write(buf[j]);
     }
 }
@@ -1494,8 +1477,8 @@ void read_header(
     memory_access_stream.write(header_read_cmd);
     ap_wait();
     // read 4 x 512-bit words and unpack into PMA_HEADER
-    ap_uint<512> buf[(int)(sizeof(PMA_HEADER) / 64)];
-    for (int j = 0 ; j < (int)(sizeof(PMA_HEADER) / 64) ; j++)
+    ap_uint<512> buf[HEADER_WORDS];
+    for (int j = 0 ; j < HEADER_WORDS ; j++)
     {
         #pragma HLS PIPELINE II=1
         buf[j] = data_from_mem.read();
@@ -1612,8 +1595,8 @@ void binary_search_insert_cu(
             ap_wait(); // both requests committed, responses ready
 
             // unpack header
-            ap_uint<512> buf[(int)(sizeof(PMA_HEADER) / 64)];
-            for (int j = 0; j < (int)(sizeof(PMA_HEADER) / 64); j++) {
+            ap_uint<512> buf[HEADER_WORDS];
+            for (int j = 0; j < HEADER_WORDS; j++) {
                 #pragma HLS PIPELINE II=1
                 buf[j] = data_from_mem.read();
             }
@@ -1645,7 +1628,7 @@ void binary_search_insert_cu(
         // bs_helper response: packed 16 segments per 512-bit word
         {
             int total_segs = header.vertex_range[VERTEX_PER_PMA - 1];
-            int packed_words = (total_segs + 15) / 16;
+            int packed_words = (total_segs + 15) >> 4;
             for (int w = 0; w < packed_words; w++)
             {
                 #pragma HLS PIPELINE II=1
@@ -1814,11 +1797,10 @@ void binary_search_insert_cu(
         // Process each unique segment: read → delete → insert → write
         int seg_buf[SEGMENT_SIZE];
         int tmp[SEGMENT_SIZE];
-        #pragma HLS ARRAY_PARTITION variable=tmp complete
         for (int si = 0; si < seg_count; si++) {
-            // Pre-fill tmp with UNUSED_ICON (1 cycle via UNROLL)
+            // Pre-fill tmp with UNUSED_ICON
             for (int k = 0; k < EDGE_SLOTS_PER_SEG; k++) {
-                #pragma HLS UNROLL
+                #pragma HLS PIPELINE II=1
                 tmp[k] = UNUSED_ICON;
             }
             int seg = seg_list[si];
@@ -1827,7 +1809,7 @@ void binary_search_insert_cu(
             // Delete vertex: clear segment to UNUSED
             if (seg_dv_cnt[si] > 0) {
                 for (int e = 0; e < EDGE_SLOTS_PER_SEG; e++) {
-                    #pragma HLS UNROLL
+                    #pragma HLS PIPELINE II=1
                     seg_buf[e] = UNUSED_ICON;
                 }
                 seg_buf[VALID_COUNT_IDX] = 0;
@@ -1852,13 +1834,13 @@ void binary_search_insert_cu(
                 }
             }
 
-            // Merge: compact (delete) + 2-way merge (insert) → tmp
+            // 2-pass merge: compact (delete filter) + 2-way merge (insert) → tmp
             {
                 int valid = seg_buf[VALID_COUNT_IDX];
                 // Pass 1: compact seg_buf by removing deleted edges
                 int w = 0, d = 0;
                 for (int r = 0; r < valid; r++) {
-                    #pragma HLS PIPELINE II=1
+                    #pragma HLS PIPELINE II=2
                     if (d < del_cnt && seg_buf[r] == del_dst_local[d]) {
                         d++;
                     } else {
@@ -1870,7 +1852,7 @@ void binary_search_insert_cu(
                 // Pass 2: 2-way merge seg_buf[0..new_valid) + ins_dst → tmp (pre-filled with UNUSED)
                 int s = 0, i = 0, n = 0;
                 while (s < new_valid && i < ins_cnt) {
-                    #pragma HLS PIPELINE II=1
+                    #pragma HLS PIPELINE II=2
                     if (seg_buf[s] <= ins_dst_local[i])
                         tmp[n++] = seg_buf[s++];
                     else
@@ -1961,26 +1943,15 @@ int valid_count(
     int total_segs = seg_end - seg_start;
     if (total_segs <= 0) return 0;
 
-    // Read all words: cache_mechanism returns seg_len * 4 words per PMA_SEGMENT_READ
     PMA_INFO_ACCESS_COMMAND command;
+    command.command_type = PMA_VALID_COUNT_READ;
     command.pma_idx = pma_idx;
     command.seg_start = seg_start;
     command.seg_len = total_segs;
-    command.command_type = PMA_SEGMENT_READ;
     memory_access_stream.write(command);
-
-    int count = 0;
-    int total_words = total_segs * 4;
-    for (int i = 0 ; i < total_words ; i++)
-    {
-        #pragma HLS PIPELINE II=1
-        ap_uint<512> val = data_from_mem.read();
-        // Extract valid_count from word 3 within each segment (int 15 = bits 511:480)
-        if ((i % 4) == 3) {
-            count += (int)val.range(511, 480); // VALID_COUNT_IDX=63 → int 15 in word 3
-        }
-    }
-    return count;
+    ap_wait();
+    ap_uint<512> result = data_from_mem.read();
+    return (int)result.range(31,0);
 }
 void rebalance_cu(
     // ap_uint<512>* hbm_ptr,
@@ -2056,7 +2027,6 @@ void rebalance_cu(
             #pragma HLS PIPELINE II=1
             int seg_start = v == 0 ? 0 : header.vertex_range[v-1];
             int seg_end = header.vertex_range[v];
-            // int max_edge = (seg_end - seg_start) * SEGMENT_SIZE * DENSITY_BOUND;
             int max_edge = density_capacity_from_seg_count(seg_end - seg_start);
             if (max_edge < header.edge_count[v])
             {
@@ -2095,6 +2065,7 @@ void rebalance_cu(
         int last_reletive_seg = -10;
         for (int i = 0 ; i < 16 ; i++)//去除重复判定
         {
+            #pragma HLS PIPELINE II=1
             if (
                 to_check.old_vertex_relative_seg_number[i] == last_reletive_seg &&
                 to_check.vertex_number[i] == last_vertex
