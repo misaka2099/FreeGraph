@@ -113,12 +113,12 @@ struct INTRA_PMA_UPDATE_MESSAGE
 // --- Pyramid Cache Configuration ---
 // Three tiers: Large (super-hot), Medium (hot), Small (warm / new PMA init)
 #define LARGE_LINES   2          // 超级热 PMA
-#define MEDIUM_LINES  4          // 热 PMA
-#define SMALL_LINES   16         // 温 PMA / 新 PMA 初始化
+#define MEDIUM_LINES  3          // 热 PMA
+#define SMALL_LINES   6          // 温 PMA / 新 PMA 初始化
 #define LARGE_SIZE    8192       // 每行 word 数
 #define MEDIUM_SIZE   4096
 #define SMALL_SIZE    1024
-#define TOTAL_CACHE_LINES (LARGE_LINES + MEDIUM_LINES + SMALL_LINES)  // = 22
+#define TOTAL_CACHE_LINES (LARGE_LINES + MEDIUM_LINES + SMALL_LINES)  // = 11
 
 // Tier index ranges for search loops
 #define LARGE_START   0
@@ -127,10 +127,6 @@ struct INTRA_PMA_UPDATE_MESSAGE
 #define MEDIUM_END    (LARGE_LINES + MEDIUM_LINES)
 #define SMALL_START   (LARGE_LINES + MEDIUM_LINES)
 #define SMALL_END     TOTAL_CACHE_LINES
-
-// Write-through trigger: batch < THRESHOLD → direct HBM, avoid cache thrash
-// Temporarily set to 0 to isolate write-through vs cache path hang
-#define BYPASS_EDGE_THRESHOLD 17
 
 // Profile table: tracks PMA access frequency across evictions
 #define PROFILE_TABLE_SIZE 64
