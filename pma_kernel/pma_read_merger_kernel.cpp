@@ -10,24 +10,18 @@ void pma_read_merger_kernel(
     hls::stream<READ_COMMAND_STREAM> &merger_cmd_stream,
     hls::stream<READ_PKT_STREAM> &worker0_pkt_stream,
     hls::stream<READ_PKT_STREAM> &worker1_pkt_stream,
-    hls::stream<READ_PKT_STREAM> &worker2_pkt_stream,
-    hls::stream<READ_PKT_STREAM> &worker3_pkt_stream,
     hls::stream<ap_axiu<64,0,0,0>> &data_to_coo_stream,
     hls::stream<ap_axiu<32,0,0,0>> &coo_edge_count_stream
 ) {
 #pragma HLS INTERFACE axis port=merger_cmd_stream
 #pragma HLS INTERFACE axis port=worker0_pkt_stream
 #pragma HLS INTERFACE axis port=worker1_pkt_stream
-#pragma HLS INTERFACE axis port=worker2_pkt_stream
-#pragma HLS INTERFACE axis port=worker3_pkt_stream
 #pragma HLS INTERFACE axis port=data_to_coo_stream
 #pragma HLS INTERFACE axis port=coo_edge_count_stream
 
 #pragma HLS STREAM variable=merger_cmd_stream depth=64
 #pragma HLS STREAM variable=worker0_pkt_stream depth=128
 #pragma HLS STREAM variable=worker1_pkt_stream depth=128
-#pragma HLS STREAM variable=worker2_pkt_stream depth=128
-#pragma HLS STREAM variable=worker3_pkt_stream depth=128
 #pragma HLS STREAM variable=data_to_coo_stream depth=16
 #pragma HLS STREAM variable=coo_edge_count_stream depth=16
 
@@ -60,17 +54,9 @@ void pma_read_merger_kernel(
             if (rr == 0) {
                 pkt = worker0_pkt_stream.read();
             }
-            else if (rr == 1)
-            {
-                pkt = worker1_pkt_stream.read();
-            }
-            else if (rr == 2)
-            {
-                pkt = worker2_pkt_stream.read();
-            }
             else
             {
-                pkt = worker3_pkt_stream.read();
+                pkt = worker1_pkt_stream.read();
             }
 
             if (pkt.keep == 0 && pkt.last == 1) {

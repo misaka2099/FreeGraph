@@ -10,7 +10,7 @@ typedef ap_axiu<8,0,0,0> WHOLE_ACK;
 #define CHANNEL_CAPACITY (250*1024*1024)
 // #define CHANNEL_CAPACITY (64*1024*1024)
 #ifndef PMA_PARALLEL_CHANNEL_NUM
-#define PMA_PARALLEL_CHANNEL_NUM 4
+#define PMA_PARALLEL_CHANNEL_NUM 2
 #endif
 #define CHANNEL_NUM PMA_PARALLEL_CHANNEL_NUM
 typedef ap_axiu<8,0,0,0> BYTE_STREAM ;
@@ -111,16 +111,15 @@ struct INTRA_PMA_UPDATE_MESSAGE
 #define MAX_CMD_NUM 16
 
 // --- Pyramid Cache Configuration ---
-// Three tiers: Large (super-hot), Medium (hot), Small (warm / new PMA init)
-#define LARGE_LINES   2          // 超级热 PMA
-#define MEDIUM_LINES  3          // 热 PMA
-#define SMALL_LINES   6          // 温 PMA / 新 PMA 初始化
-#define LARGE_SIZE    8192       // 每行 word 数
+#define LARGE_LINES   2
+#define MEDIUM_LINES  4
+#define SMALL_LINES   16
+#define LARGE_SIZE    8192
 #define MEDIUM_SIZE   4096
 #define SMALL_SIZE    1024
-#define TOTAL_CACHE_LINES (LARGE_LINES + MEDIUM_LINES + SMALL_LINES)  // = 11
+#define TOTAL_CACHE_LINES (LARGE_LINES + MEDIUM_LINES + SMALL_LINES)  // 22
+#define PHYS_CACHE_LINES 8
 
-// Tier index ranges for search loops
 #define LARGE_START   0
 #define LARGE_END     LARGE_LINES
 #define MEDIUM_START  LARGE_LINES
@@ -128,10 +127,9 @@ struct INTRA_PMA_UPDATE_MESSAGE
 #define SMALL_START   (LARGE_LINES + MEDIUM_LINES)
 #define SMALL_END     TOTAL_CACHE_LINES
 
-// Profile table: tracks PMA access frequency across evictions
-#define PROFILE_TABLE_SIZE 64
-#define PROFILE_HOT_THRESHOLD  10  // access_count >= 10 → upgrade
-#define PROFILE_WARM_THRESHOLD 3   // access_count >= 3  → upgrade
+// Profile table
+// Router / Worker config
+#define ROUTER_WORKERS          CHANNEL_NUM
 
 // #define LOAD_BITMAP 19
 enum control_type

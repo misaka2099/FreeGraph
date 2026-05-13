@@ -17,12 +17,11 @@
 
 #define ROUTER_WORKERS CHANNEL_NUM
 
-#define POLL_ALL_ACKS(t, cnt, a0, a1, a2, a3) do { \
+#define POLL_ALL_ACKS(t, cnt, a0, a1) do { \
     poll_ack(t, cnt, a0); poll_ack(t, cnt, a1); \
-    poll_ack(t, cnt, a2); poll_ack(t, cnt, a3); \
 } while(0)
-#define POLL_ALL_ACKS_WAIT(t, cnt, a0, a1, a2, a3) do { \
-    POLL_ALL_ACKS(t, cnt, a0, a1, a2, a3); \
+#define POLL_ALL_ACKS_WAIT(t, cnt, a0, a1) do { \
+    POLL_ALL_ACKS(t, cnt, a0, a1); \
 } while(0)
 
 // ---- Phase-based dispatch ----
@@ -165,9 +164,7 @@ static bool slot_flush_one_batch(
     PoolSlot p[POOL_SIZE], int tag[POOL_SIZE], int wid_arr[POOL_SIZE],
     int qc[POOL_SIZE], int s,
     hls::stream<PMA_UPDATE_MESSAGE> &c0,
-    hls::stream<PMA_UPDATE_MESSAGE> &c1,
-    hls::stream<PMA_UPDATE_MESSAGE> &c2,
-    hls::stream<PMA_UPDATE_MESSAGE> &c3)
+    hls::stream<PMA_UPDATE_MESSAGE> &c1)
 {
     #pragma HLS INLINE
     int n = qc[s];
@@ -182,9 +179,7 @@ static bool slot_flush_one_batch(
         PMA_UPDATE_MESSAGE m = slot_deq(p, tag, qc, s);
         m.last = (i == batch - 1) ? 1 : 0;
         if (wid == 0) c0.write(m);
-        else if (wid == 1) c1.write(m);
-        else if (wid == 2) c2.write(m);
-        else c3.write(m);
+        else c1.write(m);
     }
     return true;
 }
@@ -243,21 +238,17 @@ static int slot_evict_and_reuse(
     int &eviction_cnt,
     hls::stream<PMA_UPDATE_MESSAGE> &c0,
     hls::stream<PMA_UPDATE_MESSAGE> &c1,
-    hls::stream<PMA_UPDATE_MESSAGE> &c2,
-    hls::stream<PMA_UPDATE_MESSAGE> &c3,
     hls::stream<COMMAND_STREAM> &a0,
-    hls::stream<COMMAND_STREAM> &a1,
-    hls::stream<COMMAND_STREAM> &a2,
-    hls::stream<COMMAND_STREAM> &a3)
+    hls::stream<COMMAND_STREAM> &a1)
 {
     int ev_pma = tag[ev];
     while (qc[ev] > 0) {
         #pragma HLS PIPELINE off
         while (inflight_check(t, ev_pma) || t_cnt >= MAX_INFLIGHT_NUM) {
             #pragma HLS PIPELINE off
-            POLL_ALL_ACKS_WAIT(t, t_cnt, a0, a1, a2, a3);
+            POLL_ALL_ACKS_WAIT(t, t_cnt, a0, a1);
         }
-        if (slot_flush_one_batch(p, tag, wid_arr, qc, ev, c0, c1, c2, c3))
+        if (slot_flush_one_batch(p, tag, wid_arr, qc, ev, c0, c1))
             inflight_add(t, t_cnt, ev_pma);
     }
     eviction_cnt++;
@@ -334,35 +325,23 @@ extern "C"
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_from_generator,
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_1,
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_2,
-        hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_3,
-        hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_insert_edge_4,
         hls::stream<COMMAND_STREAM> &ack_from_insert_edge_1,
         hls::stream<COMMAND_STREAM> &ack_from_insert_edge_2,
-        hls::stream<COMMAND_STREAM> &ack_from_insert_edge_3,
-        hls::stream<COMMAND_STREAM> &ack_from_insert_edge_4,
         hls::stream<WHOLE_ACK> &ack_to_generator
     )
     {
         #pragma HLS INTERFACE axis port=cmd_from_generator
         #pragma HLS INTERFACE axis port=cmd_to_insert_edge_1
         #pragma HLS INTERFACE axis port=cmd_to_insert_edge_2
-        #pragma HLS INTERFACE axis port=cmd_to_insert_edge_3
-        #pragma HLS INTERFACE axis port=cmd_to_insert_edge_4
         #pragma HLS INTERFACE axis port=ack_from_insert_edge_1
         #pragma HLS INTERFACE axis port=ack_from_insert_edge_2
-        #pragma HLS INTERFACE axis port=ack_from_insert_edge_3
-        #pragma HLS INTERFACE axis port=ack_from_insert_edge_4
         #pragma HLS INTERFACE axis port=ack_to_generator
 
         #pragma HLS STREAM variable=cmd_from_generator depth=16
         #pragma HLS STREAM variable=cmd_to_insert_edge_1 depth=16
         #pragma HLS STREAM variable=cmd_to_insert_edge_2 depth=16
-        #pragma HLS STREAM variable=cmd_to_insert_edge_3 depth=16
-        #pragma HLS STREAM variable=cmd_to_insert_edge_4 depth=16
         #pragma HLS STREAM variable=ack_from_insert_edge_1 depth=16
         #pragma HLS STREAM variable=ack_from_insert_edge_2 depth=16
-        #pragma HLS STREAM variable=ack_from_insert_edge_3 depth=16
-        #pragma HLS STREAM variable=ack_from_insert_edge_4 depth=16
         #pragma HLS STREAM variable=ack_to_generator depth=16
 
         PoolSlot pool[POOL_SIZE];
@@ -404,10 +383,6 @@ extern "C"
                     ack_from_insert_edge_1);
                 poll_ack(in_flight, in_flight_count,
                     ack_from_insert_edge_2);
-                poll_ack(in_flight, in_flight_count,
-                    ack_from_insert_edge_3);
-                poll_ack(in_flight, in_flight_count,
-                    ack_from_insert_edge_4);
             }
 
             // ==================================================
@@ -438,8 +413,7 @@ extern "C"
                                     continue;
                                 }
                                 if (slot_flush_one_batch(pool, pool_tag, pool_wid, pool_qcnt, i,
-                                    cmd_to_insert_edge_1, cmd_to_insert_edge_2,
-                                    cmd_to_insert_edge_3, cmd_to_insert_edge_4))
+                                    cmd_to_insert_edge_1, cmd_to_insert_edge_2))
                                     inflight_add(in_flight, in_flight_count, pma_i);
                                 if (pool_qcnt[i] > 0) any_left = true;
                                 else {
@@ -450,29 +424,23 @@ extern "C"
                             }
                             if (any_left) {
                                 POLL_ALL_ACKS_WAIT(in_flight, in_flight_count,
-                                    ack_from_insert_edge_1, ack_from_insert_edge_2,
-                                    ack_from_insert_edge_3, ack_from_insert_edge_4);
+                                    ack_from_insert_edge_1, ack_from_insert_edge_2);
                             }
                         } while (any_left);
 
                         // Drain remaining in_flight (all slots emptied above).
                         while (in_flight_count > 0) {
                             POLL_ALL_ACKS_WAIT(in_flight, in_flight_count,
-                                ack_from_insert_edge_1, ack_from_insert_edge_2,
-                                ack_from_insert_edge_3, ack_from_insert_edge_4);
+                                ack_from_insert_edge_1, ack_from_insert_edge_2);
                         }
 
                         if (msg.last == 1) {
                             msg.opcode = PMA_UPDATE_STOP;
                             cmd_to_insert_edge_1.write(msg);
                             cmd_to_insert_edge_2.write(msg);
-                            cmd_to_insert_edge_3.write(msg);
-                            cmd_to_insert_edge_4.write(msg);
                             #pragma HLS protocol fixed
                             auto a1 = ack_from_insert_edge_1.read();
                             auto a2 = ack_from_insert_edge_2.read();
-                            auto a3 = ack_from_insert_edge_3.read();
-                            auto a4 = ack_from_insert_edge_4.read();
                             #pragma HLS protocol fixed
                             WHOLE_ACK pkt;
                             pkt.data = 1;
@@ -485,13 +453,9 @@ extern "C"
                             msg.opcode = PMA_UPDATE_FLUSH_CACHE;
                             cmd_to_insert_edge_1.write(msg);
                             cmd_to_insert_edge_2.write(msg);
-                            cmd_to_insert_edge_3.write(msg);
-                            cmd_to_insert_edge_4.write(msg);
                             #pragma HLS protocol fixed
                             auto a1 = ack_from_insert_edge_1.read();
                             auto a2 = ack_from_insert_edge_2.read();
-                            auto a3 = ack_from_insert_edge_3.read();
-                            auto a4 = ack_from_insert_edge_4.read();
                             #pragma HLS protocol fixed
                             WHOLE_ACK pkt;
                             pkt.data = 1;
@@ -505,79 +469,92 @@ extern "C"
                         // ---- Normal edge: enqueue ----
                     int pma = msg.src / VERTEX_PER_PMA;
                     int wid = pma % ROUTER_WORKERS;
-                    int slot = slot_find(pool_tag, pool_qcnt,pma);
+                    int slot = slot_find(pool_tag, pool_qcnt, pma);
 
                     if (slot == -1) {
-                        slot = slot_alloc(pool_tag, pool_wid, pool_qcnt,pma, wid);
-                    } else if (pool_qcnt[slot] >= POOL_QUEUE_DEPTH) {
-                        int ns = slot_alloc(pool_tag, pool_wid, pool_qcnt,pma, wid);
-                        if (ns != -1) slot = ns;
+                        slot = slot_alloc(pool_tag, pool_wid, pool_qcnt, pma, wid);
                     }
 
-                    // Spin until message is enqueued (eviction may dispatch).
+                    // Enqueue with retry limit: after N failed ACK polls,
+                    // force a DISPATCH round to drain in_flight, then retry.
+                    #define ENQUEUE_RETRY_LIMIT 5
                     bool enqueued = false;
                     while (!enqueued) {
 
-                        while (slot == -1) {
-                            int ev = slot_evict(pool_tag, pool_qcnt,in_flight, pma);
+                        // If slot is full, flush one batch from it (no duplicate slot)
+                        if (slot != -1 && pool_qcnt[slot] >= POOL_QUEUE_DEPTH) {
+                            while (inflight_check(in_flight, pma) || in_flight_count >= MAX_INFLIGHT_NUM) {
+                                POLL_ALL_ACKS_WAIT(in_flight, in_flight_count,
+                                    ack_from_insert_edge_1, ack_from_insert_edge_2);
+                            }
+                            if (slot_flush_one_batch(pool, pool_tag, pool_wid, pool_qcnt, slot,
+                                cmd_to_insert_edge_1, cmd_to_insert_edge_2))
+                                inflight_add(in_flight, in_flight_count, pma);
+                            eviction_count++;
+                        }
+
+                        // Try to obtain a slot via eviction, with limited retries
+                        int retries = 0;
+                        while (slot == -1 && retries < ENQUEUE_RETRY_LIMIT) {
+                            int ev = slot_evict(pool_tag, pool_qcnt, in_flight, pma);
                             if (ev == -1) {
                                 poll_ack(in_flight, in_flight_count,
                                     ack_from_insert_edge_1);
                                 poll_ack(in_flight, in_flight_count,
                                     ack_from_insert_edge_2);
-                                poll_ack(in_flight, in_flight_count,
-                                    ack_from_insert_edge_3);
-                                poll_ack(in_flight, in_flight_count,
-                                    ack_from_insert_edge_4);
-                                // ap_wait();
-                                slot = slot_find(pool_tag, pool_qcnt,pma);
-                                if (slot == -1 || pool_qcnt[slot] >= POOL_QUEUE_DEPTH) {
-                                    int ns = slot_alloc(pool_tag, pool_wid, pool_qcnt,pma, wid);
+                                retries++;
+                                slot = slot_find(pool_tag, pool_qcnt, pma);
+                                if (slot == -1) {
+                                    int ns = slot_alloc(pool_tag, pool_wid, pool_qcnt, pma, wid);
                                     if (ns != -1) slot = ns;
                                 }
                                 continue;
                             }
-
-                            // Drain eviction slot + reuse for this PMA
                             slot = slot_evict_and_reuse(
                                 pool, pool_tag, pool_wid, pool_qcnt,
                                 in_flight, in_flight_count,
                                 ev, pma, wid, eviction_count,
                                 cmd_to_insert_edge_1, cmd_to_insert_edge_2,
-                                cmd_to_insert_edge_3, cmd_to_insert_edge_4,
-                                ack_from_insert_edge_1, ack_from_insert_edge_2,
-                                ack_from_insert_edge_3, ack_from_insert_edge_4);
+                                ack_from_insert_edge_1, ack_from_insert_edge_2);
+                            retries = 0; // eviction succeeded, reset
                         }
 
-                        if (slot_enq(pool, pool_qcnt,slot, msg)) {
+                        if (slot == -1) {
+                            // Retry limit hit: force a passive dispatch round
+                            for (int w = 0; w < ROUTER_WORKERS; w++) {
+                                #pragma HLS UNROLL
+                                if (in_flight_count >= MAX_INFLIGHT_NUM) continue;
+                                int s = -1;
+                                int best = 0;
+                                for (int j = 0; j < POOL_SIZE; j++) {
+                                    #pragma HLS PIPELINE II=1
+                                    if (pool_tag[j] == -1 || pool_qcnt[j] == 0) continue;
+                                    if (pool_wid[j] != w) continue;
+                                    if (inflight_check(in_flight, pool_tag[j])) continue;
+                                    if (pool_qcnt[j] > best) { best = pool_qcnt[j]; s = j; }
+                                }
+                                if (s != -1) {
+                                    if (slot_flush_one_batch(pool, pool_tag, pool_wid, pool_qcnt, s,
+                                        cmd_to_insert_edge_1, cmd_to_insert_edge_2))
+                                        inflight_add(in_flight, in_flight_count, pool_tag[s]);
+                                    dispatched++;
+                                }
+                            }
+                            // Try to get a slot again after dispatch
+                            slot = slot_find(pool_tag, pool_qcnt, pma);
+                            if (slot == -1)
+                                slot = slot_alloc(pool_tag, pool_wid, pool_qcnt, pma, wid);
+                            continue;
+                        }
+
+                        if (slot_enq(pool, pool_qcnt, slot, msg)) {
                             enqueued = true;
                             accumulated++;
-                        } else {
-                            int ns = slot_alloc(pool_tag, pool_wid, pool_qcnt,pma, wid);
-                            if (ns != -1) { slot = ns; continue; }
-                            int ev = slot_evict(pool_tag, pool_qcnt,in_flight, pma);
-                            if (ev == -1) {
-                                poll_ack(in_flight, in_flight_count,
-                                    ack_from_insert_edge_1);
-                                poll_ack(in_flight, in_flight_count,
-                                    ack_from_insert_edge_2);
-                                poll_ack(in_flight, in_flight_count,
-                                    ack_from_insert_edge_3);
-                                poll_ack(in_flight, in_flight_count,
-                                    ack_from_insert_edge_4);
-                                // ap_wait();
-                                continue;
-                            }
-                            slot = slot_evict_and_reuse(
-                                pool, pool_tag, pool_wid, pool_qcnt,
-                                in_flight, in_flight_count,
-                                ev, pma, wid, eviction_count,
-                                cmd_to_insert_edge_1, cmd_to_insert_edge_2,
-                                cmd_to_insert_edge_3, cmd_to_insert_edge_4,
-                                ack_from_insert_edge_1, ack_from_insert_edge_2,
-                                ack_from_insert_edge_3, ack_from_insert_edge_4);
                         }
+                        // If slot_enq fails (shouldn't happen with flush+alloc above),
+                        // loop back and retry
                     }
+                    #undef ENQUEUE_RETRY_LIMIT
                 }
                 }
 
@@ -619,8 +596,7 @@ extern "C"
                         int batch = ((int)pool_qcnt[s] < MAX_CMD_NUM)
                                     ? (int)pool_qcnt[s] : MAX_CMD_NUM;
                         if (slot_flush_one_batch(pool, pool_tag, pool_wid, pool_qcnt,s,
-                            cmd_to_insert_edge_1, cmd_to_insert_edge_2,
-                            cmd_to_insert_edge_3, cmd_to_insert_edge_4)) {
+                            cmd_to_insert_edge_1, cmd_to_insert_edge_2)) {
                             inflight_add(in_flight, in_flight_count, pma);
                             dispatched += batch;
                             any = true;
@@ -642,8 +618,7 @@ extern "C"
                             int batch = ((int)pool_qcnt[s] < MAX_CMD_NUM)
                                         ? (int)pool_qcnt[s] : MAX_CMD_NUM;
                             if (slot_flush_one_batch(pool, pool_tag, pool_wid, pool_qcnt,s,
-                                cmd_to_insert_edge_1, cmd_to_insert_edge_2,
-                                cmd_to_insert_edge_3, cmd_to_insert_edge_4)) {
+                                cmd_to_insert_edge_1, cmd_to_insert_edge_2)) {
                                 inflight_add(in_flight, in_flight_count, pma);
                                 dispatched += batch;
                                 any = true;
