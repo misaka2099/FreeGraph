@@ -895,16 +895,7 @@ void sub_search(
 {
     #pragma HLS INLINE
     int range = seg_high - seg_low;
-    if (range <= 4) {
-        searched_seg_number = range - 1;
-        for (int s = seg_low; s < seg_high; s++) {
-            #pragma HLS UNROLL
-            if (cache_bs_helper[s] >= dst) {
-                searched_seg_number = s - seg_low;
-                return;
-            }
-        }
-    } else {
+    {
         int low = seg_low;
         int high = seg_high - 1;
         searched_seg_number = -1;
@@ -1037,7 +1028,7 @@ void binary_search_insert_cu(
         }
 
         int bs_helper[10240];
-        #pragma HLS BIND_STORAGE variable=bs_helper type=RAM_2P impl=URAM
+        #pragma HLS BIND_STORAGE variable=bs_helper type=RAM_2P impl=BRAM
         {
             int total_segs = header.vertex_range[VERTEX_PER_PMA - 1];
             int packed_words = (total_segs + 15) >> 4;
