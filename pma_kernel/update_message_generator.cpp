@@ -12,7 +12,7 @@ extern "C"
         // int *src_to_change,
         // double *attr_to_change,
         // int src_attr_change_num,
-        int last,
+        CONTROL_TYPE last,
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_router,
         hls::stream<WHOLE_ACK> &ack_from_router
         // hls::stream<VERTEX_ATTR_STREAM_TYPE> &attr_to_pma
@@ -50,14 +50,12 @@ extern "C"
                 default:
                     msg.opcode = PMA_UPDATE_INSERT_EDGE; // default to insert edge if unknown opcode
             }
-            msg.last = 0;
+            msg.flags = normal_flag;
             cmd_to_router.write(msg);
         }
-        HERE
-        cmd_to_router.write({.src=-1, .dst=-1, .opcode = PMA_UPDATE_STOP, .last = last});
-        // If this is the final batch, wait for ACK from router indicating completion
+        // last = flush_flag (intermediate batch) or exit_flag (final batch)
+        cmd_to_router.write({.src=-1, .dst=-1, .opcode = PMA_UPDATE_STOP, .flags = last});
         WHOLE_ACK ack_pkt;
-        // blocking read to ensure router processed the whole batch
         ack_from_router.read(ack_pkt);
     }
 }
