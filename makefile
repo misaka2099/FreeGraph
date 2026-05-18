@@ -6,11 +6,11 @@ TARGET ?= sw_emu
 MEMKERNEL_DIR := ./memkernel
 PMA_KERNEL_DIR := ./pma_kernel
 REGRAPH_KERNEL_DIR := ./ReGraph/xokernels
-MEM_XO_FILES :=
+MEM_XO_FILES := $(addprefix $(MEMKERNEL_DIR)/, alloc_access_kernel.xo mem_access_kernel.xo)
 # LIVE_GRAPH_PMA_XO_FILES := $(addprefix $(PMA_KERNEL_DIR)/, update_message_generator.xo update_message_router.xo pma_insert_vertex.xo pma_insert_edge.xo pma_read_router_kernel.xo pma_read_worker_kernel.xo pma_read_merger_kernel.xo check_kernel.xo)
 # WHOLE_PMA_XO_FILES := $(addprefix $(PMA_KERNEL_DIR)/, update_message_generator.xo update_message_router.xo pma_insert_vertex.xo pma_insert_edge.xo pma_read_router_kernel.xo pma_read_worker_kernel.xo pma_read_merger_kernel.xo)
-LIVE_GRAPH_PMA_XO_FILES := $(addprefix $(PMA_KERNEL_DIR)/, update_message_generator.xo update_message_router.xo bs_kernel.xo insert_kernel.xo rebalance_kernel.xo pma_read_kernel.xo check_kernel.xo)
-WHOLE_PMA_XO_FILES := $(addprefix $(PMA_KERNEL_DIR)/, update_message_generator.xo update_message_router.xo bs_kernel.xo insert_kernel.xo rebalance_kernel.xo pma_read_kernel.xo)
+LIVE_GRAPH_PMA_XO_FILES := $(addprefix $(PMA_KERNEL_DIR)/, update_message_generator.xo update_message_router.xo  pma_insert_edge.xo pma_read_router_kernel.xo pma_read_worker_kernel.xo pma_read_merger_kernel.xo check_kernel.xo)
+WHOLE_PMA_XO_FILES := $(addprefix $(PMA_KERNEL_DIR)/, update_message_generator.xo update_message_router.xo  pma_insert_edge.xo pma_read_router_kernel.xo pma_read_worker_kernel.xo pma_read_merger_kernel.xo)
 
 REGRAPH_XO_FILES := $(wildcard $(REGRAPH_KERNEL_DIR)/*.xo)
 XCLBIN_FILE := $(TARGET)_test_all.xclbin
@@ -38,6 +38,7 @@ WHOLE_HOST_DEFINES := -DLITTLE_KERNEL_NUM=$(LITTLE_KERNEL_NUM) -DBIG_KERNEL_NUM=
 	-DBIG_KERNEL_DST_BUFFER_SIZE=$(BIG_KERNEL_DST_BUFFER_SIZE) -DHAVE_APPLY=$(HAVE_APPLY) \
 	-DVERTEX_REORDER_ENABLE=$(VERTEX_REORDER_ENABLE) -DALGO_CODE=$(ALGO_CODE)
 subdirs:
+	$(MAKE) -C memkernel all TARGET=$(TARGET)
 	$(MAKE) -C pma_kernel all TARGET=$(TARGET)
 
 # Host source list: all ReGraph/host .cpp except files that define main
@@ -49,10 +50,10 @@ HOST_SRCS += ReGraph/utils/common/includes/xcl2/xcl2.cpp
 UDFS_SRCS := $(shell if [ -d ReGraph/acc_udfs/$(ALGO) ]; then find ReGraph/acc_udfs/$(ALGO) -name "*.cpp" | tr '\n' ' '; fi)
 
 ALL_XO_FILES = $(MEM_XO_FILES) $(LIVE_GRAPH_PMA_XO_FILES)
-WHOLE_XO_FILES =$(MEM_XO_FILES) $(WHOLE_PMA_XO_FILES) $(REGRAPH_XO_FILES)
+WHOLE_XO_FILES =$(MEM_XO_FILES) $(PMA_XO_FILES) $(REGRAPH_XO_FILES)
 $(XCLBIN_FILE): $(ALL_XO_FILES)
 	@echo "---- Linking kernels to create $(XCLBIN_FILE) ----"
-	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --save-temps --config system.cfg --config profile.cfg -o $@ $^
+	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --kernel_frequency=150 --save-temps --config system.cfg --config profile.cfg -o $@ $^
 	@echo "---- Link done: $@ ----"
 
 $(WHOLE_SYSTEM_XCLBIN): $(WHOLE_XO_FILES)
@@ -66,6 +67,7 @@ $(DUMMY_XCLBIN): $(DUMMT_KERNEL_XO)
 	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --config dummy.cfg -o $@ $^
 	@echo "---- Link done: $@ ----"
 whole_system: $(WHOLE_SYSTEM_XCLBIN)
+	$(MAKE) -C memkernel all TARGET=$(TARGET)
 	$(MAKE) -C pma_kernel all TARGET=$(TARGET)
 	$(MAKE) -C ReGraph -f makekernel.mk all TARGET=$(TARGET) WHOLE_HOST_DEFINES="$(WHOLE_HOST_DEFINES)" ALGO=$(ALGO)
 	$(MAKE) $(WHOLE_SYSTEM_XCLBIN)
@@ -84,8 +86,26 @@ dummy_host: dummy_host.cpp
 	g++ -std=c++17 $(INCLUDES) $(WHOLE_HOST_INCLUDES) $(WHOLE_HOST_DEFINES) -L${XILINX_XRT}/lib -o $@ dummy_host.cpp $(HOST_SRCS) $(UDFS_SRCS) -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
 test_read_kernel: test_read_kernel.cpp
 	g++ -std=c++17 $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
+
+# ---- Overlap Test ----
+OVERLAP_XCLBIN := overlap_test.xclbin
+OVERLAP_KERNEL_XOS := memkernel/mem_access_kernel.xo memkernel/alloc_access_kernel.xo \
+                      pma_kernel/update_message_generator.xo pma_kernel/update_message_router.xo \
+                      pma_kernel/pma_insert_edge.xo pma_kernel/test_overlap.xo
+
+overlap_test_kernels:
+	$(MAKE) -C memkernel TARGET=$(TARGET)
+	$(MAKE) -C pma_kernel TARGET=$(TARGET)
+
+$(OVERLAP_XCLBIN): overlap_test_kernels
+	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --config overlap_test.cfg -o $@ $(OVERLAP_KERNEL_XOS)
+
+overlap_test_host: test_overlap_host.cpp
+	g++ -std=c++17 $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
+
 clean:
+	$(MAKE) -C memkernel clean
 	$(MAKE) -C pma_kernel clean
 	$(MAKE) -C ReGraph -f makekernel.mk clean
-	rm -f $(XCLBIN_FILE) host
+	rm -f $(XCLBIN_FILE) host $(OVERLAP_XCLBIN) overlap_test_host
 	rm -rf _x/link

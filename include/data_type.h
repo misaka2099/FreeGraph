@@ -7,8 +7,7 @@
 // typedef  ap_uint<8> BYTE_STREAM;
 typedef ap_axiu<8,0,0,0> VERTEX_ACK;
 typedef ap_axiu<8,0,0,0> WHOLE_ACK;
-#define CHANNEL_CAPACITY (248*1024*1024)      // PMA data region, managed by bitmap
-#define VEC_INFO_SIZE   (16 * 1024 * 1024)     // vecinfo table at tail of channel
+#define CHANNEL_CAPACITY (250*1024*1024)
 // #define CHANNEL_CAPACITY (64*1024*1024)
 #ifndef PMA_PARALLEL_CHANNEL_NUM
 #define PMA_PARALLEL_CHANNEL_NUM 2
@@ -37,6 +36,7 @@ typedef ap_uint<8> BYTE;
 //32-63 length
 typedef ap_uint<64> VEC_INFO;
 typedef ap_axiu<64, 3, 0, 0> VEC_INFO_STREAM;
+typedef ap_axiu<256, 0, 0, 0> SEARCH_RESULT_STREAM;
 //0-31: start position
 //32-63: length
 // typedef ap_uint<64> ACCESS_POS ;
@@ -59,79 +59,50 @@ enum PMA_UPDATE_OPCODE
     PMA_UPDATE_STOP = 4,
     PMA_UPDATE_FLUSH_CACHE = 5,
 };
-
-enum CONTROL_TYPE
-{
-    normal_flag = 0,
-    exit_flag = 1,
-    clear_probe = 2,
-    synchronize_flag = 3,
-    flush_flag = 4,         // per-batch drain + ACK, workers stay alive
-    locked_flag = 5,        // PMA locked by rebalance, edge needs reprocess
-    empty_pma_flag = 6      // PMA not yet allocated, needs allocation first
-};
 struct PMA_UPDATE_MESSAGE
 {
     int src;
     int dst;
     PMA_UPDATE_OPCODE opcode;
-    CONTROL_TYPE flags;
+    int last;
 };
 #define MAX_PMA_NUM 1000000
 
-// ============================================================
-// 3-Kernel Insert Architecture Types
-// ============================================================
-
-// Segment: 16 ints = 64B = one HBM burst, all 16 slots hold edges (UNUSED_ICON for empty)
-#define SEG_INT_SIZE 16
-#define SEG_BYTES (SEG_INT_SIZE * (int)sizeof(int))  // 64
-#define HEADER_WORDS 2
-// bs_kernel → insert_kernel: one message per edge, carries search result
-struct BS_OUT_MSG {
-    int seg_idx;   // target segment index (found by bs search)
-    int src;       // source vertex
-    int dst;       // destination vertex
-    PMA_UPDATE_OPCODE opcode;    // PMA_UPDATE_OPCODE
-    CONTROL_TYPE flags;     // bit0: reprocess, bit1: last_in_batch
-};
-
-// insert_kernel → rebalance_kernel
-struct REBALANCE_REQ {
-    int src;    // src to rebalance
-    int seg_idx;  // seg id in vertex src
-    VEC_INFO old_addr;   // vecinfo for the vertex, used for rebalance decision
-    CONTROL_TYPE flags;      // bit0: last (stop)
-};
-
-// insert_kernel → router: reprocessed messages go back for re-dispatch
-
-// bs_helper cache entry per PMA
-struct BS_CACHE_ENTRY {
-    int pma_idx;
-    int vertex_range[VERTEX_PER_PMA];  // cached range for invalidation check
-    int bs_data[10240];                // per-segment first-edge values
-    bool valid;
-};
-
-
 // #define OUT_DIRECTION 0
 // #define IN_DIRECTION 1
-typedef ap_axiu<96,0,0,0> READ_COMMAND_STREAM;
-typedef ap_axiu<64,0,0,0> COO_STREAM;
-typedef ap_axiu<32,0,0,0> EDGE_CNT_STREAM;
+typedef ap_axiu<96,0,0,0> READ_COMMAND_STREAM; 
 typedef  ap_axiu<8,0,0,0> CLEAR_ICON;
 
 
 
-#define VERTEX_ATTR_SIZE_IN_BYTE 1
+#define VERTEX_ATTR_SIZE_IN_BYTE 16
+typedef ap_uint<64> VERTEX_ATTR_TYPE; 
+struct VERTEX_ATTR_STREAM_TYPE {
+    VERTEX_ATTR_TYPE data;
+    ap_uint<1> last;
+};
+#ifdef ATTR_CACHEABLE
 struct alignas(64)PMA_HEADER
 {
     int vertex_range[VERTEX_PER_PMA];//every vertex in PMA's end segment [)
     int edge_count[VERTEX_PER_PMA];//every vertex in PMA's edge count
-    // ap_uint<64> attr[VERTEX_PER_PMA];//every vertex in PMA's attr
+    VERTEX_ATTR_TYPE attr[VERTEX_PER_PMA];//every vertex in PMA's attr
 };
+#else
+struct alignas(64)PMA_HEADER
+{
+    int vertex_range[VERTEX_PER_PMA];//every vertex in PMA's end segment [)
+    int edge_count[VERTEX_PER_PMA];//every vertex in PMA's edge count
+    ap_uint<64> attr[VERTEX_PER_PMA];//every vertex in PMA's attr
+};
+#endif
 typedef ap_uint<512> memory_chunk; 
+
+struct INTRA_PMA_UPDATE_MESSAGE
+{
+    ap_uint<128> data;
+    ap_uint<1> last;
+};
 
 
 
@@ -158,7 +129,7 @@ typedef ap_uint<512> memory_chunk;
 
 // Profile table
 // Router / Worker config
-#define ROUTER_WORKERS          1
+#define ROUTER_WORKERS          CHANNEL_NUM
 
 // #define LOAD_BITMAP 19
 enum control_type
