@@ -7,6 +7,7 @@
 #include <cstring>
 #include <iostream>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 #include <xrt/xrt_device.h>
@@ -899,6 +900,9 @@ int main(int argc, char** argv)
             bool last = (idx == operations.size());
             double update_time = run_update_batch(edge_count, "ts_" + std::to_string(current_ts), last);
             incremental_phase_s += update_time;
+
+            std::cout << "Waiting 5s after update batch..." << std::endl;
+            std::this_thread::sleep_for(std::chrono::seconds(5));
 
             std::cout << "prepareing verification result on CPU for timestamp " << current_ts << "..." << std::endl;
             std::vector<int> dirty_vertices;

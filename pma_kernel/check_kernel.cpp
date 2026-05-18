@@ -31,7 +31,7 @@ extern "C"
         #pragma HLS INTERFACE s_axilite port=mode 
         #pragma HLS INTERFACE s_axilite port=return 
 
-        if (mode == 1) {  // COO mode
+        if (mode == 1) {  // COO mode — scan all vertices
             READ_COMMAND_STREAM cmd;
             cmd.data = PMA_GET_ALL_OUT_EDGE_COO;
             cmd.last = 0;
@@ -53,6 +53,33 @@ extern "C"
                 {
                     break;
                 }
+            }
+        } else if (mode == 2) {  // GAS — query vertex_to_check vertices, output only dst[] with -1 separators
+            int out_idx = 0;
+            for (int v = 0; v < vertex_to_check; v++) {
+                int vid = coo_src[v];  // vertex ID to query
+
+                READ_COMMAND_STREAM cmd;
+                cmd.data.range(31,0)  = PMA_GET_OUT_EDGE;
+                cmd.data.range(63,32) = vid;
+                cmd.data.range(95,64) = 0;
+                cmd.last = 0;
+                #pragma HLS protocol fixed
+                ap_wait();
+                cmd_to_read.write(cmd);
+
+                // Read dst values for this vertex until terminator
+                while (true) {
+                    ap_axiu<64,0,0,0> pkt = data_to_coo_stream.read();
+                    if (pkt.last) break;  // terminator — end of this vertex
+                    ap_uint<64> data = pkt.data;
+                    coo_dst[out_idx] = (int)(data & 0xFFFFFFFF);  // dst only
+                    out_idx++;
+                }
+    
+                // -1 separator between vertices
+                coo_dst[out_idx] = -1;
+                out_idx++;
             }
         } else if (mode == 3)
         {

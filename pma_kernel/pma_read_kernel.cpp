@@ -310,7 +310,7 @@ static void merger_unified(
 
             else if (pkt.keep != 0)
             {
-                if (cmd.mode == PMA_GET_ALL_OUT_EDGE_COO)   // COO
+                if (cmd.mode == PMA_GET_ALL_OUT_EDGE_COO || cmd.mode == PMA_GET_OUT_EDGE)   // COO
                 {
                     ap_axiu<64,0,0,0> o = {};
                     o.data = pkt.data;
@@ -333,7 +333,7 @@ static void merger_unified(
         }
 
         // Append Terminator for Scan modes where workers just send chunks
-        if (cmd.mode == PMA_GET_ALL_OUT_EDGE_COO) // COO
+        if (cmd.mode == PMA_GET_ALL_OUT_EDGE_COO || cmd.mode == PMA_GET_OUT_EDGE) // COO
         {
             out_coo.write({.data = (ap_uint<64>)-1, .keep = 0xFF, .strb = 0xFF, .last = 1});
         }
@@ -427,7 +427,7 @@ static void read_worker(
                             break;
                         }
                         internal_axis<64> out_pkt = {};
-                        out_pkt.data = (ap_uint<32>)neighbor;
+                        out_pkt.data = ((ap_uint<64>)src << 32) | (ap_uint<32>)neighbor;
                         out_pkt.keep = (ap_uint<8>)0xFF;
                         out_pkt.find_end = (ap_uint<8>)0xFF;
                         out_pkt.last = 0;

@@ -16,7 +16,7 @@ REGRAPH_XO_FILES := $(wildcard $(REGRAPH_KERNEL_DIR)/*.xo)
 XCLBIN_FILE := $(TARGET)_test_all.xclbin
 WHOLE_SYSTEM_XCLBIN := $(TARGET)_whole_system.xclbin
 WHOLE_SYSTEM_XO_FILE := $(MEM_XO_FILES) $(WHOLE_PMA_XO_FILES) $(REGRAPH_XO_FILES)
-CONFIG_FILES := system.cfg profile.cfg
+CONFIG_FILES := system.cfg
 all: subdirs $(XCLBIN_FILE)
 
 # Compilation-time algorithm selection (default bfs). Usage: `make whole_host ALGO=pr` or `ALGO=cc`
@@ -53,12 +53,12 @@ ALL_XO_FILES = $(MEM_XO_FILES) $(LIVE_GRAPH_PMA_XO_FILES)
 WHOLE_XO_FILES =$(MEM_XO_FILES) $(PMA_XO_FILES) $(REGRAPH_XO_FILES)
 $(XCLBIN_FILE): $(ALL_XO_FILES)
 	@echo "---- Linking kernels to create $(XCLBIN_FILE) ----"
-	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --kernel_frequency=150 --save-temps --config system.cfg --config profile.cfg -o $@ $^
+	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --kernel_frequency=150 --save-temps --config system.cfg -o $@ $^
 	@echo "---- Link done: $@ ----"
 
 $(WHOLE_SYSTEM_XCLBIN): $(WHOLE_XO_FILES)
 	@echo "---- Linking whole system kernels to create $(WHOLE_SYSTEM_XCLBIN) ----"
-	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --config whole_system.cfg --config profile.cfg -o $@ $(WHOLE_SYSTEM_XO_FILE)
+	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --config whole_system.cfg -o $@ $(WHOLE_SYSTEM_XO_FILE)
 	@echo "---- Link done: $@ ----"
 DUMMY_XCLBIN := dummy.xclbin
 DUMMT_KERNEL_XO := $(wildcard ReGraph/dummykernels/*.xo)
@@ -87,19 +87,7 @@ dummy_host: dummy_host.cpp
 test_read_kernel: test_read_kernel.cpp
 	g++ -std=c++17 $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
 
-# ---- Overlap Test ----
-OVERLAP_XCLBIN := overlap_test.xclbin
-OVERLAP_KERNEL_XOS := memkernel/mem_access_kernel.xo memkernel/alloc_access_kernel.xo \
-                      pma_kernel/update_message_generator.xo pma_kernel/update_message_router.xo \
-                      pma_kernel/pma_insert_edge.xo pma_kernel/test_overlap.xo
-
-overlap_test_kernels:
-	$(MAKE) -C memkernel TARGET=$(TARGET)
-	$(MAKE) -C pma_kernel TARGET=$(TARGET)
-
-$(OVERLAP_XCLBIN): overlap_test_kernels
-	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --config overlap_test.cfg -o $@ $(OVERLAP_KERNEL_XOS)
-
+# ---- Overlap Test Host ----
 overlap_test_host: test_overlap_host.cpp
 	g++ -std=c++17 $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
 

@@ -72,7 +72,7 @@ void pma_read_merger_kernel(
             }
 
             if (pkt.keep != 0) {
-                if (mode == PMA_GET_ALL_OUT_EDGE_COO) {
+                if (mode == PMA_GET_ALL_OUT_EDGE_COO || mode == PMA_GET_OUT_EDGE) {
                     ap_axiu<64,0,0,0> o = {};
                     o.data = pkt.data;
                     o.keep = 0xFF;
@@ -86,7 +86,7 @@ void pma_read_merger_kernel(
             }
         }
 
-        if (mode == PMA_GET_ALL_OUT_EDGE_COO) {
+        if (mode == PMA_GET_ALL_OUT_EDGE_COO || mode == PMA_GET_OUT_EDGE) {
             ap_axiu<64,0,0,0> o = {};
             o.data = (ap_uint<64>)-1;
             o.keep = 0xFF;

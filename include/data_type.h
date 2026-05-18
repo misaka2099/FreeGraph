@@ -58,6 +58,7 @@ enum PMA_UPDATE_OPCODE
     PMA_UPDATE_DELETE_VERTEX = 3,
     PMA_UPDATE_STOP = 4,
     PMA_UPDATE_FLUSH_CACHE = 5,
+    PMA_UPDATE_GAS_QUERY = 6,     // GAS vertex query: src = vertex to query
 };
 struct PMA_UPDATE_MESSAGE
 {
