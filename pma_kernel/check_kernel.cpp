@@ -57,7 +57,7 @@ extern "C"
         } else if (mode == 2) {  // GAS — query vertex_to_check vertices, output only dst[] with -1 separators
             int out_idx = 0;
             for (int v = 0; v < vertex_to_check; v++) {
-                int vid = coo_src[v];  // vertex ID to query
+                int vid = coo_src[v];  // vertex ID to query (coo_src reused as latency output)
 
                 READ_COMMAND_STREAM cmd;
                 cmd.data.range(31,0)  = PMA_GET_OUT_EDGE;
@@ -68,6 +68,16 @@ extern "C"
                 ap_wait();
                 cmd_to_read.write(cmd);
 
+                // ---- measure cmd-to-first-data latency for this vertex ----
+                {
+                    ap_uint<32> cnt = 0;
+                    while (data_to_coo_stream.empty()) {
+                        #pragma HLS PIPELINE II=1
+                        cnt++;
+                    }
+                    coo_src[v] = (int)cnt;  // overwrite: latency in cycles (150MHz → ×6.67ns)
+                }
+
                 // Read dst values for this vertex until terminator
                 while (true) {
                     ap_axiu<64,0,0,0> pkt = data_to_coo_stream.read();
@@ -76,7 +86,7 @@ extern "C"
                     coo_dst[out_idx] = (int)(data & 0xFFFFFFFF);  // dst only
                     out_idx++;
                 }
-    
+
                 // -1 separator between vertices
                 coo_dst[out_idx] = -1;
                 out_idx++;

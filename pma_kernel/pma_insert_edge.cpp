@@ -621,7 +621,12 @@ void cache_mechanism(
                                       req_to_mem_access, data_to_mem_access);
                     }
                 }
-                data_to_app[i].write(1); // ack to the requesting slot
+                ap_wait();
+                #pragma HLS protocol fixed
+                flus_ack_section:
+                {
+                    data_to_app[i].write(1); // ack to the requesting slot
+                }
                 break;
             }
             default: break;
@@ -639,13 +644,18 @@ void cache_mechanism(
         }
     }
 
-    data_to_app[2].write(1); // shutdown ack to rebalance slot
     MEMORY_INFO_ACCESS_COMMAND finish_cmd = {};
     finish_cmd.last = 1;
     finish_cmd.command_type = MEMORY_FINISH;
     req_to_mem_access.write(finish_cmd);
     finish_cmd.command_type = ALLOC_FINISH;
     req_to_alloc_access.write(finish_cmd);
+    ap_wait();
+    #pragma HLS protocol fixed
+    stop_ack_section:
+    {   
+        data_to_app[2].write(1); // shutdown ack to rebalance slot
+    }
 }
 
 void process_cmd(
@@ -1512,7 +1522,12 @@ void rebalance_cu(
         ack_pkt.strb = (ap_uint<4>)0xF;
         ack_pkt.user = (ap_uint<3>)0;
         ack_pkt.last = 0;
-        ack_back_to_router.write(ack_pkt);
+        ap_wait();
+        #pragma protocol fixed
+        ack_section:
+        {
+            ack_back_to_router.write(ack_pkt);
+        }
     }
 }
 

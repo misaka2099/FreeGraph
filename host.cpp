@@ -56,10 +56,9 @@ void print_pma(
 int main(int argc, char** argv)
 {
     if (argc < 3) {
-        std::cerr << "Usage: " << argv[0] << " <xclbin> <graph>" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <xclbin> <graph> [device_index=1]" << std::endl;
         return 1;
     }
-
 
 
     std::string xclbin_name = argv[1];
@@ -178,7 +177,7 @@ int main(int argc, char** argv)
 
     auto xclbin = xrt::xclbin(xclbin_name);
     auto device = xrt::device(0);
-    
+
     auto uuid = device.load_xclbin(xclbin);
     std::cout << "device name:     " << device.get_info<xrt::info::device::name>() << "\n";
     std::cout << "device bdf:      " << device.get_info<xrt::info::device::bdf>() << "\n";
@@ -902,7 +901,7 @@ int main(int argc, char** argv)
             incremental_phase_s += update_time;
 
             std::cout << "Waiting 5s after update batch..." << std::endl;
-            std::this_thread::sleep_for(std::chrono::seconds(5));
+            std::this_thread::sleep_for(std::chrono::microseconds(100));
 
             std::cout << "prepareing verification result on CPU for timestamp " << current_ts << "..." << std::endl;
             std::vector<int> dirty_vertices;

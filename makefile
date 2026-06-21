@@ -91,6 +91,14 @@ test_read_kernel: test_read_kernel.cpp
 overlap_test_host: test_overlap_host.cpp
 	g++ -std=c++17 $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
 
+# ---- Read Latency Test Host ----
+test_read_latency: test_read_latency.cpp
+	g++ -std=c++17 $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
+
+# ---- HBM Build Time Host ----
+test_hbm_build_time: test_hbm_build_time.cpp
+	g++ -std=c++17 $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
+
 clean:
 	$(MAKE) -C memkernel clean
 	$(MAKE) -C pma_kernel clean
