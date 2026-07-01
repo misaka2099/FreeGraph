@@ -242,3 +242,38 @@ struct MEMORY_INFO_ACCESS_COMMAND
 // const int LOG2_SRC_BUFFER_SIZE=12; // #4096 vertices 16*2 KB per source vertex buffer for a scatter PE// 64 BRAMs per scatter PE
 
 #define PMA_ENLARGE_FACTOR 3
+
+// --- Helper Array Layout (per PMA, after header) ---
+// Each segment has a 64-bit helper entry: [31:0]=first_dst, [63:32]=valid_count
+// 8 entries packed per 512-bit word
+#define HELPER_ENTRIES_PER_WORD 8
+
+// Helper entry helpers
+#define HELPER_FIRST_MASK  0x00000000FFFFFFFFUL  // bits [31:0]
+#define HELPER_VALID_SHIFT 32
+
+// Helper word count for a PMA with total_segs segments
+#define HELPER_WORDS(total_segs) (((total_segs) + HELPER_ENTRIES_PER_WORD - 1) / HELPER_ENTRIES_PER_WORD)
+
+// Total PMA words: header + helper + segments
+#define PMA_TOTAL_WORDS(total_segs) (4 + HELPER_WORDS(total_segs) + (total_segs) * 4)
+
+// --- Three-Phase Pipeline Types ---
+
+// Phase 1→2: Binary search result for one batch (up to 16 edges)
+struct bs_batch_t {
+    int pma_idx;
+    int target_seg[16];       // absolute segment index for each op
+    int dst[16];              // destination vertex
+    int local_src[16];        // source vertex within PMA (0..15)
+    ap_uint<16> op_mask;      // bit i: 0=insert_edge, 1=delete_edge
+    int count;                // number of ops (1..16)
+};
+
+// Phase 2→3: Modification summary for rebalance decision
+struct insert_summary_t {
+    int pma_idx;
+    int edge_count_delta[16];      // net +inserts -deletes per vertex
+    ap_uint<16> inserted_vertex_mask; // which vertices had insert operations
+    bool any_modification;
+};

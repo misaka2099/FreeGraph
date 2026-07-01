@@ -8,7 +8,7 @@
 #include <cstring>
 void process_req(
     ap_uint<512>* hbm_ptr,
-    VEC_INFO* pma_addrs,
+    volatile VEC_INFO* pma_addrs,
     int max_pma_idx,
     hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_edge,
     hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_read,
@@ -119,7 +119,7 @@ extern "C"
 {
     void mem_access_kernel(
         ap_uint<512>* hbm_ptr,
-        VEC_INFO* pma_addrs,
+        volatile VEC_INFO* pma_addrs,
         int max_pma_idx,
         hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_edge,
         hls::stream<MEMORY_INFO_ACCESS_COMMAND> &req_from_read,

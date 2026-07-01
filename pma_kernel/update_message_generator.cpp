@@ -44,9 +44,6 @@ extern "C"
                 case PMA_UPDATE_DELETE_EDGE:
                     msg.opcode = PMA_UPDATE_DELETE_EDGE;
                     break;
-                case PMA_UPDATE_DELETE_VERTEX:
-                    msg.opcode = PMA_UPDATE_DELETE_VERTEX;
-                    break;
                 default:
                     msg.opcode = PMA_UPDATE_INSERT_EDGE; // default to insert edge if unknown opcode
             }
