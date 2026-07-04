@@ -56,6 +56,18 @@ $(XCLBIN_FILE): $(ALL_XO_FILES)
 	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --kernel_frequency=150 --save-temps --config system.cfg -o $@ $^
 	@echo "---- Link done: $@ ----"
 
+BFS_PMA_XO_FILES := $(addprefix $(PMA_KERNEL_DIR)/, update_message_generator.xo update_message_router.xo pma_insert_edge.xo pma_read_router_kernel.xo pma_read_worker_kernel.xo pma_read_merger_kernel.xo bfs_kernel.xo)
+BFS_ALL_XO_FILES = $(MEM_XO_FILES) $(BFS_PMA_XO_FILES)
+BFS_XCLBIN := bfs_$(TARGET).xclbin
+bfs: subdirs_bfs $(BFS_XCLBIN)
+subdirs_bfs:
+	$(MAKE) -C memkernel all TARGET=$(TARGET)
+	$(MAKE) -C pma_kernel all TARGET=$(TARGET)
+$(BFS_XCLBIN): $(BFS_ALL_XO_FILES)
+	@echo "---- Linking BFS system to create $(BFS_XCLBIN) ----"
+	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --kernel_frequency=150 --save-temps --config bfs_system.cfg -o $@ $^
+	@echo "---- BFS link done: $@ ----"
+
 $(WHOLE_SYSTEM_XCLBIN): $(WHOLE_XO_FILES)
 	@echo "---- Linking whole system kernels to create $(WHOLE_SYSTEM_XCLBIN) ----"
 	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --config whole_system.cfg -o $@ $(WHOLE_SYSTEM_XO_FILE)
@@ -97,6 +109,10 @@ test_read_latency: test_read_latency.cpp
 
 # ---- HBM Build Time Host ----
 test_hbm_build_time: test_hbm_build_time.cpp
+	g++ -std=c++17 $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
+
+# ---- BFS Host ----
+bfs_host: bfs_host.cpp
 	g++ -std=c++17 $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
 
 clean:

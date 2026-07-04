@@ -7,7 +7,7 @@
 # Edit PLATFORM if your platform xpfm path is different.
 
 VPP ?= v++
-PLATFORM ?= /xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm
+PLATFORM ?= /opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm
 INCLUDES := -I/home/sail/lyf/pma_demo/stream/include
 
 # Target can be hw_emu or hw
