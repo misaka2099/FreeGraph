@@ -10,20 +10,20 @@ void pma_read_merger_kernel(
     hls::stream<READ_COMMAND_STREAM> &merger_cmd_stream,
     hls::stream<READ_PKT_STREAM> &worker0_pkt_stream,
     hls::stream<READ_PKT_STREAM> &worker1_pkt_stream,
-    hls::stream<ap_axiu<64,0,0,0>> &data_to_coo_stream,
-    hls::stream<ap_axiu<32,0,0,0>> &coo_edge_count_stream
+    hls::stream<ap_axiu<64,0,0,0>> &data_to_coo_stream
+    // hls::stream<ap_axiu<32,0,0,0>> &coo_edge_count_stream  // BFS doesn't need edge count
 ) {
 #pragma HLS INTERFACE axis port=merger_cmd_stream
 #pragma HLS INTERFACE axis port=worker0_pkt_stream
 #pragma HLS INTERFACE axis port=worker1_pkt_stream
 #pragma HLS INTERFACE axis port=data_to_coo_stream
-#pragma HLS INTERFACE axis port=coo_edge_count_stream
+// #pragma HLS INTERFACE axis port=coo_edge_count_stream
 
 #pragma HLS STREAM variable=merger_cmd_stream depth=64
 #pragma HLS STREAM variable=worker0_pkt_stream depth=128
 #pragma HLS STREAM variable=worker1_pkt_stream depth=128
 #pragma HLS STREAM variable=data_to_coo_stream depth=16
-#pragma HLS STREAM variable=coo_edge_count_stream depth=16
+// #pragma HLS STREAM variable=coo_edge_count_stream depth=16
 
     while (true) {
         READ_COMMAND_STREAM cmd = merger_cmd_stream.read();
@@ -40,8 +40,8 @@ void pma_read_merger_kernel(
         }
         int done_count = 0;
         int rr = 0;
-        int total_edge_count = 0;
-        bool count_end = false;
+        // int total_edge_count = 0;    // BFS doesn't need edge count
+        // bool count_end = false;
 
         while (done_count < READ_WORKERS) {
 #pragma HLS PIPELINE II=1
@@ -79,10 +79,12 @@ void pma_read_merger_kernel(
                     o.strb = 0xFF;
                     o.last = 0;
                     data_to_coo_stream.write(o);
-                } else if (mode == PMA_GET_EDGE_COUNT_RANGE) {
-                    total_edge_count += (int)pkt.data.range(31, 0);
-                    if (pkt.user == 0) count_end = true;
                 }
+                // BFS doesn't need PMA_GET_EDGE_COUNT_RANGE
+                // } else if (mode == PMA_GET_EDGE_COUNT_RANGE) {
+                //     total_edge_count += (int)pkt.data.range(31, 0);
+                //     if (pkt.user == 0) count_end = true;
+                // }
             }
         }
 
@@ -93,14 +95,16 @@ void pma_read_merger_kernel(
             o.strb = 0xFF;
             o.last = 1;
             data_to_coo_stream.write(o);
-        } else if (mode == PMA_GET_EDGE_COUNT_RANGE) {
-            ap_axiu<32,0,0,0> o = {};
-            o.data = (ap_uint<32>)total_edge_count;
-            o.keep = 0xF;
-            o.strb = 0xF;
-            o.last = count_end ? 1 : 0;
-            coo_edge_count_stream.write(o);
         }
+        // BFS doesn't need PMA_GET_EDGE_COUNT_RANGE
+        // } else if (mode == PMA_GET_EDGE_COUNT_RANGE) {
+        //     ap_axiu<32,0,0,0> o = {};
+        //     o.data = (ap_uint<32>)total_edge_count;
+        //     o.keep = 0xF;
+        //     o.strb = 0xF;
+        //     o.last = count_end ? 1 : 0;
+        //     coo_edge_count_stream.write(o);
+        // }
     }
 }
 }
