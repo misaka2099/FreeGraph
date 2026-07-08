@@ -19,7 +19,7 @@
 bool final_match = true;
 const bool kBaseGraphReadOnlyTest = false;
 const bool kVertexOnlyTest = false;
-const bool kShuffleSameTimestampOps = false; // Set to true to enable shuffling of operations with the same timestamp
+const bool kShuffleSameTimestampOps = true; // Set to true to enable shuffling of operations with the same timestamp
 const bool kMismatchfileOutput = false; // Set to true to output mismatch details to files
 void print_pma(
     int pma_idx,
@@ -30,26 +30,47 @@ void print_pma(
     VEC_INFO vec_info = pos_info[pma_idx];
     int start = vec_info.range(31,0);
     int len =  vec_info.range(63,32);
-    std::cout << "PMA " << pma_idx << " ADDR START FROM " << start << " LEN " << len << std::endl; 
     PMA_HEADER header;
     memcpy(&header, storage + start, sizeof(PMA_HEADER));
-    int *pma_data = (int*)(storage + sizeof(PMA_HEADER) + start);
+    int total_segs = header.vertex_range[VERTEX_PER_PMA - 1];
+    int hpw = (total_segs + 7) / 8;
+    // Helper: hpw × 64 bytes after header, 8 entries per 512-bit word
+    ap_uint<512>* helper_ptr = (ap_uint<512>*)(storage + start + sizeof(PMA_HEADER));
+    // Segment data: after helper
+    int *pma_data = (int*)(storage + start + sizeof(PMA_HEADER) + hpw * 64);
+
+    std::cout << "=== PMA " << pma_idx << " start=" << start << " len=" << len
+              << " total_segs=" << total_segs << " hpw=" << hpw << " ===" << std::endl;
+
+    // Print helper
+    std::cout << "  Helper (first_edge, valid_count):" << std::endl;
+    for (int s = 0; s < total_segs; s++) {
+        int w = s / 8, slot = s % 8;
+        ap_uint<64> entry = helper_ptr[w].range(slot * 64 + 63, slot * 64);
+        int first_edge = (int)entry.range(31, 0);
+        int vc = (int)entry.range(63, 32);
+        std::cout << "    seg" << s << ": fe=" << first_edge << " vc=" << vc;
+        if ((s + 1) % 4 == 0 || s == total_segs - 1) std::cout << std::endl;
+        else std::cout << " | ";
+    }
+
+    // Print vertices and their segments
     for (int i = 0 ; i < VERTEX_PER_PMA ; i++)
     {
-        int src = pma_idx * 16  + i;
-        int edge_count = header.edge_count[i];
+        int src = pma_idx * VERTEX_PER_PMA + i;
+        int ec = header.edge_count[i];
         int seg_start = i == 0 ? 0 : header.vertex_range[i-1];
         int seg_end = header.vertex_range[i];
-        std::cout << "vertex: " << src << " has " << edge_count << " neighbors" << std::endl;
-        std::cout << "vertex " << src << " range from " << seg_start << " to " << seg_end << std::endl; 
+        std::cout << "  v" << src << ": edges=" << ec << " segs=" << seg_start << ".." << seg_end-1 << "  [";
         for (int j = seg_start ; j < seg_end ; j ++)
         {
+            int vc = pma_data[j * SEGMENT_SIZE + VALID_COUNT_IDX];
+            std::cout << "(" << vc << "){";
             for (int k = 0 ; k < SEGMENT_SIZE ; k++)
-            {
-                std::cout <<pma_data[j*SEGMENT_SIZE + k] << " ";
-            }
+                std::cout << pma_data[j * SEGMENT_SIZE + k] << (k+1 < SEGMENT_SIZE ? "," : "");
+            std::cout << "} ";
         }
-        std::cout << std::endl;
+        std::cout << "]" << std::endl;
     }
 }
 
@@ -230,21 +251,30 @@ int main(int argc, char** argv)
         }
     }
     auto check_kernel = xrt::kernel(device, uuid, "check_kernel");
+    // alloc_access kernels (bitmap allocator)
+    std::vector<xrt::kernel> alloc_access_kernels;
+    alloc_access_kernels.reserve(CHANNEL_NUM);
+    for (int i = 1; i <= CHANNEL_NUM; ++i) {
+        if (!try_add_kernel(alloc_access_kernels,
+                "alloc_access_kernel:{alloc_access_kernel_" + std::to_string(i) + "}")) {
+            break;
+        }
+    }
     std::cout << "[DBG] L233: Kernels loaded successfully." << std::endl;
     std::cout << "[DBG] L234: insert_edge=" << pma_insert_edge_kernels.size()
               << " read_worker=" << pma_read_worker_kernels.size()
+              << " alloc_access=" << alloc_access_kernels.size()
               << " channels=" << CHANNEL_NUM << std::endl;
     if (pma_read_worker_kernels.size() < static_cast<size_t>(CHANNEL_NUM) ||
-        // pma_insert_vertex_kernels.size() < static_cast<size_t>(CHANNEL_NUM) ||
-        pma_insert_edge_kernels.size() < static_cast<size_t>(CHANNEL_NUM))
+        pma_insert_edge_kernels.size() < static_cast<size_t>(CHANNEL_NUM) ||
+        alloc_access_kernels.size() < static_cast<size_t>(CHANNEL_NUM))
     {
-        std::cerr << "Kernel loading incomplete for read/insert CUs; aborting before launch." << std::endl;
+        std::cerr << "Kernel loading incomplete for read/insert/alloc CUs; aborting before launch." << std::endl;
         std::cerr << "Loaded read workers: " << pma_read_worker_kernels.size()
-                //   << ", insert vertex kernels: " << pma_insert_vertex_kernels.size()
-                  << ", insert edge kernels: " << pma_insert_edge_kernels.size() << std::endl;
+                  << ", insert edge kernels: " << pma_insert_edge_kernels.size()
+                  << ", alloc access kernels: " << alloc_access_kernels.size() << std::endl;
         return 1;
     }
-    // alloc & mem runs removed — using direct m_axi
     std::cout << "Launching kernels..." << std::endl;
     auto run_pma_read_router_kernel = xrt::run(pma_read_router_kernel);
     std::vector<xrt::run> run_pma_read_worker_kernels;
@@ -271,11 +301,17 @@ int main(int argc, char** argv)
         run_pma_insert_edge_kernels.emplace_back(k);
     }
     std::cout << "PMA insert edge kernels are launched..." << std::endl;
+    std::vector<xrt::run> run_alloc_access_kernels;
+    run_alloc_access_kernels.reserve(alloc_access_kernels.size());
+    for (auto &k : alloc_access_kernels) {
+        run_alloc_access_kernels.emplace_back(k);
+    }
+    std::cout << "alloc_access kernels are launched..." << std::endl;
     std::cout << "Kernels are created..." << std::endl;
 
     auto start_buffer = std::chrono::high_resolution_clock::now();
     // === m_axi HBM layout per channel ===
-    constexpr size_t PMA_DATA_SIZE   = 230 * 1024 * 1024;
+    constexpr size_t PMA_DATA_SIZE   = 220 * 1024 * 1024;  // must match kernel's PMA_DATA_SIZE
     constexpr size_t VECINFO_SIZE    =  10 * 1024 * 1024;
     constexpr size_t BM_SIZE         =   6 * 1024 * 1024;
     constexpr size_t CHANNEL_TOTAL   = PMA_DATA_SIZE + VECINFO_SIZE + BM_SIZE;
@@ -313,9 +349,14 @@ int main(int argc, char** argv)
         std::fill_n(vec_info_ptrs[ch], MAX_PMA_NUM, 0);
     }
 
+    // Separate bitmap BOs (one per channel) — alloc_access owns these
+    std::vector<xrt::bo> bo_bitmap; bo_bitmap.reserve(CHANNEL_NUM);
+    for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
+        bo_bitmap.emplace_back(device, BM_SIZE, alloc_access_kernels[ch].group_id(0));
+    }
     std::vector<BYTE*> bitmap_ptrs; bitmap_ptrs.reserve(CHANNEL_NUM);
     for (int ch = 0; ch < CHANNEL_NUM; ++ch)
-        bitmap_ptrs.push_back(hbm_base_addresses[ch] + pma_bm_start);
+        bitmap_ptrs.push_back(bo_bitmap[ch].map<BYTE*>());
 
     std::cout << "[DBG] L327: hbm_base_addresses mapped, ch0=" << (void*)hbm_base_addresses[0] << " vi=" << (void*)vec_info_ptrs[0] << " bm=" << (void*)bitmap_ptrs[0] << std::endl;
     // Generator buffers
@@ -348,10 +389,10 @@ int main(int argc, char** argv)
     int* bo_num_edges_ptr = bo_num_edges.map<int*>();
 
     // bitmap_ptrs now set up in m_axi buffer section above
-    for (int i = 0; i < CHANNEL_NUM; ++i)
-    {
+    // for (int i = 0; i < CHANNEL_NUM; ++i)
+    // {
       // bitmap now lives inside the m_axi buffer at offset pma_bm_start — no separate allocation
-    }
+    // }
 
     auto end_buffer = std::chrono::high_resolution_clock::now();
     std::chrono::duration<double> elapsed_buffer = end_buffer - start_buffer;
@@ -363,15 +404,15 @@ int main(int argc, char** argv)
     for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
         auto& run = run_pma_insert_edge_kernels[ch];
         int a = 0;
-        run.set_arg(a++, ch_bufs[ch]);
-        run.set_arg(a++, ch_bufs[ch]);
-        run.set_arg(a++, ch_bufs[ch]);
-    std::cout << "[DBG] L373: insert_edge kernel args set (5 ports + 3 offsets) for " << CHANNEL_NUM << " channels" << std::endl;
-        run.set_arg(a++, ch_bufs[ch]);
-        run.set_arg(a++, ch_bufs[ch]);
+        run.set_arg(a++, ch_bufs[ch]);  // hbm_bs0
+        run.set_arg(a++, ch_bufs[ch]);  // hbm_bs1
+        run.set_arg(a++, ch_bufs[ch]);  // hbm_bs2
+        run.set_arg(a++, ch_bufs[ch]);  // hbm_bs3
+        run.set_arg(a++, ch_bufs[ch]);  // hbm_rw
+        run.set_arg(a++, ch_bufs[ch]);  // hbm_red
+        std::cout << "[DBG] L373: insert_edge kernel args set (6 ports + 2 offsets) for " << CHANNEL_NUM << " channels" << std::endl;
         run.set_arg(a++, pma_raw_data_start);
         run.set_arg(a++, pma_vecinfo_start);
-        run.set_arg(a++, pma_bm_start);
     }
     for (int ch = 0; ch < static_cast<int>(run_pma_read_worker_kernels.size()); ++ch) {
         auto& run = run_pma_read_worker_kernels[ch];
@@ -381,6 +422,13 @@ int main(int argc, char** argv)
         run.set_arg(a++, ch_bufs[ch]);
         run.set_arg(a++, pma_raw_data_start);
         run.set_arg(a++, pma_vecinfo_start);
+    }
+    // Merger edge_count_ptr: shares bo_num_edges with check_kernel, merger writes edge count via m_axi
+    run_pma_read_merger_kernel.set_arg(4, bo_num_edges);
+
+    // alloc_access kernel args: bitmap BO (pointer already at bitmap start)
+    for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
+        run_alloc_access_kernels[ch].set_arg(0, bo_bitmap[ch]);
     }
 
     auto verify_graph = [&](const std::vector<std::vector<int>>& expected_graph, int current_max_vertex, const std::string& label, bool last) -> double {
@@ -401,6 +449,7 @@ int main(int argc, char** argv)
         // ---- kernel-only timing ----
         auto k_start = std::chrono::high_resolution_clock::now();
 
+        // mode=3: get total edge count via read pipeline (merger writes to bo_num_edges via m_axi)
         run_check_kernel.start();
         run_check_kernel.wait();
 
@@ -408,6 +457,7 @@ int main(int argc, char** argv)
         int edge_num = bo_num_edges_ptr[0];
         std::cout << "Check kernel returned edge count: " << edge_num << std::endl;
 
+        // mode=1: COO dump to verify graph content
         run_check_kernel.set_arg(4, 1);
         run_check_kernel.set_arg(5, last);
         run_check_kernel.start();
@@ -637,7 +687,7 @@ int main(int argc, char** argv)
         // Update bitmap
         for (int ch = 0; ch < CHANNEL_NUM; ++ch)
         {
-    std::cout << "[DBG] L640: PMA init complete, max offset per ch: " << current_addr_offset[0] << ", " << (CHANNEL_NUM>1?current_addr_offset[1]:0) << std::endl;
+        std::cout << "[DBG] L640: PMA init complete, max offset per ch: " << current_addr_offset[0] << ", " << (CHANNEL_NUM>1?current_addr_offset[1]:0) << std::endl;
             int total_blocks = (current_addr_offset[ch] + INIT_VEC_LEN_IN_BYTE - 1) / INIT_VEC_LEN_IN_BYTE;
             int full_bytes = total_blocks / 8;
             int rem_bits = total_blocks % 8;
@@ -651,6 +701,7 @@ int main(int argc, char** argv)
 
         // Sync modified buffers to device
         for (int ch = 0; ch < CHANNEL_NUM; ++ch) { ch_bufs[ch].sync(XCL_BO_SYNC_BO_TO_DEVICE); }
+        for (int ch = 0; ch < CHANNEL_NUM; ++ch) { bo_bitmap[ch].sync(XCL_BO_SYNC_BO_TO_DEVICE); }
 
         auto end_cpu_preprocess = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> elapsed_cpu_preprocess = end_cpu_preprocess - start_cpu_preprocess;
@@ -678,7 +729,7 @@ int main(int argc, char** argv)
             // {
             //     continue;
             // }
-    std::cout << "[DBG] L680: Starting edge update batches, total_ops=" << operations.size() << std::endl;
+            // std::cout << "[DBG] L680: Starting edge update batches, total_ops=" << operations.size() << std::endl;
             if (edge_idx >= edge_buffer_len)
             {
                 std::cerr << "Edge buffer overflow in batch load." << std::endl;
@@ -735,9 +786,16 @@ int main(int argc, char** argv)
     } else {
     std::cout << "[DBG] L734: All kernels starting (insert, router, read, merger)..." << std::endl;
         std::cout << "No base graph (ts==-1), skipping PMA preload." << std::endl;
+        // Zero-initialize bitmap: all blocks free since no PMA data loaded
+        for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
+            memset(bitmap_ptrs[ch], 0, BM_SIZE);
+        }
+        for (int ch = 0; ch < CHANNEL_NUM; ++ch) { ch_bufs[ch].sync(XCL_BO_SYNC_BO_TO_DEVICE); }
+        for (int ch = 0; ch < CHANNEL_NUM; ++ch) { bo_bitmap[ch].sync(XCL_BO_SYNC_BO_TO_DEVICE); }
     }
 
     // 2. Start Long-Running (Keep Alive) Kernels
+    for (auto &r : run_alloc_access_kernels) { r.start(); }
     for (auto &r : run_pma_insert_edge_kernels) { r.start(); }
     run_update_message_router_kernel.start();
     for (auto &run_worker : run_pma_read_worker_kernels) { run_worker.start(); }
@@ -959,6 +1017,10 @@ int main(int argc, char** argv)
     std::cout << "Waiting for long-running kernels to finish..." << std::endl;
     run_update_message_router_kernel.wait();
     for (auto &r : run_pma_insert_edge_kernels)
+    {
+        r.wait();
+    }
+    for (auto &r : run_alloc_access_kernels)
     {
         r.wait();
     }

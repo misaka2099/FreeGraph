@@ -14,8 +14,7 @@ extern "C"
         int mode,  // 0: check, 1: COO, 2: CSR
         int last,
         hls::stream<READ_COMMAND_STREAM> &cmd_to_read,
-        hls::stream<ap_axiu<64,0,0,0>> &data_to_coo_stream,
-        hls::stream<ap_axiu<32,0,0,0>> &edge_count_stream
+        hls::stream<ap_axiu<64,0,0,0>> &data_to_coo_stream
     )
     {
         #pragma HLS INTERFACE m_axi port=coo_src offset=slave bundle=gmem0
@@ -23,8 +22,7 @@ extern "C"
         #pragma HLS INTERFACE m_axi port=num_edges offset=slave bundle=gmem2
         #pragma HLS INTERFACE axis port=cmd_to_read depth=16
         #pragma HLS INTERFACE axis port=data_to_coo_stream depth=16
-        #pragma HLS INTERFACE axis port=edge_count_stream depth=16
-        #pragma HLS INTERFACE s_axilite port=coo_src 
+        #pragma HLS INTERFACE s_axilite port=coo_src
         #pragma HLS INTERFACE s_axilite port=coo_dst 
         #pragma HLS INTERFACE s_axilite port=num_edges 
         #pragma HLS INTERFACE s_axilite port=vertex_to_check 
@@ -102,8 +100,9 @@ extern "C"
             cmd_to_read.write(count_cmd);
             #pragma HLS protocol fixed
             ap_wait();
-            auto edge_num = edge_count_stream.read();
-            *num_edges = edge_num.data;
+            // Read completion packet from merger via data_to_coo_stream;
+            // edge count has already been written to *num_edges by merger via m_axi.
+            ap_axiu<64,0,0,0> completion = data_to_coo_stream.read();
         }
         if (last)
             cmd_to_read.write({.data = PMA_STOP, .last = 1});

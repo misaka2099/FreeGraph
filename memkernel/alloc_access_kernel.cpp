@@ -10,10 +10,10 @@
 typedef ap_uint<BITMAP_STORAGE_WORD_BITS> bitmap_word_t;
 
 const int TOTAL_BLOCKS = (CHANNEL_CAPACITY / INIT_VEC_LEN_IN_BYTE);
-const int BITMAP_SIZE = (TOTAL_BLOCKS + 7) / 8;
 const int BITMAP_WORD_BITS = BITMAP_STORAGE_WORD_BITS;
-const int BITMAP_WORD_BYTES = BITMAP_WORD_BITS / 8;
 const int BITMAP_WORDS = (TOTAL_BLOCKS + BITMAP_WORD_BITS - 1) / BITMAP_WORD_BITS;
+
+// ---- Alloc algorithm (unchanged) ----
 
 static void set_bits(int start, int len, bitmap_word_t* bitmap)
 {
@@ -21,7 +21,6 @@ static void set_bits(int start, int len, bitmap_word_t* bitmap)
     int end = start + len;
     int i = start;
 
-    // Process at word granularity; build a mask per-word and do one RMW.
     while (i < end)
     {
         int word_idx = i / BITMAP_WORD_BITS;
@@ -34,7 +33,6 @@ static void set_bits(int start, int len, bitmap_word_t* bitmap)
 
         bitmap_word_t mask = 0;
         if (width <= 0) {
-            // nothing
         } else if (width >= BITMAP_WORD_BITS) {
             mask = ~((bitmap_word_t)0);
         } else {
@@ -43,7 +41,6 @@ static void set_bits(int start, int len, bitmap_word_t* bitmap)
             mask = bits << s;
         }
 
-        // read-modify-write: OR the mask
         bitmap_word_t cur = bitmap[word_idx];
         bitmap[word_idx] = cur | mask;
         i += width;
@@ -69,7 +66,6 @@ static bool is_free(int start, int len, int &first_set, bitmap_word_t* bitmap)
 
         bitmap_word_t mask = 0;
         if (width <= 0) {
-            // nothing
         } else if (width >= BITMAP_WORD_BITS) {
             mask = ~((bitmap_word_t)0);
         } else {
@@ -81,7 +77,6 @@ static bool is_free(int start, int len, int &first_set, bitmap_word_t* bitmap)
         bitmap_word_t tmp = cur & mask;
         if (tmp != 0)
         {
-            // find first set bit inside [s, e)
             for (int b = s; b < e; ++b)
             {
                 #pragma HLS PIPELINE II=1
@@ -160,7 +155,6 @@ static void reset_bits(int start, int len, bitmap_word_t* bitmap)
 
         bitmap_word_t mask = 0;
         if (width <= 0) {
-            // nothing
         } else if (width >= BITMAP_WORD_BITS) {
             mask = ~((bitmap_word_t)0);
         } else {
@@ -182,11 +176,12 @@ static void deallocate(int start, int len, bitmap_word_t* bitmap)
     reset_bits(start, len, bitmap);
 }
 
+// ---- Worker: protocol matching insert_edge ----
+
 static void alloc_free_worker(
-    hls::stream<MEMORY_INFO_ACCESS_COMMAND>& req_edge_in,
-    hls::stream<VEC_INFO_STREAM>& vec_info_to_edge,
-    bitmap_word_t* bm_in_hbm,
-    bool init_from_hbm
+    hls::stream<ap_axiu<96,0,0,0>>& cmd_stream,
+    hls::stream<ap_axiu<64,0,0,0>>& rsp_stream,
+    bitmap_word_t* bm_in_hbm
 )
 {
     #pragma HLS INTERFACE m_axi port=bm_in_hbm offset=slave bundle=gmem0
@@ -195,116 +190,82 @@ static void alloc_free_worker(
     #pragma HLS bind_storage variable=storage type=ram_t2p impl=bram
     #pragma HLS DEPENDENCE variable=storage inter false
 
-    if (init_from_hbm)
+    // Init bitmap from HBM (pointer already offset by host, hbm[0] = bitmap word 0)
+    for (int i = 0 ; i < BITMAP_WORDS ; i++)
     {
-        for (int i = 0 ; i < BITMAP_WORDS ; i++)
-        {
-            #pragma HLS PIPELINE II=1
-            storage[i] = bm_in_hbm[i];
-        }
-    }
-    else
-    {
-        for (int i = 0; i < BITMAP_WORDS; i++)
-        {
-            #pragma HLS PIPELINE II=1
-            storage[i] = 0;
-        }
+        #pragma HLS PIPELINE II=1
+        storage[i] = bm_in_hbm[i];
     }
 
-    bool finish = false;
     int next_fit_cursor = 0;
 
     while (true)
     {
-        MEMORY_INFO_ACCESS_COMMAND pending_info;
-        bool valid_req = false;
-        
-        if (req_edge_in.read_nb(pending_info))
-        {
-            valid_req = true;
-        }
-        if (!valid_req)
-        {
-            if (finish)
+        ap_axiu<96,0,0,0> cmd = cmd_stream.read();
+
+        int opcode    = (int)cmd.data.range(95, 64);
+        int start_byte = (int)cmd.data.range(31, 0);
+        int len_byte   = (int)cmd.data.range(63, 32);
+
+        if (cmd.last == 1 || opcode == 0) {
+            // STOP: write bitmap back to HBM and exit (no ACK — rtss protocol)
+            for (int i = 0; i < BITMAP_WORDS; i++)
             {
-                break;
+                #pragma HLS PIPELINE II=1
+                bm_in_hbm[i] = storage[i];
             }
-            continue;
-        }
-
-        MEMORY_INFO_ACCESS_TYPE req_type = pending_info.command_type;
-
-        if (req_type == ALLOC_FINISH || pending_info.last == 1)
-        {
-            
-            finish = true;
-            if (finish)
-            {
-                break;
-            }
-            continue;
-        }
-
-        if (pending_info.last == 1)
-        {
             break;
         }
-
-        VEC_INFO back_info = 0;
-
-        if (req_type == VEC_INFO_ALLOC)
-        {
-            int req_bytes = pending_info.len;
-            int len_segs = (req_bytes + INIT_VEC_LEN_IN_BYTE - 1) / INIT_VEC_LEN_IN_BYTE;
+        else if (opcode == 1) {
+            // ALLOC: len_byte = requested bytes, return start_byte
+            int len_segs = (len_byte + INIT_VEC_LEN_IN_BYTE - 1) / INIT_VEC_LEN_IN_BYTE;
             int start_seg;
             allocate_next_fit(start_seg, len_segs, next_fit_cursor, storage);
 
-            int reg_start_seg = start_seg;
-            if (reg_start_seg == -1)
-            {
-                perror("ERROR INSUFFICIENT MEMORY POOL\n");
+            ap_axiu<64,0,0,0> rsp;
+            rsp.last = 0;
+            rsp.keep = 0xFF;
+            if (start_seg >= 0) {
+                int alloc_start = start_seg * INIT_VEC_LEN_IN_BYTE;
+                rsp.data.range(31, 0)  = (ap_uint<32>)alloc_start;
+                rsp.data.range(63, 32) = (ap_uint<32>)len_byte;
+            } else {
+                rsp.data.range(31, 0)  = (ap_uint<32>)-1;
+                rsp.data.range(63, 32) = 0;
             }
-            int start_bytes = reg_start_seg * INIT_VEC_LEN_IN_BYTE;
-            back_info.range(31,0) = start_bytes;
-            back_info.range(63,32) = req_bytes;
-
-            VEC_INFO_STREAM out;
-            out.data = back_info;
-            out.last = 0;
-            vec_info_to_edge.write(out); 
+            rsp_stream.write(rsp);
         }
-        else if (req_type == VEC_INFO_FREE)
-        {
-            int start_bytes = pending_info.start;
-            int len_bytes = pending_info.len;
-            int start_seg = start_bytes / INIT_VEC_LEN_IN_BYTE;
-            int len_segs  = (len_bytes + INIT_VEC_LEN_IN_BYTE - 1) / INIT_VEC_LEN_IN_BYTE;
+        else if (opcode == 2) {
+            // FREE: start_byte, len_byte
+            int start_seg = start_byte / INIT_VEC_LEN_IN_BYTE;
+            int len_segs  = (len_byte + INIT_VEC_LEN_IN_BYTE - 1) / INIT_VEC_LEN_IN_BYTE;
             deallocate(start_seg, len_segs, storage);
+            // fire-and-forget: no response
         }
     }
 }
+
+// ---- Top-level ----
 
 extern "C"
 {
     void alloc_access_kernel(
         bitmap_word_t* bm_in_hbm,
-        bool init_from_hbm,
-        hls::stream<MEMORY_INFO_ACCESS_COMMAND>& req_from_edge,
-        hls::stream<VEC_INFO_STREAM>& vec_info_to_edge
+        hls::stream<ap_axiu<96,0,0,0>>& cmd_stream,
+        hls::stream<ap_axiu<64,0,0,0>>& rsp_stream
     )
     {
         #pragma HLS INTERFACE m_axi port=bm_in_hbm offset=slave bundle=gmem0
         #pragma HLS INTERFACE s_axilite port=bm_in_hbm bundle=control
-        #pragma HLS INTERFACE s_axilite port=init_from_hbm bundle=control
         #pragma HLS INTERFACE s_axilite port=return bundle=control
-        #pragma HLS INTERFACE axis port=req_from_edge
-        #pragma HLS INTERFACE axis port=vec_info_to_edge
-        #pragma HLS STREAM variable=req_from_edge depth=16
-        #pragma HLS STREAM variable=vec_info_to_edge depth=4
+        #pragma HLS INTERFACE axis port=cmd_stream
+        #pragma HLS INTERFACE axis port=rsp_stream
+
+        #pragma HLS STREAM variable=cmd_stream depth=16
+        #pragma HLS STREAM variable=rsp_stream depth=4
 
         #pragma HLS DATAFLOW
 
-        alloc_free_worker(req_from_edge, vec_info_to_edge, bm_in_hbm, init_from_hbm);
+        alloc_free_worker(cmd_stream, rsp_stream, bm_in_hbm);
     }
 }

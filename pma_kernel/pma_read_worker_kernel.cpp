@@ -139,7 +139,9 @@ void pma_read_worker_kernel(
             int local_src = src % VERTEX_PER_PMA;
             int seg_start = (local_src == 0) ? 0 : pma_header.vertex_range[local_src - 1];
             int seg_end = pma_header.vertex_range[local_src];
-            int pma_data_base = header_start + (int)sizeof(PMA_HEADER);
+            int total_segs = pma_header.vertex_range[VERTEX_PER_PMA - 1];
+            int hpw = (total_segs + 7) / 8;
+            int pma_data_base = header_start + (int)sizeof(PMA_HEADER) + hpw * 64;
             int segment_buffer[SEGMENT_SIZE];
 
             for (int s = seg_start; s < seg_end; s++) {
@@ -163,7 +165,9 @@ void pma_read_worker_kernel(
                 int header_byte_off = header_start - pma_raw_data_start;
                 read_header(hbm_ptr, header_byte_off, pma_header);
 
-                int pma_data_base = header_start + (int)sizeof(PMA_HEADER);
+                int total_segs = pma_header.vertex_range[VERTEX_PER_PMA - 1];
+                int hpw = (total_segs + 7) / 8;
+                int pma_data_base = header_start + (int)sizeof(PMA_HEADER) + hpw * 64;
                 int segment_buffer[SEGMENT_SIZE];
 
                 for (int local_v = 0; local_v < VERTEX_PER_PMA; local_v++) {
