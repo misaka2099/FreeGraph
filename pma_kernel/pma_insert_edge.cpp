@@ -337,6 +337,11 @@ void insert_phase(
 
         int seg_list[16], seg_cnt = 0;
         #pragma HLS ARRAY_PARTITION variable=seg_list complete
+        bool seg_overflow[16];
+        #pragma HLS ARRAY_PARTITION variable=seg_overflow complete
+        int  seg_owner[16];
+        #pragma HLS ARRAY_PARTITION variable=seg_owner complete
+        for (int i = 0; i < 16; i++) { seg_overflow[i] = false; seg_owner[i] = -1; }
 
         for (int i = 0; i < b.count; i++) {
             #pragma HLS PIPELINE II=1
@@ -352,30 +357,53 @@ void insert_phase(
             if (!found && seg_cnt < 16) seg_list[seg_cnt++] = ts;
         }
 
-        // Process each segment with int-by-int operations
+        // --- Phase A: burst-read all modified segments (bursts pipelined between segments) ---
+        ap_uint<512> seg_buf[16][SEG_WORDS_PER_SEG];
+        #pragma HLS ARRAY_PARTITION variable=seg_buf complete dim=2
+        int seg_bases[16];
+        #pragma HLS ARRAY_PARTITION variable=seg_bases complete
+        int seg_valid_buf[16];
+        #pragma HLS ARRAY_PARTITION variable=seg_valid_buf complete
+
         for (int si = 0; si < seg_cnt; si++) {
             #pragma HLS PIPELINE II=1
             int seg = seg_list[si];
-            int seg_base = (boff + HEADER_BYTES + hpw * 64 + seg * SEG_BYTES) / 64;
-
-            // A: read segment as 4 words
-            ap_uint<512> seg_words[SEG_WORDS_PER_SEG];
+            int base = (boff + HEADER_BYTES + hpw * 64 + seg * SEG_BYTES) / 64;
+            seg_bases[si] = base;
             for (int w = 0; w < SEG_WORDS_PER_SEG; w++) {
-                #pragma HLS PIPELINE II=1
-                seg_words[w] = hbm[seg_base + w];
+                #pragma HLS UNROLL
+                seg_buf[si][w] = hbm[base + w];
             }
-            int valid = (int)seg_words[3].range(511, 480);
+        }
 
-            // B: extract existing edges into a local int buffer
+        // --- Phase B: compute modifications on local buffers (pure BRAM, no m_axi) ---
+        for (int si = 0; si < seg_cnt; si++) {
+            #pragma HLS PIPELINE II=1
+            int seg = seg_list[si];
+
+            // Record owner vertex for O(1) enlarge-overlap check later
+            for (int v = 0; v < VERTEX_PER_PMA; v++) {
+                #pragma HLS UNROLL
+                int vs = (v == 0) ? 0 : vr[v - 1];
+                int ve = vr[v];
+                if (seg >= vs && seg < ve) seg_owner[si] = v;
+            }
+
+            // Extract segment words + valid from buffer
+            ap_uint<512> sw[SEG_WORDS_PER_SEG];
+            for (int w = 0; w < SEG_WORDS_PER_SEG; w++) sw[w] = seg_buf[si][w];
+            int valid = (int)sw[3].range(511, 480);
+
+            // Extract existing edges into edge_buf
             int edge_buf[EDGE_SLOTS_PER_SEG];
             #pragma HLS ARRAY_PARTITION variable=edge_buf complete
             for (int k = 0; k < EDGE_SLOTS_PER_SEG; k++) {
                 #pragma HLS UNROLL
-                int wi = k / 16, si = k % 16;
-                edge_buf[k] = (k < valid) ? (int)seg_words[wi].range(si * 32 + 31, si * 32) : UNUSED_ICON;
+                int wi = k / 16, slot = k % 16;
+                edge_buf[k] = (k < valid) ? (int)sw[wi].range(slot * 32 + 31, slot * 32) : UNUSED_ICON;
             }
 
-            // C: collect edges in this batch targeting this segment
+            // Collect edges in this batch targeting this segment
             int ed_list[16], ed_n = 0;
             #pragma HLS ARRAY_PARTITION variable=ed_list complete
             for (int i = 0; i < b.count; i++) {
@@ -383,44 +411,51 @@ void insert_phase(
                 if (b.target_seg[i] == seg) ed_list[ed_n++] = i;
             }
 
-            // D: insert each new edge into edge_buf (int-by-int shift)
+            // Insert each new edge (int-by-int shift register)
             for (int ei = 0; ei < ed_n; ei++) {
                 int dst = b.dst[ed_list[ei]];
-                if (valid >= EDGE_SLOTS_PER_SEG) break;  // safety: segment full
-                // Find insertion position: count how many existing edges < dst
+                if (valid >= EDGE_SLOTS_PER_SEG) break;
                 int pos = 0;
                 for (int k = 0; k < valid; k++) {
                     #pragma HLS UNROLL
                     if (edge_buf[k] < dst) pos++;
                 }
-                // Shift right from pos to valid-1
-                for (int k = valid; k > pos; k--) {
-                    edge_buf[k] = edge_buf[k - 1];
-                }
+                for (int k = valid; k > pos; k--) edge_buf[k] = edge_buf[k - 1];
                 edge_buf[pos] = dst;
                 valid++;
             }
 
-            // E: pack edge_buf back into seg_words, padding with UNUSED_ICON
+            // Record overflow
+            seg_overflow[si] = (valid > 47);
+
+            // Pack back into sw
             for (int k = 0; k < EDGE_SLOTS_PER_SEG; k++) {
                 #pragma HLS UNROLL
-                int wi = k / 16, si = k % 16;
+                int wi = k / 16, slot = k % 16;
                 int val = (k < valid) ? edge_buf[k] : UNUSED_ICON;
-                seg_words[wi].range(si * 32 + 31, si * 32) = (ap_uint<32>)val;
+                sw[wi].range(slot * 32 + 31, slot * 32) = (ap_uint<32>)val;
             }
-            seg_words[3].range(511, 480) = (ap_uint<32>)valid;
+            sw[3].range(511, 480) = (ap_uint<32>)valid;
 
-            // F: write back
+            // Store back to buffer
+            for (int w = 0; w < SEG_WORDS_PER_SEG; w++) seg_buf[si][w] = sw[w];
+            seg_valid_buf[si] = valid;
+        }
+
+        // --- Phase C: burst-write all modified segments + update helper cache ---
+        for (int si = 0; si < seg_cnt; si++) {
+            #pragma HLS PIPELINE II=1
+            int base = seg_bases[si];
+            int seg  = seg_list[si];
             for (int w = 0; w < SEG_WORDS_PER_SEG; w++) {
                 #pragma HLS UNROLL
-                hbm[seg_base + w] = seg_words[w];
+                hbm[base + w] = seg_buf[si][w];
             }
-
-            // Update helper cache
+            // Update helper cache (alongside write, using local buffer data)
             int hw_idx = seg / 8, hw_slot = seg % 8;
             ap_uint<64> hv = 0;
-            hv.range(31, 0)  = seg_words[0].range(31, 0);
-            hv.range(63, 32) = (ap_uint<32>)valid;
+            hv.range(31, 0)  = seg_buf[si][0].range(31, 0);
+            hv.range(63, 32) = (ap_uint<32>)seg_valid_buf[si];
             chp[line][hw_idx].range(hw_slot * 64 + 63, hw_slot * 64) = hv;
         }
 
@@ -456,6 +491,7 @@ void insert_phase(
 
         int work_bo = boff;  // HBM byte offset of current PMA
         int nvr[VERTEX_PER_PMA];  // new vertex_range, saved for segment remapping after enlarge
+        for (int v = 0; v < VERTEX_PER_PMA; v++) nvr[v] = 0;
 
         if (enlarged) {
             int acc = 0;
@@ -589,14 +625,34 @@ void insert_phase(
             hbm[wb_base + w] = ch[line][w];
         }
 
-        // Push modified segments + ACK marker to task FIFO (deferred to redistribution_phase)
+        // Build O(1) lookup: which vertices were enlarged
+        bool vertex_enlarged[VERTEX_PER_PMA];
+        #pragma HLS ARRAY_PARTITION variable=vertex_enlarged complete
+        for (int v = 0; v < VERTEX_PER_PMA; v++) vertex_enlarged[v] = (esegs[v] > 0);
+
+        // Push ENLARGE_REBALANCE tasks: redistribution range = full new vertex span
+        for (int v = 0; v < VERTEX_PER_PMA; v++) {
+            #pragma HLS UNROLL
+            if (vertex_enlarged[v]) {
+                ap_uint<64> t;
+                t.range(31, 0) = 0x80000000 | (ap_uint<32>)v;
+                t.range(63, 32) = pma;
+                task_fifo.write(t);
+            }
+        }
+
+        // Push SEGMENT_REBALANCE tasks: overflowed segments whose owner wasn't enlarged
         for (int si = 0; si < seg_cnt; si++) {
+            #pragma HLS PIPELINE II=1
+            if (!seg_overflow[si]) continue;
+            if (vertex_enlarged[seg_owner[si]]) continue;  // O(1): covered by ENLARGE_REBALANCE
             ap_uint<64> t;
-            t.range(31, 0) = seg_list[si];
+            t.range(31, 0) = seg_list[si];  // already remapped if enlarge happened
             t.range(63, 32) = pma;
             task_fifo.write(t);
         }
-        // ACK marker: done with this PMA's segment modifications
+
+        // ACK marker per batch (always sent, even if no rebalance tasks)
         ap_uint<64> ack_task;
         ack_task.range(31, 0) = ap_uint<32>(-2);
         ack_task.range(63, 32) = pma;
@@ -708,7 +764,11 @@ void process_cmd(
 }
 
 // ---- Phase 4: Redistribution (rtss-style deferred rebalance) ----
-// Reads task queue, checks imbalance via power-of-2, redistributes, sends ACKs
+// Task types (in payload[31:0]):
+//   -1 (0xFFFFFFFF): STOP
+//   -2 (0xFFFFFFFE): ACK marker
+//   0x80000000 | v: ENLARGE_REBALANCE — redistribute full new vertex range
+//   seg (>=0):       SEGMENT_REBALANCE — power-of-2 group expansion starting at seg
 
 void redistribution_phase(
     ap_uint<512>* hbm,
@@ -718,18 +778,20 @@ void redistribution_phase(
 {
     while (true) {
         ap_uint<64> task = task_fifo.read();
-        int seg = (int)task.range(31, 0);
+        int payload = (int)task.range(31, 0);
         int pm  = (int)task.range(63, 32);
-        if (seg == -1) {  // STOP
+        if (payload == -1) {  // STOP
             COMMAND_STREAM stop_ack; stop_ack.data = -1; stop_ack.keep = 0xF; stop_ack.strb = 0xF; stop_ack.user = 0; stop_ack.last = 0;
             ack_out.write(stop_ack);
             break;
         }
-        if (seg == -2) {  // ACK marker
+        if (payload == -2) {  // ACK marker
             COMMAND_STREAM ack; ack.data = pm; ack.keep = 0xF; ack.strb = 0xF; ack.user = 0; ack.last = 0;
             ack_out.write(ack);
             continue;
         }
+
+        bool is_enlarge = (payload & 0x80000000) != 0;
 
         // Read VEC_INFO → header → burst-read entire helper on-chip
         int wi = pm / 8, si = pm % 8;
@@ -759,47 +821,56 @@ void redistribution_phase(
             vr[vv] = (int)hdr_local[0].range(vv * 32 + 31, vv * 32);
         }
 
-        int owner_v = -1;
-        for (int vv = 0; vv < VERTEX_PER_PMA; vv++) {
-            #pragma HLS UNROLL
-            int vs = (vv == 0) ? 0 : vr[vv - 1];
-            if (seg >= vs && seg < vr[vv]) owner_v = vv;
-        }
-        if (owner_v < 0) continue;
-
-        int v_start = (owner_v == 0) ? 0 : vr[owner_v - 1];
-        int v_end   = vr[owner_v];
-        int v_segs  = v_end - v_start;
-        if (v_segs <= 1) continue;
-
         // Macro: valid_count from local BRAM
         #define HLP_VC(s) (int)hlp_local[(s)/8].range(((s)%8)*64+63, ((s)%8)*64+32)
 
-        int cur_vc = HLP_VC(seg);
-        if (cur_vc <= 47) continue;
+        int left, right, total;
 
-        // Power-of-2 group expansion with binary-tree alignment.
-        // Each level doubles the group size; boundaries aligned to multiples of
-        // the current gsz.  When a boundary segment cannot form a full group at
-        // one level (nl==left && nr==right), skip that level — the next larger
-        // gsz will naturally extend the group across the vertex.
-        int rel = seg - v_start;
-        int left = seg, right = seg + 1;
-        int total = cur_vc;
-        for (int target_gsz = 2; target_gsz <= v_segs * 2; target_gsz *= 2) {
-            if (total <= (right - left) * 47) break;
-            int nl = v_start + (rel / target_gsz) * target_gsz;
-            int nr = v_start + ((rel / target_gsz) + 1) * target_gsz;
-            if (nr > v_end) nr = v_end;
-            if (nl == left && nr == right) continue;  // this level doesn't expand, try next
-            for (int s = nl; s < nr; s++) {
+        if (is_enlarge) {
+            // ENLARGE_REBALANCE: range = full vertex span (no power-of-2 needed)
+            int v = payload & 0xF;
+            left  = (v == 0) ? 0 : vr[v - 1];
+            right = vr[v];
+            total = 0;
+            for (int s = left; s < right; s++) {
                 #pragma HLS PIPELINE II=1
-                if (s < left || s >= right) total += HLP_VC(s);
+                total += HLP_VC(s);
             }
-            left = nl; right = nr;
+        } else {
+            // SEGMENT_REBALANCE: overflow confirmed by insert_phase, find group via power-of-2
+            int seg = payload;
+            int owner_v = -1;
+            for (int vv = 0; vv < VERTEX_PER_PMA; vv++) {
+                #pragma HLS UNROLL
+                int vs = (vv == 0) ? 0 : vr[vv - 1];
+                if (seg >= vs && seg < vr[vv]) owner_v = vv;
+            }
+            if (owner_v < 0) continue;
+
+            int v_start = (owner_v == 0) ? 0 : vr[owner_v - 1];
+            int v_end   = vr[owner_v];
+            int v_segs  = v_end - v_start;
+            if (v_segs <= 1) continue;
+
+            // Power-of-2 group expansion with binary-tree alignment.
+            int rel = seg - v_start;
+            left = seg; right = seg + 1;
+            total = HLP_VC(seg);
+            for (int target_gsz = 2; target_gsz <= v_segs * 2; target_gsz *= 2) {
+                if (total <= (right - left) * 47) break;
+                int nl = v_start + (rel / target_gsz) * target_gsz;
+                int nr = v_start + ((rel / target_gsz) + 1) * target_gsz;
+                if (nr > v_end) nr = v_end;
+                if (nl == left && nr == right) continue;
+                for (int s = nl; s < nr; s++) {
+                    #pragma HLS PIPELINE II=1
+                    if (s < left || s >= right) total += HLP_VC(s);
+                }
+                left = nl; right = nr;
+            }
         }
 
-        // --- Redistribute group [left, right) ---
+        // --- Redistribute group [left, right) (common to both task types) ---
         int group_sz = right - left;
         int seg_words_total = group_sz * SEG_WORDS_PER_SEG;
         int seg_base_left = (pma_boff + HEADER_BYTES + hpw * 64 + left * SEG_BYTES) / 64;
@@ -814,16 +885,16 @@ void redistribution_phase(
         int pos = 0;
         for (int s = 0; s < group_sz; s++) {
             int vc = (int)seg_buf_rd[s * SEG_WORDS_PER_SEG + 3].range(511, 480);
-            if (vc > EDGE_SLOTS_PER_SEG) vc = EDGE_SLOTS_PER_SEG;  // safety cap
+            if (vc > EDGE_SLOTS_PER_SEG) vc = EDGE_SLOTS_PER_SEG;
             for (int k = 0; k < vc; k++) {
                 #pragma HLS PIPELINE II=1
-                int wi = s * SEG_WORDS_PER_SEG + k / 16;
-                int si = k % 16;
-                edge_buf[pos++] = (int)seg_buf_rd[wi].range(si * 32 + 31, si * 32);
+                int wi2 = s * SEG_WORDS_PER_SEG + k / 16;
+                int si2 = k % 16;
+                edge_buf[pos++] = (int)seg_buf_rd[wi2].range(si2 * 32 + 31, si2 * 32);
             }
         }
 
-        // C: fill write buffer (pre-filled with EMPTY_SEG template = UNUSED_ICON + vc=0)
+        // C: fill write buffer (pre-filled with EMPTY_SEG template)
         int base  = total / group_sz;
         int extra = total % group_sz;
         ap_uint<512> seg_buf_wr[256];
@@ -836,9 +907,9 @@ void redistribution_phase(
             int fill = base + (s < extra ? 1 : 0);
             for (int k = 0; k < fill; k++) {
                 #pragma HLS PIPELINE II=1
-                int wi = s * SEG_WORDS_PER_SEG + k / 16;
-                int si = k % 16;
-                seg_buf_wr[wi].range(si * 32 + 31, si * 32) = (ap_uint<32>)edge_buf[pos++];
+                int wi2 = s * SEG_WORDS_PER_SEG + k / 16;
+                int si2 = k % 16;
+                seg_buf_wr[wi2].range(si2 * 32 + 31, si2 * 32) = (ap_uint<32>)edge_buf[pos++];
             }
             seg_buf_wr[s * SEG_WORDS_PER_SEG + 3].range(511, 480) = (ap_uint<32>)fill;
         }

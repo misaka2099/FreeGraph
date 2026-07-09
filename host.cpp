@@ -319,14 +319,13 @@ int main(int argc, char** argv)
     int pma_vecinfo_start  = PMA_DATA_SIZE;
     int pma_bm_start       = PMA_DATA_SIZE + VECINFO_SIZE;
 
-    // --- One BO per channel — all 6 m_axi ports share the same bank now ---
+    // --- One BO per channel — all 3 m_axi ports share the same bank ---
     std::vector<xrt::bo> ch_bufs; ch_bufs.reserve(CHANNEL_NUM);
     for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
         auto& k = pma_insert_edge_kernels[ch];
         std::cout << "[DBG] L290: ch=" << ch
                   << " gid0=" << k.group_id(0) << " gid1=" << k.group_id(1)
-                  << " gid2=" << k.group_id(2) << " gid3=" << k.group_id(3)
-                  << " gid4=" << k.group_id(4) << std::endl;
+                  << " gid2=" << k.group_id(2) << std::endl;
         ch_bufs.emplace_back(device, CHANNEL_TOTAL, k.group_id(0));
     }
 
