@@ -84,6 +84,58 @@ void sub_search(int* helper, int lo, int hi, int dst, int &result)
     }
 }
 
+// ---- Segment Insert (pure compute, no HBM access) ----
+// Processes one segment: extract edges, insert new dsts, pack back.
+// Designed for multiple parallel instances (INLINE off).
+
+void seg_insert(
+    ap_uint<512> seg_in[SEG_WORDS_PER_SEG],
+    int dsts[16],
+    int dst_cnt,
+    ap_uint<512> seg_out[SEG_WORDS_PER_SEG],
+    int &new_valid,
+    bool &overflow
+) {
+    #pragma HLS INLINE off
+
+    int valid = (int)seg_in[3].range(511, 480);
+
+    // Extract existing edges into edge_buf
+    int edge_buf[EDGE_SLOTS_PER_SEG];
+    #pragma HLS ARRAY_PARTITION variable=edge_buf complete
+    for (int k = 0; k < EDGE_SLOTS_PER_SEG; k++) {
+        #pragma HLS UNROLL
+        int wi = k / 16, slot = k % 16;
+        edge_buf[k] = (k < valid) ? (int)seg_in[wi].range(slot * 32 + 31, slot * 32) : UNUSED_ICON;
+    }
+
+    // Insert each new edge (int-by-int shift register)
+    for (int ei = 0; ei < dst_cnt; ei++) {
+        int dst = dsts[ei];
+        if (valid >= EDGE_SLOTS_PER_SEG) break;
+        int pos = 0;
+        for (int k = 0; k < valid; k++) {
+            #pragma HLS UNROLL
+            if (edge_buf[k] < dst) pos++;
+        }
+        for (int k = valid; k > pos; k--) edge_buf[k] = edge_buf[k - 1];
+        edge_buf[pos] = dst;
+        valid++;
+    }
+
+    overflow   = (valid > 47);
+    new_valid  = valid;
+
+    // Pack back into seg_out (UNUSED_ICON padding)
+    for (int k = 0; k < EDGE_SLOTS_PER_SEG; k++) {
+        #pragma HLS UNROLL
+        int wi = k / 16, slot = k % 16;
+        int val = (k < valid) ? edge_buf[k] : UNUSED_ICON;
+        seg_out[wi].range(slot * 32 + 31, slot * 32) = (ap_uint<32>)val;
+    }
+    seg_out[3].range(511, 480) = (ap_uint<32>)valid;
+}
+
 // ---- Phase 1: BS Worker ----
 // Reads header+helper directly from HBM via m_axi, does binary search
 
@@ -128,21 +180,22 @@ void bs_worker(
         int start_byte = (int)vi.range(31, 0);
         int byte_off   = start_byte - data_off;
 
-        // Read header + helper as one continuous burst (UG1399: merge adjacent reads)
+        // Read header then helper (two separate bursts, no conditionals)
         int hbase = byte_off / 64;
-        int h_read_words = HEADER_WORDS + MAX_HELPER_WORDS;  // always read max to enable burst
         ap_uint<512> hdr[HEADER_WORDS];
         ap_uint<512> hlp_buf[MAX_HELPER_WORDS];
         #pragma HLS bind_storage variable=hlp_buf type=RAM_2P impl=BRAM
-        for (int w = 0; w < h_read_words; w++) {
+        for (int w = 0; w < HEADER_WORDS; w++) {
             #pragma HLS PIPELINE II=1
-            ap_uint<512> d = hbm[hbase + w];
-            if (w < HEADER_WORDS) hdr[w] = d;
-            else                  hlp_buf[w - HEADER_WORDS] = d;
+            hdr[w] = hbm[hbase + w];
         }
         int total_segs = (int)hdr[0].range(15 * 32 + 31, 15 * 32);
         int hlp_words = (total_segs + HELPER_ENTRIES_PER_WORD - 1) / HELPER_ENTRIES_PER_WORD;
         if (hlp_words > MAX_HELPER_WORDS) hlp_words = MAX_HELPER_WORDS;
+        for (int w = 0; w < hlp_words; w++) {
+            #pragma HLS PIPELINE II=1
+            hlp_buf[w] = hbm[hbase + HEADER_WORDS + w];
+        }
 
         // Unpack bs_helper
         int bs_helper[10240];
@@ -288,19 +341,23 @@ void insert_phase(
                 // Write header
                 ap_uint<512> hdr[HEADER_WORDS];
                 hdr[0] = empty_vertex_range; hdr[1] = 0; hdr[2] = 0; hdr[3] = 0;
-                // Merged header+helper+segs into one continuous burst write (UG1399 coalesce)
+                // Three contiguous bursts: header, helper, segments (no conditionals)
                 int nh_base = nstart / 64;
                 int seg_off = HEADER_WORDS + ihlp;
-                int total_wr = seg_off + isegs * SEG_WORDS_PER_SEG;  // 4 + 2 + 64 = 70
-                for (int w = 0; w < total_wr; w++) {
+                // Write header (4 words)
+                for (int w = 0; w < HEADER_WORDS; w++) {
                     #pragma HLS PIPELINE II=1
-                    if (w < 4) {
-                        hbm[nh_base + w] = hdr[w];
-                    } else if (w < seg_off) {
-                        hbm[nh_base + w] = EMPTY_HELPER;
-                    } else {
-                        hbm[nh_base + w] = make_empty_seg((w - seg_off) & 3);
-                    }
+                    hbm[nh_base + w] = hdr[w];
+                }
+                // Write helper (all EMPTY_HELPER)
+                for (int w = 0; w < ihlp; w++) {
+                    #pragma HLS PIPELINE II=1
+                    hbm[nh_base + HEADER_WORDS + w] = EMPTY_HELPER;
+                }
+                // Write segments (empty template, 4-word repeating pattern)
+                for (int i = 0; i < isegs * SEG_WORDS_PER_SEG; i++) {
+                    #pragma HLS PIPELINE II=1
+                    hbm[nh_base + seg_off + i] = make_empty_seg(i % SEG_WORDS_PER_SEG);
                 }
 
                 VEC_INFO nvi = 0;
@@ -366,7 +423,7 @@ void insert_phase(
         #pragma HLS ARRAY_PARTITION variable=seg_valid_buf complete
 
         for (int si = 0; si < seg_cnt; si++) {
-            #pragma HLS PIPELINE II=1
+            #pragma HLS PIPELINE II=SEG_WORDS_PER_SEG
             int seg = seg_list[si];
             int base = (boff + HEADER_BYTES + hpw * 64 + seg * SEG_BYTES) / 64;
             seg_bases[si] = base;
@@ -376,9 +433,27 @@ void insert_phase(
             }
         }
 
-        // --- Phase B: compute modifications on local buffers (pure BRAM, no m_axi) ---
-        for (int si = 0; si < seg_cnt; si++) {
+        // --- Phase A.5: distribute edges in batch to per-segment dst arrays ---
+        int  seg_dsts[16][16];
+        #pragma HLS ARRAY_PARTITION variable=seg_dsts complete dim=2
+        int  seg_dst_cnt[16];
+        #pragma HLS ARRAY_PARTITION variable=seg_dst_cnt complete
+        for (int i = 0; i < 16; i++) seg_dst_cnt[i] = 0;
+
+        for (int i = 0; i < b.count; i++) {
             #pragma HLS PIPELINE II=1
+            int ts = b.target_seg[i];
+            for (int si = 0; si < seg_cnt; si++) {
+                #pragma HLS UNROLL
+                if (seg_list[si] == ts) {
+                    seg_dsts[si][seg_dst_cnt[si]++] = b.dst[i];
+                }
+            }
+        }
+
+        // --- Phase B: parallel seg_insert (pure compute, INLINE off for multiple instances) ---
+        for (int si = 0; si < seg_cnt; si++) {
+            #pragma HLS UNROLL factor=4
             int seg = seg_list[si];
 
             // Record owner vertex for O(1) enlarge-overlap check later
@@ -389,62 +464,14 @@ void insert_phase(
                 if (seg >= vs && seg < ve) seg_owner[si] = v;
             }
 
-            // Extract segment words + valid from buffer
-            ap_uint<512> sw[SEG_WORDS_PER_SEG];
-            for (int w = 0; w < SEG_WORDS_PER_SEG; w++) sw[w] = seg_buf[si][w];
-            int valid = (int)sw[3].range(511, 480);
-
-            // Extract existing edges into edge_buf
-            int edge_buf[EDGE_SLOTS_PER_SEG];
-            #pragma HLS ARRAY_PARTITION variable=edge_buf complete
-            for (int k = 0; k < EDGE_SLOTS_PER_SEG; k++) {
-                #pragma HLS UNROLL
-                int wi = k / 16, slot = k % 16;
-                edge_buf[k] = (k < valid) ? (int)sw[wi].range(slot * 32 + 31, slot * 32) : UNUSED_ICON;
-            }
-
-            // Collect edges in this batch targeting this segment
-            int ed_list[16], ed_n = 0;
-            #pragma HLS ARRAY_PARTITION variable=ed_list complete
-            for (int i = 0; i < b.count; i++) {
-                #pragma HLS UNROLL
-                if (b.target_seg[i] == seg) ed_list[ed_n++] = i;
-            }
-
-            // Insert each new edge (int-by-int shift register)
-            for (int ei = 0; ei < ed_n; ei++) {
-                int dst = b.dst[ed_list[ei]];
-                if (valid >= EDGE_SLOTS_PER_SEG) break;
-                int pos = 0;
-                for (int k = 0; k < valid; k++) {
-                    #pragma HLS UNROLL
-                    if (edge_buf[k] < dst) pos++;
-                }
-                for (int k = valid; k > pos; k--) edge_buf[k] = edge_buf[k - 1];
-                edge_buf[pos] = dst;
-                valid++;
-            }
-
-            // Record overflow
-            seg_overflow[si] = (valid > 47);
-
-            // Pack back into sw
-            for (int k = 0; k < EDGE_SLOTS_PER_SEG; k++) {
-                #pragma HLS UNROLL
-                int wi = k / 16, slot = k % 16;
-                int val = (k < valid) ? edge_buf[k] : UNUSED_ICON;
-                sw[wi].range(slot * 32 + 31, slot * 32) = (ap_uint<32>)val;
-            }
-            sw[3].range(511, 480) = (ap_uint<32>)valid;
-
-            // Store back to buffer
-            for (int w = 0; w < SEG_WORDS_PER_SEG; w++) seg_buf[si][w] = sw[w];
-            seg_valid_buf[si] = valid;
+            // Call seg_insert: dsts + count → modified segment
+            seg_insert(seg_buf[si], seg_dsts[si], seg_dst_cnt[si],
+                       seg_buf[si], seg_valid_buf[si], seg_overflow[si]);
         }
 
         // --- Phase C: burst-write all modified segments + update helper cache ---
         for (int si = 0; si < seg_cnt; si++) {
-            #pragma HLS PIPELINE II=1
+            #pragma HLS PIPELINE II=SEG_WORDS_PER_SEG
             int base = seg_bases[si];
             int seg  = seg_list[si];
             for (int w = 0; w < SEG_WORDS_PER_SEG; w++) {
@@ -531,24 +558,28 @@ void insert_phase(
                 seg_buf[i] = hbm[oseg_base / 64 + i];
             }
 
-            // Phase 2: per-vertex burst write from buffer to new layout
+            // Phase 2a: burst-write existing segments (one pattern, no conditionals)
             int buf_pos = 0;
+            int nseg_word = nseg_base / 64;
             for (int v = 0; v < VERTEX_PER_PMA; v++) {
-                int ovs = (v == 0) ? 0 : vr[v - 1];
-                int ocnt = vr[v] - ovs;
-                int nvs = (v == 0) ? 0 : nvr[v - 1];
-                int nve = nvr[v];
-                // Contiguous burst write of existing segments
+                int ocnt = vr[v] - ((v == 0) ? 0 : vr[v - 1]);
+                int nvs  = (v == 0) ? 0 : nvr[v - 1];
                 for (int i = 0; i < ocnt * SEG_WORDS_PER_SEG; i++) {
                     #pragma HLS PIPELINE II=1
-                    hbm[nseg_base / 64 + nvs * SEG_WORDS_PER_SEG + i] = seg_buf[buf_pos + i];
+                    hbm[nseg_word + nvs * SEG_WORDS_PER_SEG + i] = seg_buf[buf_pos + i];
                 }
                 buf_pos += ocnt * SEG_WORDS_PER_SEG;
-                // Contiguous burst write of empty segments (template)
+            }
+
+            // Phase 2b: burst-write empty segments (separate pattern)
+            for (int v = 0; v < VERTEX_PER_PMA; v++) {
+                int nvs  = (v == 0) ? 0 : nvr[v - 1];
+                int nve  = nvr[v];
+                int ocnt = vr[v] - ((v == 0) ? 0 : vr[v - 1]);
                 int extra = nve - nvs - ocnt;
                 for (int i = 0; i < extra * SEG_WORDS_PER_SEG; i++) {
                     #pragma HLS PIPELINE II=1
-                    hbm[nseg_base / 64 + (nvs + ocnt) * SEG_WORDS_PER_SEG + i] = make_empty_seg(i % SEG_WORDS_PER_SEG);
+                    hbm[nseg_word + (nvs + ocnt) * SEG_WORDS_PER_SEG + i] = make_empty_seg(i % SEG_WORDS_PER_SEG);
                 }
             }
 
