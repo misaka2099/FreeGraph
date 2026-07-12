@@ -404,13 +404,10 @@ int main(int argc, char** argv)
         auto& run = run_pma_insert_edge_kernels[ch];
         int a = 0;
         run.set_arg(a++, ch_bufs[ch]);  // hbm_gate
-        run.set_arg(a++, ch_bufs[ch]);  // hbm_bs0
-        run.set_arg(a++, ch_bufs[ch]);  // hbm_bs1
-        run.set_arg(a++, ch_bufs[ch]);  // hbm_bs2
-        run.set_arg(a++, ch_bufs[ch]);  // hbm_bs3
+        run.set_arg(a++, ch_bufs[ch]);  // hbm_bs
         run.set_arg(a++, ch_bufs[ch]);  // hbm_rw
         run.set_arg(a++, ch_bufs[ch]);  // hbm_red
-        std::cout << "[DBG] L373: insert_edge kernel args set (7 ports + 2 offsets) for " << CHANNEL_NUM << " channels" << std::endl;
+        std::cout << "[DBG] L373: insert_edge kernel args set (4 ports + 2 offsets) for " << CHANNEL_NUM << " channels" << std::endl;
         run.set_arg(a++, pma_raw_data_start);
         run.set_arg(a++, pma_vecinfo_start);
     }
