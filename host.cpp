@@ -421,7 +421,7 @@ int main(int argc, char** argv)
         run.set_arg(a++, pma_vecinfo_start);
     }
     // Merger edge_count_ptr: shares bo_num_edges with check_kernel, merger writes edge count via m_axi
-    run_pma_read_merger_kernel.set_arg(4, bo_num_edges);
+    run_pma_read_merger_kernel.set_arg(6, bo_num_edges);
 
     // alloc_access kernel args: bitmap BO (pointer already at bitmap start)
     for (int ch = 0; ch < CHANNEL_NUM; ++ch) {

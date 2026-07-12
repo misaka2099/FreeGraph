@@ -10,12 +10,16 @@ void pma_read_merger_kernel(
     hls::stream<READ_COMMAND_STREAM> &merger_cmd_stream,
     hls::stream<READ_PKT_STREAM> &worker0_pkt_stream,
     hls::stream<READ_PKT_STREAM> &worker1_pkt_stream,
+    hls::stream<READ_PKT_STREAM> &worker2_pkt_stream,
+    hls::stream<READ_PKT_STREAM> &worker3_pkt_stream,
     hls::stream<ap_axiu<64,0,0,0>> &data_to_coo_stream,
     int* edge_count_ptr
 ) {
 #pragma HLS INTERFACE axis port=merger_cmd_stream
 #pragma HLS INTERFACE axis port=worker0_pkt_stream
 #pragma HLS INTERFACE axis port=worker1_pkt_stream
+#pragma HLS INTERFACE axis port=worker2_pkt_stream
+#pragma HLS INTERFACE axis port=worker3_pkt_stream
 #pragma HLS INTERFACE axis port=data_to_coo_stream
 #pragma HLS INTERFACE m_axi port=edge_count_ptr offset=slave bundle=gmem0
 #pragma HLS INTERFACE s_axilite port=edge_count_ptr bundle=control
@@ -24,6 +28,8 @@ void pma_read_merger_kernel(
 #pragma HLS STREAM variable=merger_cmd_stream depth=64
 #pragma HLS STREAM variable=worker0_pkt_stream depth=128
 #pragma HLS STREAM variable=worker1_pkt_stream depth=128
+#pragma HLS STREAM variable=worker2_pkt_stream depth=128
+#pragma HLS STREAM variable=worker3_pkt_stream depth=128
 #pragma HLS STREAM variable=data_to_coo_stream depth=16
 
     while (true) {
@@ -42,7 +48,6 @@ void pma_read_merger_kernel(
         int done_count = 0;
         int rr = 0;
         int total_edge_count = 0;
-        bool count_end = false;
 
         while (done_count < READ_WORKERS) {
 #pragma HLS PIPELINE II=1
@@ -52,13 +57,10 @@ void pma_read_merger_kernel(
             }
 
             READ_PKT_STREAM pkt;
-            if (rr == 0) {
-                pkt = worker0_pkt_stream.read();
-            }
-            else
-            {
-                pkt = worker1_pkt_stream.read();
-            }
+            if      (rr == 0) pkt = worker0_pkt_stream.read();
+            else if (rr == 1) pkt = worker1_pkt_stream.read();
+            else if (rr == 2) pkt = worker2_pkt_stream.read();
+            else              pkt = worker3_pkt_stream.read();
 
             if (pkt.keep == 0 && pkt.last == 1) {
                 done[rr] = true;
@@ -82,7 +84,6 @@ void pma_read_merger_kernel(
                     data_to_coo_stream.write(o);
                 } else if (mode == PMA_GET_EDGE_COUNT_RANGE) {
                     total_edge_count += (int)pkt.data.range(31, 0);
-                    if (pkt.user == 0) count_end = true;
                 }
             }
         }
@@ -95,9 +96,7 @@ void pma_read_merger_kernel(
             o.last = 1;
             data_to_coo_stream.write(o);
         } else if (mode == PMA_GET_EDGE_COUNT_RANGE) {
-            // Write edge count to HBM via m_axi — data source is m_axi pointer
             *edge_count_ptr = total_edge_count;
-            // Send completion packet on data_to_coo_stream for synchronization
             ap_axiu<64,0,0,0> o = {};
             o.data = (ap_uint<64>)total_edge_count;
             o.keep = 0xFF;
