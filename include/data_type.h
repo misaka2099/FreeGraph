@@ -133,18 +133,19 @@ struct INTRA_PMA_UPDATE_MESSAGE
 #define ROUTER_WORKERS          CHANNEL_NUM
 
 // #define LOAD_BITMAP 19
-enum control_type
-{
-    INSERT_STOP = 0,
-    INSERT_FLUSH_CACHE = 1,
-    INSERT_GOING = 2
-};
-struct pma_idx_info
-{
-    int pma_idx;
-    control_type command_type;
-    int last;
-};
+// enum control_type
+// {
+//     INSERT_STOP = 0,
+//     INSERT_FLUSH_CACHE = 1,
+//     INSERT_GOING = 2
+// };
+// struct pma_idx_info
+// {
+//     int pma_idx;
+//     control_type command_type;
+//     int boff;      // PMA byte offset relative to data_off (from pma_gate, no VEC_INFO re-read)
+//     int last;
+// };
 //range(31,0) start
 //range(63,32) len
 //range(64): alloc or free 0->alloc 1->free
@@ -241,7 +242,7 @@ struct MEMORY_INFO_ACCESS_COMMAND
 // const int SRC_BUFFER_SIZE=4096; //4096 vertices 16*2 KB per source vertex buffer for a scatter PE// 64 BRAMs per scatter PE
 // const int LOG2_SRC_BUFFER_SIZE=12; // #4096 vertices 16*2 KB per source vertex buffer for a scatter PE// 64 BRAMs per scatter PE
 
-#define PMA_ENLARGE_FACTOR 3
+#define PMA_ENLARGE_FACTOR 4
 
 // --- Helper Array Layout (per PMA, after header) ---
 // Each segment has a 64-bit helper entry: [31:0]=first_dst, [63:32]=valid_count
@@ -259,6 +260,14 @@ struct MEMORY_INFO_ACCESS_COMMAND
 #define PMA_TOTAL_WORDS(total_segs) (4 + HELPER_WORDS(total_segs) + (total_segs) * 4)
 
 // --- Three-Phase Pipeline Types ---
+
+// process_cmd → pma_gate: single batch stream (replaces per-worker distribution)
+struct cmd_batch_full_t {
+    int pma_idx;
+    // control_type command_type;
+    int cmd_count;
+    PMA_UPDATE_MESSAGE cmds[MAX_CMD_NUM];
+};
 
 // Phase 1→2: Binary search result for one batch (up to 16 edges)
 struct bs_batch_t {

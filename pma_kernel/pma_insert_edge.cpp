@@ -136,6 +136,297 @@ void seg_insert(
     seg_out[3].range(511, 480) = (ap_uint<32>)valid;
 }
 
+// ---- pma_gate helper: handle existing (non-empty) PMA ----
+// Extracted to a separate function to prevent HLS if-conversion
+// from speculating alloc/free/m_axi writes when vi==0.
+static void pma_gate_handle_existing(
+    ap_uint<512>* hbm_gate,
+    int pma_raw_data_start,
+    int pma_vecinfo_start,
+    int pma_idx,
+    VEC_INFO vi,
+    PMA_UPDATE_MESSAGE* cmd_batch,
+    int cmd_count,
+    ap_uint<512>* pma_buffer,
+    hls::stream<ap_axiu<96,0,0,0>>& alloc_cmd_stream,
+    hls::stream<ap_axiu<64,0,0,0>>& alloc_rsp_stream)
+{
+    ap_uint<512> range_word = hbm_gate[(int)(vi.range(31,0) - pma_raw_data_start) / 64];
+    ap_uint<512> edge_count_word = hbm_gate[(int)(vi.range(31,0) - pma_raw_data_start) / 64 + 1];
+    int delta_edge[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+    int delta_range[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+    bool enlarge = false;
+    int total_delta = 0;
+    for (int i = 0 ; i < cmd_count ; i++)
+    {
+        #pragma HLS PIPELINE II=1
+        PMA_UPDATE_MESSAGE cmd = cmd_batch[i];
+        int local_src = cmd.src & 0xF;
+        delta_edge[local_src]++;
+    }
+    for (int i = 0 ; i < 16 ; i++)
+    {
+        #pragma HLS UNROLL
+        if (delta_edge[i] == 0) continue;
+        int old_count = (int)edge_count_word.range(i * 32 + 31, i * 32);
+        int new_count = old_count + delta_edge[i];
+        int seg_start = (i == 0) ? 0 : (int)range_word.range((i - 1) * 32 + 31, (i - 1) * 32);
+        int seg_end = (int)range_word.range(i * 32 + 31, i * 32);
+
+        int seg_len = seg_end - seg_start;
+        int max_edge = density_capacity(seg_len);
+        if (new_count > max_edge)
+        {
+            delta_range[i] = 3*seg_len;
+            total_delta += delta_range[i];
+            enlarge = true;
+        }
+    }
+    if (enlarge)
+    {
+        hls::print("ENLARGE trig\n");
+        int old_tseg = (int)range_word.range(15 * 32 + 31, 15 * 32);
+        int ntseg = old_tseg + total_delta;
+        int nhpw   = (ntseg + 7) / 8;
+        int npwords = HEADER_WORDS + nhpw + ntseg * SEG_WORDS_PER_SEG;
+        int npbytes = npwords * 64;
+        ap_axiu<96,0,0,0> acmd2;
+        acmd2.data.range(31, 0)  = 0;
+        acmd2.data.range(63, 32) = npbytes;
+        acmd2.data.range(95, 64) = 1;
+        acmd2.last = 0; acmd2.keep = 0xFFF;
+        alloc_cmd_stream.write(acmd2);
+        #pragma HLS protocol fixed
+
+        ap_uint<512> old_range_word = range_word;
+        int acc = 0;
+        for (int i = 0 ; i < 16 ; i++)
+        {
+            #pragma HLS UNROLL
+            acc += delta_range[i];
+            int old_vr = (int)range_word.range(i * 32 + 31, i * 32);
+            int new_vr = old_vr + acc;
+            range_word.range(i * 32 + 31, i * 32) = new_vr;
+        }
+        ap_wait();
+        ap_axiu<64,0,0,0> arsp2 = alloc_rsp_stream.read();
+        int nstart = (int)arsp2.data.range(31, 0);
+
+        int old_boff = (int)vi.range(31, 0) - pma_raw_data_start;
+        int old_hpw  = (old_tseg + 7) / 8;
+        int old_seg_base = (old_boff + HEADER_BYTES + old_hpw * 64) / 64;
+        int old_seg_words = old_tseg * SEG_WORDS_PER_SEG;
+        for (int i = 0; i < old_seg_words; i++) {
+            #pragma HLS PIPELINE II=1
+            pma_buffer[i] = hbm_gate[old_seg_base + i];
+        }
+
+        int nseg_base = nstart / 64 + HEADER_WORDS + nhpw;
+        int buf_pos = 0;
+        for (int v = 0; v < 16; v++) {
+            int ovs = (v == 0) ? 0 : (int)old_range_word.range((v-1)*32+31, (v-1)*32);
+            int ove = (int)old_range_word.range(v*32+31, v*32);
+            int nvs = (v == 0) ? 0 : (int)range_word.range((v-1)*32+31, (v-1)*32);
+            int ocnt = ove - ovs;
+            for (int i = 0; i < ocnt * SEG_WORDS_PER_SEG; i++) {
+                #pragma HLS PIPELINE II=1
+                hbm_gate[nseg_base + nvs * SEG_WORDS_PER_SEG + i] = pma_buffer[buf_pos + i];
+            }
+            buf_pos += ocnt * SEG_WORDS_PER_SEG;
+        }
+
+        for (int v = 0; v < 16; v++) {
+            int ovs = (v == 0) ? 0 : (int)old_range_word.range((v-1)*32+31, (v-1)*32);
+            int ove = (int)old_range_word.range(v*32+31, v*32);
+            int nvs = (v == 0) ? 0 : (int)range_word.range((v-1)*32+31, (v-1)*32);
+            int nve = (int)range_word.range(v*32+31, v*32);
+            int ocnt = ove - ovs;
+            int extra = nve - nvs - ocnt;
+            for (int i = 0; i < extra * SEG_WORDS_PER_SEG; i++) {
+                #pragma HLS PIPELINE II=1
+                hbm_gate[nseg_base + (nvs + ocnt) * SEG_WORDS_PER_SEG + i] =
+                    make_empty_seg(i % SEG_WORDS_PER_SEG);
+            }
+        }
+
+        ap_uint<512> nhlp[MAX_HELPER_WORDS];
+        ap_uint<64> empty_entry = ((ap_uint<64>)(ap_uint<32>)0 << 32) | (ap_uint<64>)(ap_uint<32>)UNUSED_ICON;
+        for (int w = 0; w < nhpw; w++) {
+            nhlp[w] = 0;
+            for (int z = 0; z < 8; z++) nhlp[w].range(z*64+63, z*64) = empty_entry;
+        }
+        int old_hlp_base = (old_boff + HEADER_BYTES) / 64;
+        ap_uint<512> old_hlp[MAX_HELPER_WORDS];
+        for (int w = 0; w < old_hpw; w++) {
+            #pragma HLS PIPELINE II=1
+            old_hlp[w] = hbm_gate[old_hlp_base + w];
+        }
+        for (int v = 0; v < 16; v++) {
+            int ovs = (v == 0) ? 0 : (int)old_range_word.range((v-1)*32+31, (v-1)*32);
+            int ove = (int)old_range_word.range(v*32+31, v*32);
+            int nvs = (v == 0) ? 0 : (int)range_word.range((v-1)*32+31, (v-1)*32);
+            for (int s = 0; s < ove - ovs; s++) {
+                int oseg = ovs + s, nseg = nvs + s;
+                int ow = oseg / 8, os = oseg % 8;
+                int nw = nseg / 8, ns = nseg % 8;
+                ap_uint<64> hv = old_hlp[ow].range(os*64+63, os*64);
+                nhlp[nw].range(ns*64+63, ns*64) = hv;
+            }
+        }
+
+        // FREE old PMA (after all reads from old location are complete)
+        int obytes = (HEADER_WORDS + old_hpw + old_tseg * SEG_WORDS_PER_SEG) * 64;
+        ap_axiu<96,0,0,0> fcmd;
+        fcmd.data.range(31, 0)  = old_boff;
+        fcmd.data.range(63, 32) = obytes;
+        fcmd.data.range(95, 64) = 2;
+        fcmd.last = 0; fcmd.keep = 0xFFF;
+        alloc_cmd_stream.write(fcmd);
+
+        ap_uint<512> new_hdr[HEADER_WORDS];
+        new_hdr[0] = range_word;
+        new_hdr[1] = edge_count_word;
+        new_hdr[2] = 0; new_hdr[3] = 0;
+        int new_abs_base = nstart / 64;
+        for (int w = 0; w < HEADER_WORDS; w++) {
+            #pragma HLS PIPELINE II=1
+            hbm_gate[new_abs_base + w] = new_hdr[w];
+        }
+        for (int w = 0; w < nhpw; w++) {
+            #pragma HLS PIPELINE II=1
+            hbm_gate[new_abs_base + HEADER_WORDS + w] = nhlp[w];
+        }
+
+        VEC_INFO nvi = 0;
+        nvi.range(31, 0)  = (ap_uint<32>)(nstart + pma_raw_data_start);
+        nvi.range(63, 32) = (ap_uint<32>)npbytes;
+        vi_write(hbm_gate, pma_vecinfo_start, pma_idx, nvi);
+    }
+}
+
+void pma_gate(
+    ap_uint<512> *hbm_gate,
+    int pma_raw_data_start,
+    int pma_vecinfo_start,
+    hls::stream<PMA_UPDATE_MESSAGE>& cmd_in,
+    // hls::stream<int> & cnt_in,
+    // hls::stream<pma_idx_info>& info_out,
+    hls::stream<PMA_UPDATE_MESSAGE> cmd_out[BS_WORKER_NUM],
+    hls::stream<ap_axiu<96,0,0,0>>& alloc_cmd_stream,
+    hls::stream<ap_axiu<64,0,0,0>>& alloc_rsp_stream
+    // hls::stream<int> cnt_out[BS_WORKER_NUM]
+)
+{
+    ap_uint<512> pma_buffer[4096];
+    #pragma HLS bind_storage variable=pma_buffer type=RAM_2P impl=URAM
+    int next_worker = 0;
+    while (true)
+    {
+        if (cmd_in.empty()) { ap_wait(); continue; }
+        PMA_UPDATE_MESSAGE first = cmd_in.read();
+        if (first.opcode == PMA_UPDATE_STOP && first.last == 1) {
+            for (int i = 0; i < BS_WORKER_NUM; i++)
+                cmd_out[i].write(first);
+            // Send STOP to alloc_access
+            ap_axiu<96,0,0,0> scmd;
+            scmd.data.range(95, 64) = 0;  // opcode=STOP
+            scmd.last = 1; scmd.keep = 0xFFF;
+            alloc_cmd_stream.write(scmd);
+            return;
+        }
+        PMA_UPDATE_MESSAGE cmd_batch[MAX_CMD_NUM];
+        cmd_batch[0] = first;
+        int cmd_count = 1;
+        int pma_idx = first.src >> 4;
+        bool done = (first.last == 1);
+        for (int i = 1 ; i < MAX_CMD_NUM && !done; i++) {
+            if (done) break;
+            PMA_UPDATE_MESSAGE cmd = cmd_in.read();
+            cmd_batch[i] = cmd; cmd_count++;
+            done = (cmd.last == 1);
+        }
+
+        // check empty pma
+        VEC_INFO vi = vi_read(hbm_gate, pma_vecinfo_start, pma_idx);
+        hls::print("GATE vi=%d\n", (unsigned)(int)vi.range(31,0));
+        if (vi == 0)
+        {
+            // Initialize empty PMA in pma_buffer: header + helper + 16 segments
+            int isegs = VERTEX_PER_PMA;  // 16 vertices, 1 segment each
+            int ihlp  = (isegs + 7) / 8; // helper words = 2
+
+            // Alloc new PMA space
+            int ibytes = (HEADER_WORDS + ihlp + isegs * SEG_WORDS_PER_SEG) * 64;
+            ap_axiu<96,0,0,0> acmd;
+            acmd.data.range(31, 0)  = 0;        // start=0 for ALLOC
+            acmd.data.range(63, 32) = ibytes;   // request bytes
+            acmd.data.range(95, 64) = 1;        // opcode=ALLOC
+            acmd.last = 0; acmd.keep = 0xFFF;
+            alloc_cmd_stream.write(acmd);
+            #pragma HLS protocol fixed
+            ap_wait();
+            ap_axiu<64,0,0,0> arsp = alloc_rsp_stream.read();
+            int nstart = (int)arsp.data.range(31, 0);
+
+            // Header[0]: vertex_range — vertex v owns segment v
+            ap_uint<512> hdr0 = 0;
+            for (int v = 0; v < VERTEX_PER_PMA; v++) {
+                #pragma HLS UNROLL
+                hdr0.range(v * 32 + 31, v * 32) = v + 1;
+            }
+            pma_buffer[0] = hdr0;
+            pma_buffer[1] = 0;  // edge_count all zero
+            pma_buffer[2] = 0;
+            pma_buffer[3] = 0;
+
+            // Helper: valid_count=0, first_dst=UNUSED_ICON for all 8 slots per word
+            ap_uint<64> empty_entry = ((ap_uint<64>)(ap_uint<32>)0 << 32) | (ap_uint<64>)(ap_uint<32>)UNUSED_ICON;
+            ap_uint<512> empty_helper = 0;
+            for (int z = 0; z < 8; z++) {
+                #pragma HLS UNROLL
+                empty_helper.range(z * 64 + 63, z * 64) = empty_entry;
+            }
+            for (int w = 0; w < ihlp; w++) {
+                #pragma HLS UNROLL
+                pma_buffer[HEADER_WORDS + w] = empty_helper;
+            }
+
+            // Segments: 16 empty segments, 4 words each (make_empty_seg template)
+            int seg_off = HEADER_WORDS + ihlp;
+            for (int i = 0; i < isegs * SEG_WORDS_PER_SEG; i++) {
+                #pragma HLS PIPELINE II=1
+                pma_buffer[seg_off + i] = make_empty_seg(i % SEG_WORDS_PER_SEG);
+            }
+            int write_start_in_512_pattern = nstart / 64;
+            for (int i = 0; i < HEADER_WORDS + ihlp + isegs * SEG_WORDS_PER_SEG; i++)
+            {
+                #pragma HLS PIPELINE II=1
+                hbm_gate[write_start_in_512_pattern + i] = pma_buffer[i];
+            }
+
+            // Update VEC_INFO so subsequent accesses see the PMA
+            VEC_INFO nvi = 0;
+            nvi.range(31, 0)  = (ap_uint<32>)(nstart + pma_raw_data_start);
+            nvi.range(63, 32) = (ap_uint<32>)ibytes;
+            vi_write(hbm_gate, pma_vecinfo_start, pma_idx, nvi);
+        }
+        //check pma enlargement
+        else
+        {
+            hls::print("GATE else enter\n");
+            pma_gate_handle_existing(hbm_gate, pma_raw_data_start, pma_vecinfo_start,
+                                     pma_idx, vi, cmd_batch, cmd_count, pma_buffer,
+                                     alloc_cmd_stream, alloc_rsp_stream);
+        }
+        for (int i = 0 ; i < cmd_count; i++)
+        {
+            PMA_UPDATE_MESSAGE cmd = cmd_batch[i];
+            cmd_out[next_worker].write(cmd);
+        }
+        next_worker = (next_worker + 1) % BS_WORKER_NUM;
+    }
+}
+
 // ---- Phase 1: BS Worker ----
 // Reads header+helper directly from HBM via m_axi, does binary search
 
@@ -143,44 +434,36 @@ void bs_worker(
     ap_uint<512>* hbm,
     int data_off, int vi_wo,
     hls::stream<PMA_UPDATE_MESSAGE>& edge_in,
-    hls::stream<int>& cnt_in,
-    hls::stream<pma_idx_info>& info_in,
-    hls::stream<bs_batch_t>& bs_out)
+    hls::stream<bs_batch_t>& bs_out
+)
 {
     while (true) {
-        auto sig = info_in.read();
-        if (sig.command_type == INSERT_STOP) {
+        // Read first edge to determine batch type and pma_idx
+        PMA_UPDATE_MESSAGE first = edge_in.read();
+        if (first.opcode == PMA_UPDATE_STOP && first.last == 1) {
             bs_batch_t s; s.pma_idx = -1; s.count = 0; bs_out.write(s); break;
         }
-        if (sig.command_type == INSERT_FLUSH_CACHE) {
-            bs_batch_t f; f.pma_idx = -2; f.count = 0; bs_out.write(f); continue;
-        }
 
-        int pma = sig.pma_idx;
-        int cnt = cnt_in.read();
-
-        // Read VEC_INFO
-        VEC_INFO vi = vi_read(hbm, vi_wo, pma);
-        if (vi == 0) {
-            // Empty PMA: 16 vertices × 1 segment each, vertex v = segment v
-            // No binary search needed — target_seg = local_src
-            bs_batch_t res;
-            res.pma_idx = pma; res.op_mask = 0; res.count = cnt;
-            for (int i = 0; i < cnt; i++) {
+        int pma = first.src >> 4;
+        // Read remaining edges until last flag; count = position of last
+        PMA_UPDATE_MESSAGE edges[MAX_CMD_NUM];
+        edges[0] = first;
+        int cnt = 1;
+        if (first.last != 1) {
+            for (int i = 1; i < MAX_CMD_NUM; i++) {
                 #pragma HLS PIPELINE II=1
-                PMA_UPDATE_MESSAGE e = edge_in.read();
-                res.dst[i] = e.dst;
-                res.local_src[i] = e.src & 0xF;
-                res.target_seg[i] = e.src & 0xF;  // vertex v → segment v
+                edges[i] = edge_in.read();
+                cnt++;
+                if (edges[i].last == 1) break;
             }
-            bs_out.write(res);
-            continue;
         }
 
+        // VEC_INFO guaranteed non-zero (empty PMA handled upstream by pma_gate)
+        VEC_INFO vi = vi_read(hbm, vi_wo, pma);
         int start_byte = (int)vi.range(31, 0);
         int byte_off   = start_byte - data_off;
 
-        // Read header then helper (two separate bursts, no conditionals)
+        // Read header then helper
         int hbase = byte_off / 64;
         ap_uint<512> hdr[HEADER_WORDS];
         ap_uint<512> hlp_buf[MAX_HELPER_WORDS];
@@ -222,11 +505,10 @@ void bs_worker(
 
         for (int i = 0; i < cnt; i++) {
             #pragma HLS PIPELINE II=1
-            PMA_UPDATE_MESSAGE e = edge_in.read();
+            PMA_UPDATE_MESSAGE e = edges[i];
             res.dst[i] = e.dst;
             res.local_src[i] = e.src & 0xF;
             int op = (int)e.opcode;
-            // Insert-only mode (delete edge commented out)
             if (op == PMA_UPDATE_INSERT_EDGE /* || op == PMA_UPDATE_DELETE_EDGE */) {
                 int ls = e.src & 0xF;
                 int lo = (ls == 0) ? 0 : vr[ls - 1];
@@ -235,7 +517,6 @@ void bs_worker(
                 sub_search(bs_helper, lo, hi, e.dst, rel);
                 if (rel == -1) rel = 0;
                 res.target_seg[i] = rel + lo;
-                // if (op == PMA_UPDATE_DELETE_EDGE) res.op_mask[i] = 1;
             } else {
                 res.target_seg[i] = 0;
             }
@@ -253,9 +534,9 @@ void insert_phase(
     int data_off, int vi_wo,
     hls::stream<bs_batch_t>& bs0, hls::stream<bs_batch_t>& bs1,
     hls::stream<bs_batch_t>& bs2, hls::stream<bs_batch_t>& bs3,
-    hls::stream<ap_axiu<96,0,0,0>>& alloc_cmd_stream,
-    hls::stream<ap_axiu<64,0,0,0>>& alloc_rsp_stream,
-    hls::stream<ap_uint<64>>& task_fifo)
+    hls::stream<ap_uint<64>>& task_fifo,
+    hls::stream<ap_uint<32>>& redist_ack_in,
+    hls::stream<COMMAND_STREAM>& ack_out)
 {
     // --- Local cache: header + helper ---
     ap_uint<512> ch[CACHE_LINES][HEADER_WORDS];
@@ -270,20 +551,27 @@ void insert_phase(
     int ctseg[CACHE_LINES];
     for (int i = 0; i < CACHE_LINES; i++) cpma[i] = -1;
 
-    // Empty helper word: valid_count=0, first_edge=UNUSED_ICON for all 8 entries
-    // (was all-1s which gave valid_count=-1 for empty segments, breaking rebalance)
-    ap_uint<64> empty_h_entry = ((ap_uint<64>)(ap_uint<32>)0 << 32) | (ap_uint<64>)(ap_uint<32>)UNUSED_ICON;
-    ap_uint<512> EMPTY_HELPER = 0;
-    for (int z = 0; z < 8; z++)
-        EMPTY_HELPER.range(z * 64 + 63, z * 64) = empty_h_entry;
+    // --- In-flight rebalance batch counter ---
+    int pending_cnt = 0;
 
-    ap_uint<512> empty_vertex_range = 0;
-    for (int v = 0; v < VERTEX_PER_PMA; v++)
-        empty_vertex_range.range(v * 32 + 31, v * 32) = v + 1;
-
-    int stop_cnt = 0, flush_cnt = 0;
+    int stop_cnt = 0;
     while (stop_cnt < BS_WORKER_NUM) {
         #pragma HLS PIPELINE II=1
+
+        // --- read_nb: poll redistribution ACK every cycle ---
+        if (!redist_ack_in.empty()) {
+            ap_uint<32> ack_val = redist_ack_in.read();
+            int ack_pma = (int)ack_val;
+            if (ack_pma != -1) {
+                pending_cnt--;
+                // Forward ACK upstream immediately
+                COMMAND_STREAM up_ack;
+                up_ack.data = ack_pma; up_ack.keep = 0xF;
+                up_ack.strb = 0xF; up_ack.user = 0; up_ack.last = 0;
+                ack_out.write(up_ack);
+            }
+        }
+
         bs_batch_t b;
         bool got = false;
         if (!got && !bs0.empty()) { b = bs0.read(); got = true; }
@@ -293,84 +581,31 @@ void insert_phase(
         if (!got) { ap_wait(); continue; }
 
         if (b.pma_idx == -1) { stop_cnt++; continue; }
-        if (b.pma_idx == -2) { flush_cnt++; continue; }
 
         int pma = b.pma_idx;
         int line = ((pma % CACHE_LINES) + CACHE_LINES) % CACHE_LINES;
 
-        // --- Load cache (init PMA if first access) ---
+        // --- Load cache (PMA guaranteed to exist on HBM, handled by pma_gate) ---
         bool hit = cvalid[line] && cpma[line] == pma;
         if (!hit) {
             cvalid[line] = 0;
             VEC_INFO vi = vi_read(hbm, vi_wo, pma);
-
-            if (vi != 0) {
-                // Existing PMA: load header + helper from HBM
-                int sbyte = (int)vi.range(31, 0);
-                int boff  = sbyte - data_off;
-                int hbase = boff / 64;
-                for (int w = 0; w < HEADER_WORDS; w++) {
-                    #pragma HLS UNROLL
-                    ch[line][w] = hbm[hbase + w];
-                }
-                int tseg = (int)ch[line][0].range(15 * 32 + 31, 15 * 32);
-                int hpw  = (tseg + 7) / 8;
-                if (hpw > 0) {
-                    for (int w = 0; w < hpw; w++) {
-                        #pragma HLS PIPELINE II=1
-                        chp[line][w] = hbm[hbase + HEADER_WORDS + w];
-                    }
-                }
-                cvi[line] = vi; cvalid[line] = 1; cpma[line] = pma;
-                chpw[line] = hpw; ctseg[line] = tseg;
-            } else {
-                // Empty PMA (first access): alloc + init in HBM, then process edges below
-                int isegs = 16, ihlp = (isegs + 7) / 8;
-                int ibytes = (HEADER_WORDS + ihlp + isegs * SEG_WORDS_PER_SEG) * 64;
-                ap_axiu<96,0,0,0> acmd;
-                acmd.data.range(31,0)   = 0;        // start=0 for ALLOC
-                acmd.data.range(63,32)  = ibytes;   // request bytes
-                acmd.data.range(95,64)  = 1;        // opcode=ALLOC
-                acmd.last = 0; acmd.keep = 0xFFF;
-                alloc_cmd_stream.write(acmd);
-                #pragma HLS protocol fixed
-                ap_wait();
-                ap_axiu<64,0,0,0> arsp = alloc_rsp_stream.read();
-                int nstart = (int)arsp.data.range(31, 0);
-
-                // Write header
-                ap_uint<512> hdr[HEADER_WORDS];
-                hdr[0] = empty_vertex_range; hdr[1] = 0; hdr[2] = 0; hdr[3] = 0;
-                // Three contiguous bursts: header, helper, segments (no conditionals)
-                int nh_base = nstart / 64;
-                int seg_off = HEADER_WORDS + ihlp;
-                // Write header (4 words)
-                for (int w = 0; w < HEADER_WORDS; w++) {
-                    #pragma HLS PIPELINE II=1
-                    hbm[nh_base + w] = hdr[w];
-                }
-                // Write helper (all EMPTY_HELPER)
-                for (int w = 0; w < ihlp; w++) {
-                    #pragma HLS PIPELINE II=1
-                    hbm[nh_base + HEADER_WORDS + w] = EMPTY_HELPER;
-                }
-                // Write segments (empty template, 4-word repeating pattern)
-                for (int i = 0; i < isegs * SEG_WORDS_PER_SEG; i++) {
-                    #pragma HLS PIPELINE II=1
-                    hbm[nh_base + seg_off + i] = make_empty_seg(i % SEG_WORDS_PER_SEG);
-                }
-
-                VEC_INFO nvi = 0;
-                nvi.range(31, 0) = (ap_uint<32>)(nstart + data_off);
-                nvi.range(63, 32) = (ap_uint<32>)ibytes;
-                vi_write(hbm, vi_wo, pma, nvi);
-
-                // Fill cache
-                for (int w = 0; w < HEADER_WORDS; w++) ch[line][w] = hdr[w];
-                for (int w = 0; w < ihlp; w++) chp[line][w] = EMPTY_HELPER;
-                cvi[line] = nvi; cvalid[line] = 1; cpma[line] = pma;
-                chpw[line] = ihlp; ctseg[line] = isegs;
+            int sbyte = (int)vi.range(31, 0);
+            int boff  = sbyte - data_off;
+            int hbase = boff / 64;
+            for (int w = 0; w < HEADER_WORDS; w++) {
+                #pragma HLS UNROLL
+                ch[line][w] = hbm[hbase + w];
             }
+            int tseg = (int)ch[line][0].range(15 * 32 + 31, 15 * 32);
+            int hpw  = (tseg + 7) / 8;
+            if (hpw > MAX_HELPER_WORDS) hpw = MAX_HELPER_WORDS;
+            for (int w = 0; w < hpw; w++) {
+                #pragma HLS PIPELINE II=1
+                chp[line][w] = hbm[hbase + HEADER_WORDS + w];
+            }
+            cvi[line] = vi; cvalid[line] = 1; cpma[line] = pma;
+            chpw[line] = hpw; ctseg[line] = tseg;
         }
 
         int tseg  = ctseg[line];
@@ -389,34 +624,28 @@ void insert_phase(
         // --- Process segment modifications ---
         int ec_delta[VERTEX_PER_PMA];
         #pragma HLS ARRAY_PARTITION variable=ec_delta complete
-        ap_uint<16> ins_mask = 0;
         for (int v = 0; v < VERTEX_PER_PMA; v++) ec_delta[v] = 0;
 
         int seg_list[16], seg_cnt = 0;
         #pragma HLS ARRAY_PARTITION variable=seg_list complete
         bool seg_overflow[16];
         #pragma HLS ARRAY_PARTITION variable=seg_overflow complete
-        int  seg_owner[16];
-        #pragma HLS ARRAY_PARTITION variable=seg_owner complete
-        for (int i = 0; i < 16; i++) { seg_overflow[i] = false; seg_owner[i] = -1; }
+        for (int i = 0; i < 16; i++) seg_overflow[i] = false;
 
         for (int i = 0; i < b.count; i++) {
             #pragma HLS PIPELINE II=1
             int ts = b.target_seg[i], ls = b.local_src[i];
-            // Insert-only mode (delete edge commented out)
-            // bool del = b.op_mask[i];
-            // if (del) ec_delta[ls]--;
-            // else { ec_delta[ls]++; ins_mask[ls] = 1; }
-            ec_delta[ls]++; ins_mask[ls] = 1;
+            ec_delta[ls]++;
 
             bool found = false;
             for (int j = 0; j < seg_cnt; j++) if (seg_list[j] == ts) { found = true; break; }
             if (!found && seg_cnt < 16) seg_list[seg_cnt++] = ts;
         }
 
-        // --- Phase A: burst-read all modified segments (bursts pipelined between segments) ---
+        // --- Phase A: burst-read all modified segments ---
         ap_uint<512> seg_buf[16][SEG_WORDS_PER_SEG];
         #pragma HLS ARRAY_PARTITION variable=seg_buf complete dim=2
+        #pragma HLS bind_storage variable=seg_buf type=RAM_2P impl=BRAM
         int seg_bases[16];
         #pragma HLS ARRAY_PARTITION variable=seg_bases complete
         int seg_valid_buf[16];
@@ -451,20 +680,9 @@ void insert_phase(
             }
         }
 
-        // --- Phase B: parallel seg_insert (pure compute, INLINE off for multiple instances) ---
+        // --- Phase B: parallel seg_insert ---
         for (int si = 0; si < seg_cnt; si++) {
             #pragma HLS UNROLL factor=4
-            int seg = seg_list[si];
-
-            // Record owner vertex for O(1) enlarge-overlap check later
-            for (int v = 0; v < VERTEX_PER_PMA; v++) {
-                #pragma HLS UNROLL
-                int vs = (v == 0) ? 0 : vr[v - 1];
-                int ve = vr[v];
-                if (seg >= vs && seg < ve) seg_owner[si] = v;
-            }
-
-            // Call seg_insert: dsts + count → modified segment
             seg_insert(seg_buf[si], seg_dsts[si], seg_dst_cnt[si],
                        seg_buf[si], seg_valid_buf[si], seg_overflow[si]);
         }
@@ -478,7 +696,7 @@ void insert_phase(
                 #pragma HLS UNROLL
                 hbm[base + w] = seg_buf[si][w];
             }
-            // Update helper cache (alongside write, using local buffer data)
+            // Update helper cache
             int hw_idx = seg / 8, hw_slot = seg % 8;
             ap_uint<64> hv = 0;
             hv.range(31, 0)  = seg_buf[si][0].range(31, 0);
@@ -487,235 +705,85 @@ void insert_phase(
         }
 
         // Write-back helper to HBM
-
-        // Write-back helper to HBM
         int hlp_base = (boff + HEADER_BYTES) / 64;
         for (int w = 0; w < hpw; w++) {
             #pragma HLS PIPELINE II=1
             hbm[hlp_base + w] = chp[line][w];
         }
 
-        // Update edge_count in cache
+        // Update edge_count in cache + write back header
         for (int v = 0; v < VERTEX_PER_PMA; v++) {
             #pragma HLS UNROLL
             ec[v] += ec_delta[v];
             ch[line][1].range(v * 32 + 31, v * 32) = (ap_uint<32>)ec[v];
         }
-
-        // --- Density check + enlarge ---
-        bool enlarged = false;
-        int esegs[VERTEX_PER_PMA];
-        for (int v = 0; v < VERTEX_PER_PMA; v++) {
-            #pragma HLS UNROLL
-            esegs[v] = 0;
-            int vs = (v == 0) ? 0 : vr[v - 1];
-            int ve = vr[v], sc = ve - vs;
-            if (ec[v] > density_capacity(sc)) {
-                enlarged = true;
-                esegs[v] = PMA_ENLARGE_FACTOR * sc;
-            }
-        }
-
-        int work_bo = boff;  // HBM byte offset of current PMA
-        int nvr[VERTEX_PER_PMA];  // new vertex_range, saved for segment remapping after enlarge
-        for (int v = 0; v < VERTEX_PER_PMA; v++) nvr[v] = 0;
-
-        if (enlarged) {
-            int acc = 0;
-            for (int v = 0; v < VERTEX_PER_PMA; v++) {
-                #pragma HLS PIPELINE II=1
-                acc += esegs[v];
-                nvr[v] = vr[v] + acc;
-            }
-            int ntseg = nvr[VERTEX_PER_PMA - 1];
-            int nhpw  = (ntseg + 7) / 8;
-            int npwords = HEADER_WORDS + nhpw + ntseg * SEG_WORDS_PER_SEG;
-            int npbytes = npwords * 64;
-
-            ap_axiu<96,0,0,0> acmd2;
-            acmd2.data.range(31,0)   = 0;         // start=0 for ALLOC
-            acmd2.data.range(63,32)  = npbytes;   // request bytes
-            acmd2.data.range(95,64)  = 1;         // opcode=ALLOC
-            acmd2.last = 0; acmd2.keep = 0xFFF;
-            alloc_cmd_stream.write(acmd2);
-            #pragma HLS protocol fixed
-            ap_wait();
-            ap_axiu<64,0,0,0> arsp2 = alloc_rsp_stream.read();
-            int nstart = (int)arsp2.data.range(31, 0);
-
-            int ohpw = (tseg + 7) / 8;
-            int oseg_base = boff + HEADER_BYTES + ohpw * 64;
-            int nseg_base = nstart + HEADER_BYTES + nhpw * 64;
-
-            // Move segments (burst-optimized: separate read/write phases per UG1399)
-            // Phase 1: burst read all old segments → local buffer
-            // Old segments are contiguous — pure read burst
-            int total_old_words = tseg * SEG_WORDS_PER_SEG;
-            ap_uint<512> seg_buf[4096];
-            #pragma HLS bind_storage variable=seg_buf type=RAM_2P impl=URAM
-            for (int i = 0; i < total_old_words; i++) {
-                #pragma HLS PIPELINE II=1
-                seg_buf[i] = hbm[oseg_base / 64 + i];
-            }
-
-            // Phase 2a: burst-write existing segments (one pattern, no conditionals)
-            int buf_pos = 0;
-            int nseg_word = nseg_base / 64;
-            for (int v = 0; v < VERTEX_PER_PMA; v++) {
-                int ocnt = vr[v] - ((v == 0) ? 0 : vr[v - 1]);
-                int nvs  = (v == 0) ? 0 : nvr[v - 1];
-                for (int i = 0; i < ocnt * SEG_WORDS_PER_SEG; i++) {
-                    #pragma HLS PIPELINE II=1
-                    hbm[nseg_word + nvs * SEG_WORDS_PER_SEG + i] = seg_buf[buf_pos + i];
-                }
-                buf_pos += ocnt * SEG_WORDS_PER_SEG;
-            }
-
-            // Phase 2b: burst-write empty segments (separate pattern)
-            for (int v = 0; v < VERTEX_PER_PMA; v++) {
-                int nvs  = (v == 0) ? 0 : nvr[v - 1];
-                int nve  = nvr[v];
-                int ocnt = vr[v] - ((v == 0) ? 0 : vr[v - 1]);
-                int extra = nve - nvs - ocnt;
-                for (int i = 0; i < extra * SEG_WORDS_PER_SEG; i++) {
-                    #pragma HLS PIPELINE II=1
-                    hbm[nseg_word + (nvs + ocnt) * SEG_WORDS_PER_SEG + i] = make_empty_seg(i % SEG_WORDS_PER_SEG);
-                }
-            }
-
-            // Rebuild helper
-            ap_uint<512> nhlp[MAX_HELPER_WORDS];
-            for (int w = 0; w < nhpw; w++) nhlp[w] = EMPTY_HELPER;
-            for (int v = 0; v < VERTEX_PER_PMA; v++) {
-                int ovs = (v == 0) ? 0 : vr[v - 1], ove = vr[v], ocnt = ove - ovs;
-                int nvs = (v == 0) ? 0 : nvr[v - 1];
-                for (int s = 0; s < ocnt; s++) {
-                    int oseg = ovs + s, nseg = nvs + s;
-                    int ow = oseg / 8, os = oseg % 8, nw = nseg / 8, ns = nseg % 8;
-                    ap_uint<64> v = chp[line][ow].range(os * 64 + 63, os * 64);
-                    nhlp[nw].range(ns * 64 + 63, ns * 64) = v;
-                }
-            }
-
-            // Free old
-            int obytes = (HEADER_WORDS + ohpw + tseg * SEG_WORDS_PER_SEG) * 64;
-            ap_axiu<96,0,0,0> fcmd;
-            fcmd.data.range(31,0)   = boff;      // start byte of old PMA
-            fcmd.data.range(63,32)  = obytes;    // old PMA size in bytes
-            fcmd.data.range(95,64)  = 2;         // opcode=FREE
-            fcmd.last = 0; fcmd.keep = 0xFFF;
-            alloc_cmd_stream.write(fcmd);
-            // fire-and-forget: no response
-
-            // Merged header+helper write into one burst (UG1399 coalesce)
-            ap_uint<512> nhdr[HEADER_WORDS];
-            nhdr[0] = 0;
-            for (int v = 0; v < VERTEX_PER_PMA; v++)
-                nhdr[0].range(v * 32 + 31, v * 32) = nvr[v];
-            nhdr[1] = ch[line][1]; nhdr[2] = ch[line][2]; nhdr[3] = ch[line][3];
-            int nen_base = nstart / 64;
-            int nen_total = HEADER_WORDS + nhpw;
-            for (int w = 0; w < nen_total; w++) {
-                #pragma HLS PIPELINE II=1
-                hbm[nen_base + w] = (w < HEADER_WORDS) ? nhdr[w] : nhlp[w - HEADER_WORDS];
-            }
-
-            // Update VEC_INFO
-            VEC_INFO nvi = 0;
-            nvi.range(31, 0) = (ap_uint<32>)(nstart + data_off);
-            nvi.range(63, 32) = (ap_uint<32>)npbytes;
-            vi_write(hbm, vi_wo, pma, nvi);
-
-            // Update cache
-            for (int w = 0; w < HEADER_WORDS; w++) ch[line][w] = nhdr[w];
-            for (int w = 0; w < nhpw; w++) chp[line][w] = nhlp[w];
-            cvi[line] = nvi; ctseg[line] = ntseg; chpw[line] = nhpw;
-
-            work_bo = nstart;
-
-            // Remap segment numbers in seg_list: old layout → new layout after enlarge
-            for (int si = 0; si < seg_cnt; si++) {
-                int old_seg = seg_list[si];
-                for (int v = 0; v < VERTEX_PER_PMA; v++) {
-                    #pragma HLS UNROLL
-                    int ovs = (v == 0) ? 0 : vr[v - 1];
-                    int ove = vr[v];
-                    if (old_seg >= ovs && old_seg < ove) {
-                        int nvs = (v == 0) ? 0 : nvr[v - 1];
-                        seg_list[si] = nvs + (old_seg - ovs);
-                    }
-                }
-            }
-        }
-
-        // Write back final header
-        // Write back final header (4-word unrolled burst)
-        int wb_base = work_bo / 64;
+        int wb_base = boff / 64;
         for (int w = 0; w < HEADER_WORDS; w++) {
             #pragma HLS UNROLL
             hbm[wb_base + w] = ch[line][w];
         }
 
-        // Build O(1) lookup: which vertices were enlarged
-        bool vertex_enlarged[VERTEX_PER_PMA];
-        #pragma HLS ARRAY_PARTITION variable=vertex_enlarged complete
-        for (int v = 0; v < VERTEX_PER_PMA; v++) vertex_enlarged[v] = (esegs[v] > 0);
-
-        // Push ENLARGE_REBALANCE tasks: redistribution range = full new vertex span
-        for (int v = 0; v < VERTEX_PER_PMA; v++) {
-            #pragma HLS UNROLL
-            if (vertex_enlarged[v]) {
-                ap_uint<64> t;
-                t.range(31, 0) = 0x80000000 | (ap_uint<32>)v;
-                t.range(63, 32) = pma;
-                task_fifo.write(t);
-            }
-        }
-
-        // Push SEGMENT_REBALANCE tasks: overflowed segments whose owner wasn't enlarged
+        // Push SEGMENT_REBALANCE tasks for overflowed segments
+        bool has_rebalance = false;
         for (int si = 0; si < seg_cnt; si++) {
             #pragma HLS PIPELINE II=1
             if (!seg_overflow[si]) continue;
-            if (vertex_enlarged[seg_owner[si]]) continue;  // O(1): covered by ENLARGE_REBALANCE
             ap_uint<64> t;
-            t.range(31, 0) = seg_list[si];  // already remapped if enlarge happened
+            t.range(31, 0) = seg_list[si];
             t.range(63, 32) = pma;
             task_fifo.write(t);
+            has_rebalance = true;
         }
 
-        // ACK marker per batch (always sent, even if no rebalance tasks)
+        // ACK marker per batch + track pending
         ap_uint<64> ack_task;
         ack_task.range(31, 0) = ap_uint<32>(-2);
         ack_task.range(63, 32) = pma;
         task_fifo.write(ack_task);
 
-        // Invalidate cache line so next batch re-reads header+helper from HBM.
-        // Redistribution may have modified the helper on HBM after this batch.
+        pending_cnt++;
+
+        // Invalidate cache line (redistribution may modify HBM helper)
         cvalid[line] = 0;
     }
-    // Send STOP to alloc_access (no ACK — rtss protocol) and signal stop to redistribution phase
-    ap_axiu<96,0,0,0> scmd;
-    scmd.data.range(95,64) = 0;  // opcode=STOP
-    scmd.last = 1; scmd.keep = 0xFFF;
-    alloc_cmd_stream.write(scmd);
 
+    // --- STOP: send STOP to redistribution, then drain pending table ---
     ap_uint<64> stop_task;
     stop_task.range(31, 0) = ap_uint<32>(-1);
     stop_task.range(63, 32) = 0;
     task_fifo.write(stop_task);
+
+    while (pending_cnt > 0) {
+        if (!redist_ack_in.empty()) {
+            ap_uint<32> ack_val = redist_ack_in.read();
+            int ack_pma = (int)ack_val;
+            if (ack_pma != -1) {
+                pending_cnt--;
+                COMMAND_STREAM up_ack;
+                up_ack.data = ack_pma; up_ack.keep = 0xF;
+                up_ack.strb = 0xF; up_ack.user = 0; up_ack.last = 0;
+                ack_out.write(up_ack);
+            }
+        }
+    }
+
+    // Send STOP ACK upstream
+    COMMAND_STREAM stop_ack;
+    stop_ack.data = -1; stop_ack.keep = 0xF; stop_ack.strb = 0xF; stop_ack.user = 0; stop_ack.last = 0;
+    ack_out.write(stop_ack);
 }
 
 // ---- process_cmd (unchanged) ----
 
 void process_cmd(
     hls::stream<PMA_UPDATE_MESSAGE> &cmd_stream,
-    hls::stream<int> cmd_count_stream[BS_WORKER_NUM],
-    hls::stream<PMA_UPDATE_MESSAGE> cmd_batch_stream[BS_WORKER_NUM],
-    hls::stream<pma_idx_info> pma_info_stream[BS_WORKER_NUM]
+    hls::stream<int> &cmd_count_stream,
+    hls::stream<PMA_UPDATE_MESSAGE> &cmd_batch_stream
+    // hls::stream<pma_idx_info> pma_info_stream
 )
 {
     printf("PROCESS_CMD\n");
-    int next_worker = 0;
+    // int next_worker = 0;
     while(true)
     {
         if (cmd_stream.empty()) { ap_wait(); continue; }
@@ -724,73 +792,81 @@ void process_cmd(
         int cmd_count = 0;
         bool done = false;
         PMA_UPDATE_MESSAGE first = cmd_stream.read();
-        switch (first.opcode)
-        {
-            case PMA_UPDATE_STOP:
-                if (first.last == 1) {
-                    pma_idx_info info; info.pma_idx = 0; info.command_type = INSERT_STOP;
-                    for (int i = 0; i < BS_WORKER_NUM; i++) pma_info_stream[i].write(info);
-                    return;
-                }
-                break;
-            case PMA_UPDATE_FLUSH_CACHE:
-            {
-                pma_idx_info info; info.pma_idx = first.src >> 4; info.command_type = INSERT_FLUSH_CACHE;
-                for (int i = 0; i < BS_WORKER_NUM; i++) pma_info_stream[i].write(info);
-                break;
-            }
-            default:
-            {
-                cmd_batch[cmd_count++] = first;
-                if (first.last == 1) done = true;
-                for (int i = 1; i < MAX_CMD_NUM; i++) {
-                    if (done) break;
-                    PMA_UPDATE_MESSAGE cmd = cmd_stream.read();
-                    cmd_batch[i] = cmd; cmd_count++;
-                    if (cmd.last == 1) done = true;
-                }
-                pma_idx_info info; info.pma_idx = cmd_batch[0].src >> 4; info.command_type = INSERT_GOING;
-                pma_info_stream[next_worker].write(info);
+        // switch (first.opcode)
+        // {
+            // case PMA_UPDATE_STOP:
+            //     if (first.last == 1) {
+            //         pma_idx_info info; info.pma_idx = 0; info.command_type = INSERT_STOP;
+            //         // for (int i = 0; i < BS_WORKER_NUM; i++) pma_info_stream[i].write(info);
+            //         pma_info_stream.write(info);
+            //         return;
+            //     }
+            //     break;
+            // case PMA_UPDATE_FLUSH_CACHE:
+            // {
+            //     pma_idx_info info; info.pma_idx = first.src >> 4; info.command_type = INSERT_FLUSH_CACHE;
+            //     // for (int i = 0; i < BS_WORKER_NUM; i++) pma_info_stream[i].write(info);
+            //     pma_info_stream.write(info);
+            //     break;
+            // }
+            // default:
+        // {
 
-                PMA_UPDATE_MESSAGE edge_info[MAX_CMD_NUM];
-                #pragma HLS ARRAY_PARTITION variable=edge_info complete
-                for (int i = 0; i < cmd_count; i++) edge_info[i] = cmd_batch[i];
-                for (int i = cmd_count; i < MAX_CMD_NUM; i++) {
-                    edge_info[i].src = 0x7FFFFFFF; edge_info[i].dst = 0x7FFFFFFF;
-                    edge_info[i].opcode = (PMA_UPDATE_OPCODE)0x7FFFFFFF;
-                }
-                #define BCS(a,b) do { \
-                    PMA_UPDATE_MESSAGE _ta = edge_info[a], _tb = edge_info[b]; \
-                    bool _gt = ((int)_ta.src > (int)_tb.src) || \
-                        ((int)_ta.src == (int)_tb.src && ((int)_ta.dst > (int)_tb.dst || \
-                        ((int)_ta.dst == (int)_tb.dst && (int)_ta.opcode > (int)_tb.opcode))); \
-                    if (_gt) { edge_info[a] = _tb; edge_info[b] = _ta; } \
-                } while(0)
-                BCS( 0, 1); BCS( 2, 3); BCS( 4, 5); BCS( 6, 7);
-                BCS( 8, 9); BCS(10,11); BCS(12,13); BCS(14,15);
-                BCS( 0, 2); BCS( 1, 3); BCS( 4, 6); BCS( 5, 7);
-                BCS( 8,10); BCS( 9,11); BCS(12,14); BCS(13,15);
-                BCS( 1, 2); BCS( 5, 6); BCS( 9,10); BCS(13,14);
-                BCS( 0, 4); BCS( 1, 5); BCS( 2, 6); BCS( 3, 7);
-                BCS( 8,12); BCS( 9,13); BCS(10,14); BCS(11,15);
-                BCS( 2, 4); BCS( 3, 5); BCS(10,12); BCS(11,13);
-                BCS( 1, 2); BCS( 3, 4); BCS( 5, 6);
-                BCS( 9,10); BCS(11,12); BCS(13,14);
-                BCS( 0, 8); BCS( 1, 9); BCS( 2,10); BCS( 3,11);
-                BCS( 4,12); BCS( 5,13); BCS( 6,14); BCS( 7,15);
-                BCS( 4, 8); BCS( 5, 9); BCS( 6,10); BCS( 7,11);
-                BCS( 2, 4); BCS( 3, 5); BCS( 6, 8); BCS( 7, 9);
-                BCS(10,12); BCS(11,13);
-                BCS( 1, 2); BCS( 3, 4); BCS( 5, 6); BCS( 7, 8);
-                BCS( 9,10); BCS(11,12); BCS(13,14);
-                #undef BCS
-                cmd_count_stream[next_worker].write(cmd_count);
-                for (int i = 0; i < cmd_count ; i++)
-                    cmd_batch_stream[next_worker].write(edge_info[i]);
-                next_worker = (next_worker + 1) % BS_WORKER_NUM;
-                break;
-            }
+        cmd_batch[cmd_count++] = first;
+        if (first.last == 1) done = true;
+        for (int i = 1; i < MAX_CMD_NUM; i++) {
+            if (done) break;
+            PMA_UPDATE_MESSAGE cmd = cmd_stream.read();
+            cmd_batch[i] = cmd; cmd_count++;
+            if (cmd.last == 1) done = true;
         }
+        // pma_idx_info info; info.pma_idx = cmd_batch[0].src >> 4; info.command_type = INSERT_GOING;
+        // pma_info_stream[next_worker].write(info);
+        // pma_info_stream.write(info);
+
+        PMA_UPDATE_MESSAGE edge_info[MAX_CMD_NUM];
+        #pragma HLS ARRAY_PARTITION variable=edge_info complete
+        for (int i = 0; i < cmd_count; i++) edge_info[i] = cmd_batch[i];
+        for (int i = cmd_count; i < MAX_CMD_NUM; i++) {
+            edge_info[i].src = 0x7FFFFFFF; edge_info[i].dst = 0x7FFFFFFF;
+            edge_info[i].opcode = (PMA_UPDATE_OPCODE)0x7FFFFFFF;
+        }
+        #define BCS(a,b) do { \
+            PMA_UPDATE_MESSAGE _ta = edge_info[a], _tb = edge_info[b]; \
+            bool _gt = ((int)_ta.src > (int)_tb.src) || \
+                ((int)_ta.src == (int)_tb.src && ((int)_ta.dst > (int)_tb.dst || \
+                ((int)_ta.dst == (int)_tb.dst && (int)_ta.opcode > (int)_tb.opcode))); \
+            if (_gt) { edge_info[a] = _tb; edge_info[b] = _ta; } \
+        } while(0)
+        BCS( 0, 1); BCS( 2, 3); BCS( 4, 5); BCS( 6, 7);
+        BCS( 8, 9); BCS(10,11); BCS(12,13); BCS(14,15);
+        BCS( 0, 2); BCS( 1, 3); BCS( 4, 6); BCS( 5, 7);
+        BCS( 8,10); BCS( 9,11); BCS(12,14); BCS(13,15);
+        BCS( 1, 2); BCS( 5, 6); BCS( 9,10); BCS(13,14);
+        BCS( 0, 4); BCS( 1, 5); BCS( 2, 6); BCS( 3, 7);
+        BCS( 8,12); BCS( 9,13); BCS(10,14); BCS(11,15);
+        BCS( 2, 4); BCS( 3, 5); BCS(10,12); BCS(11,13);
+        BCS( 1, 2); BCS( 3, 4); BCS( 5, 6);
+        BCS( 9,10); BCS(11,12); BCS(13,14);
+        BCS( 0, 8); BCS( 1, 9); BCS( 2,10); BCS( 3,11);
+        BCS( 4,12); BCS( 5,13); BCS( 6,14); BCS( 7,15);
+        BCS( 4, 8); BCS( 5, 9); BCS( 6,10); BCS( 7,11);
+        BCS( 2, 4); BCS( 3, 5); BCS( 6, 8); BCS( 7, 9);
+        BCS(10,12); BCS(11,13);
+        BCS( 1, 2); BCS( 3, 4); BCS( 5, 6); BCS( 7, 8);
+        BCS( 9,10); BCS(11,12); BCS(13,14);
+        #undef BCS
+        // cmd_count_stream[next_worker].write(cmd_count);
+        // cmd_count_stream.write(cmd_count);
+        for (int i = 0; i < cmd_count ; i++)
+            // cmd_batch_stream[next_worker].write(edge_info[i]);
+            cmd_batch_stream.write(edge_info[i]);
+        if (first.opcode == PMA_UPDATE_STOP && first.last == 1) {
+            return;
+        }
+        // next_worker = (next_worker + 1) % BS_WORKER_NUM;
+        // }
+        // }
     }
 }
 
@@ -805,20 +881,19 @@ void redistribution_phase(
     ap_uint<512>* hbm,
     int data_off, int vi_wo,
     hls::stream<ap_uint<64>>& task_fifo,
-    hls::stream<COMMAND_STREAM>& ack_out)
+    hls::stream<ap_uint<32>>& redist_ack_out)
 {
     while (true) {
         ap_uint<64> task = task_fifo.read();
         int payload = (int)task.range(31, 0);
         int pm  = (int)task.range(63, 32);
         if (payload == -1) {  // STOP
-            COMMAND_STREAM stop_ack; stop_ack.data = -1; stop_ack.keep = 0xF; stop_ack.strb = 0xF; stop_ack.user = 0; stop_ack.last = 0;
-            ack_out.write(stop_ack);
+            ap_uint<32> stop_ack = (ap_uint<32>)(-1);
+            redist_ack_out.write(stop_ack);
             break;
         }
-        if (payload == -2) {  // ACK marker
-            COMMAND_STREAM ack; ack.data = pm; ack.keep = 0xF; ack.strb = 0xF; ack.user = 0; ack.last = 0;
-            ack_out.write(ack);
+        if (payload == -2) {  // ACK marker: notify insert_phase
+            redist_ack_out.write((ap_uint<32>)pm);
             continue;
         }
 
@@ -907,7 +982,7 @@ void redistribution_phase(
         int seg_base_left = (pma_boff + HEADER_BYTES + hpw * 64 + left * SEG_BYTES) / 64;
 
         // A: burst-read segments
-        ap_uint<512> seg_buf_rd[256];
+        ap_uint<512> seg_buf_rd[2560];
         memcpy(seg_buf_rd, &hbm[seg_base_left], seg_words_total * sizeof(ap_uint<512>));
 
         // B: extract edges
@@ -967,6 +1042,7 @@ void redistribution_phase(
 extern "C"
 {
     void pma_insert_edge(
+        ap_uint<512>* hbm_gate,
         ap_uint<512>* hbm_bs0,    // BS worker 0 read-only
         ap_uint<512>* hbm_bs1,    // BS worker 1 read-only
         ap_uint<512>* hbm_bs2,    // BS worker 2 read-only
@@ -982,13 +1058,15 @@ extern "C"
         hls::stream<ap_axiu<64,0,0,0>>& alloc_rsp_stream
     )
     {
-        #pragma HLS INTERFACE m_axi port=hbm_bs0 offset=slave bundle=gmem0 max_read_burst_length=256 max_write_burst_length=256 
-        #pragma HLS INTERFACE m_axi port=hbm_bs1 offset=slave bundle=gmem1 max_read_burst_length=256 max_write_burst_length=256 
-        #pragma HLS INTERFACE m_axi port=hbm_bs2 offset=slave bundle=gmem2 max_read_burst_length=256 max_write_burst_length=256 
-        #pragma HLS INTERFACE m_axi port=hbm_bs3 offset=slave bundle=gmem3 max_read_burst_length=256 max_write_burst_length=256  
-        #pragma HLS INTERFACE m_axi port=hbm_rw  offset=slave bundle=gmem4 max_read_burst_length=256 max_write_burst_length=256 
-        #pragma HLS INTERFACE m_axi port=hbm_red offset=slave bundle=gmem5 max_read_burst_length=256 max_write_burst_length=256 
+        #pragma HLS INTERFACE m_axi port=hbm_gate offset=slave bundle=gmem6 max_read_burst_length=256 max_write_burst_length=256
+        #pragma HLS INTERFACE m_axi port=hbm_bs0 offset=slave bundle=gmem0 max_read_burst_length=256 max_write_burst_length=256
+        #pragma HLS INTERFACE m_axi port=hbm_bs1 offset=slave bundle=gmem1 max_read_burst_length=256 max_write_burst_length=256
+        #pragma HLS INTERFACE m_axi port=hbm_bs2 offset=slave bundle=gmem2 max_read_burst_length=256 max_write_burst_length=256
+        #pragma HLS INTERFACE m_axi port=hbm_bs3 offset=slave bundle=gmem3 max_read_burst_length=256 max_write_burst_length=256
+        #pragma HLS INTERFACE m_axi port=hbm_rw  offset=slave bundle=gmem4 max_read_burst_length=256 max_write_burst_length=256
+        #pragma HLS INTERFACE m_axi port=hbm_red offset=slave bundle=gmem5 max_read_burst_length=256 max_write_burst_length=256
         
+        #pragma HLS INTERFACE s_axilite port=hbm_gate bundle=control
         #pragma HLS INTERFACE s_axilite port=hbm_bs0 bundle=control
         #pragma HLS INTERFACE s_axilite port=hbm_bs1 bundle=control
         #pragma HLS INTERFACE s_axilite port=hbm_bs2 bundle=control
@@ -1003,12 +1081,8 @@ extern "C"
         #pragma HLS INTERFACE axis port=alloc_cmd_stream
         #pragma HLS INTERFACE axis port=alloc_rsp_stream
 
-        hls::stream<int> cmd_count_stream[BS_WORKER_NUM];
-        #pragma HLS STREAM variable=cmd_count_stream depth=8
         hls::stream<PMA_UPDATE_MESSAGE> cmd_batch_stream[BS_WORKER_NUM];
-        #pragma HLS STREAM variable=cmd_batch_stream depth=32
-        hls::stream<pma_idx_info> pma_info_stream[BS_WORKER_NUM];
-        #pragma HLS STREAM variable=pma_info_stream depth=8
+        #pragma HLS STREAM variable=cmd_batch_stream depth=16
 
         hls::stream<bs_batch_t> bs_out[BS_WORKER_NUM];
         #pragma HLS STREAM variable=bs_out depth=8
@@ -1016,27 +1090,33 @@ extern "C"
         hls::stream<ap_uint<64>> task_fifo;
         #pragma HLS STREAM variable=task_fifo depth=64
 
+        hls::stream<ap_uint<32>> redist_ack_stream;
+        #pragma HLS STREAM variable=redist_ack_stream depth=16
+
         #pragma HLS DATAFLOW
 
-        process_cmd(cmd_stream, cmd_count_stream, cmd_batch_stream, pma_info_stream);
+        pma_gate(hbm_gate, pma_raw_data_start, pma_vecinfo_start / 64,
+                 cmd_stream, cmd_batch_stream,
+                 alloc_cmd_stream, alloc_rsp_stream);
+
 
         bs_worker(hbm_bs0, pma_raw_data_start, pma_vecinfo_start / 64,
-                  cmd_batch_stream[0], cmd_count_stream[0], pma_info_stream[0], bs_out[0]);
+                  cmd_batch_stream[0], bs_out[0]);
 
         bs_worker(hbm_bs1, pma_raw_data_start, pma_vecinfo_start / 64,
-                  cmd_batch_stream[1], cmd_count_stream[1], pma_info_stream[1], bs_out[1]);
+                  cmd_batch_stream[1], bs_out[1]);
 
         bs_worker(hbm_bs2, pma_raw_data_start, pma_vecinfo_start / 64,
-                  cmd_batch_stream[2], cmd_count_stream[2], pma_info_stream[2], bs_out[2]);
+                  cmd_batch_stream[2], bs_out[2]);
 
         bs_worker(hbm_bs3, pma_raw_data_start, pma_vecinfo_start / 64,
-                  cmd_batch_stream[3], cmd_count_stream[3], pma_info_stream[3], bs_out[3]);
+                  cmd_batch_stream[3], bs_out[3]);
 
         insert_phase(hbm_rw, pma_raw_data_start, pma_vecinfo_start / 64,
                      bs_out[0], bs_out[1], bs_out[2], bs_out[3],
-                     alloc_cmd_stream, alloc_rsp_stream, task_fifo);
+                     task_fifo, redist_ack_stream, ack_back_to_router);
 
         redistribution_phase(hbm_red, pma_raw_data_start, pma_vecinfo_start / 64,
-                            task_fifo, ack_back_to_router);
+                            task_fifo, redist_ack_stream);
     }
 }
