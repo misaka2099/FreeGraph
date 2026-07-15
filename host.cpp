@@ -17,6 +17,9 @@
 #include <fstream>
 #include <random>
 bool final_match = true;
+// Uncomment for standalone mode (no generator, no router, per-worker task buffers)
+//#define USE_STANDALONE_MODE
+
 const bool kBaseGraphReadOnlyTest = false;
 const bool kVertexOnlyTest = false;
 const bool kShuffleSameTimestampOps = true; // Set to true to enable shuffling of operations with the same timestamp
@@ -219,8 +222,10 @@ int main(int argc, char** argv)
             "pma_read_worker_kernel:{pma_read_worker_kernel_" + std::to_string(i) + "}");
     }
     auto pma_read_merger_kernel = xrt::kernel(device, uuid, "pma_read_merger_kernel:{pma_read_merger_kernel_1}");
+#ifndef USE_STANDALONE_MODE
     auto update_message_generator_kernel = xrt::kernel(device, uuid, "update_message_generator");
     auto update_message_router_kernel = xrt::kernel(device, uuid, "update_message_router");
+#endif
     auto try_add_kernel = [&](std::vector<xrt::kernel> &kernels, const std::string &name) -> bool {
         try {
             kernels.emplace_back(device, uuid, name);
@@ -246,7 +251,11 @@ int main(int argc, char** argv)
     pma_insert_edge_kernels.reserve(CHANNEL_NUM);
     for (int i = 1; i <= CHANNEL_NUM; ++i)
     {
+#ifdef USE_STANDALONE_MODE
+        if (!try_add_kernel(pma_insert_edge_kernels, "pma_insert_edge_standalone:{pma_insert_edge_standalone_" + std::to_string(i) + "}")) {
+#else
         if (!try_add_kernel(pma_insert_edge_kernels, "pma_insert_edge:{pma_insert_edge_" + std::to_string(i) + "}")) {
+#endif
             break;
         }
     }
@@ -284,8 +293,10 @@ int main(int argc, char** argv)
         run_pma_read_worker_kernels.emplace_back(k);
     }
     auto run_pma_read_merger_kernel = xrt::run(pma_read_merger_kernel);
+#ifndef USE_STANDALONE_MODE
     auto run_update_message_router_kernel = xrt::run(update_message_router_kernel);
     std::cout << "Update message router kernel is launched..." << std::endl;
+#endif
     // std::vector<xrt::run> run_pma_insert_vertex_kernels;
     // run_pma_insert_vertex_kernels.reserve(pma_insert_vertex_kernels.size());
 
@@ -368,6 +379,23 @@ int main(int argc, char** argv)
         std::cout << "Update buffer length: " << edge_buffer_len << std::endl;
     }
 
+#ifdef USE_STANDALONE_MODE
+    // Per-worker task buffers: {src, dst, opcode} * edge_buffer_len + sentinel
+    const size_t kTaskSlotSize = 3;  // 3 ints per edge
+    std::vector<xrt::bo> bo_task_bufs;
+    std::vector<int*> task_buf_ptrs;
+    bo_task_bufs.reserve(CHANNEL_NUM);
+    task_buf_ptrs.reserve(CHANNEL_NUM);
+    for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
+        bo_task_bufs.emplace_back(device, sizeof(int) * (edge_buffer_len + 1) * kTaskSlotSize,
+                                   pma_insert_edge_kernels[ch].group_id(4));
+        task_buf_ptrs.push_back(bo_task_bufs[ch].map<int*>());
+        std::fill_n(task_buf_ptrs[ch], (edge_buffer_len + 1) * kTaskSlotSize, 0);
+    }
+    // Per-worker edge counters for tracking fill position
+    std::vector<int> task_buf_cnt(CHANNEL_NUM, 0);
+    (void)edge_buffer_len;
+#else
     auto bo_src = xrt::bo(device, sizeof(int) * edge_buffer_len, update_message_generator_kernel.group_id(1));
     auto bo_dst = xrt::bo(device, sizeof(int) * edge_buffer_len, update_message_generator_kernel.group_id(2));
     auto bo_opcode = xrt::bo(device, sizeof(int) * edge_buffer_len, update_message_generator_kernel.group_id(3));
@@ -377,6 +405,7 @@ int main(int argc, char** argv)
     int* opcode_ptr = bo_opcode.map<int*>();
 
     // 边数据按阶段写入，初始不填充
+#endif
 
     std::cout << "[DBG] L335: Allocating COO buffers, buffer_len=" << buffer_len << " (" << (sizeof(int)*buffer_len/1024/1024) << "MB each)" << std::endl;
     auto bo_coo_src = xrt::bo(device, sizeof(int) * buffer_len, check_kernel.group_id(0));
@@ -407,9 +436,17 @@ int main(int argc, char** argv)
         run.set_arg(a++, ch_bufs[ch]);  // hbm_bs
         run.set_arg(a++, ch_bufs[ch]);  // hbm_rw
         run.set_arg(a++, ch_bufs[ch]);  // hbm_red
+#ifdef USE_STANDALONE_MODE
+        run.set_arg(a++, bo_task_bufs[ch]);  // task_buffer
+        run.set_arg(a++, pma_raw_data_start);
+        run.set_arg(a++, pma_vecinfo_start);
+        // edge_count set per-batch in run_update_batch_standalone
+        std::cout << "[DBG] L373: standalone insert_edge kernel args set (5 ports + 2 offsets) for " << CHANNEL_NUM << " channels" << std::endl;
+#else
         std::cout << "[DBG] L373: insert_edge kernel args set (4 ports + 2 offsets) for " << CHANNEL_NUM << " channels" << std::endl;
         run.set_arg(a++, pma_raw_data_start);
         run.set_arg(a++, pma_vecinfo_start);
+#endif
     }
     for (int ch = 0; ch < static_cast<int>(run_pma_read_worker_kernels.size()); ++ch) {
         auto& run = run_pma_read_worker_kernels[ch];
@@ -718,6 +755,95 @@ int main(int argc, char** argv)
     // std::cout << "Incremental edge/vertex ops (non-insert-vertex): " << incremental_edges << std::endl;
     std::cout << "Expected max vertex after update: " << (max_vertex_idx + 1) << std::endl;
 
+#ifdef USE_STANDALONE_MODE
+    // --- Standalone: partition edges by channel into per-worker task buffers ---
+    auto load_edge_batch = [&](const std::vector<Operation>& batch_ops) -> int {
+        // Reset per-worker counters
+        for (int ch = 0; ch < CHANNEL_NUM; ++ch) task_buf_cnt[ch] = 0;
+
+        for (const auto &op : batch_ops)
+        {
+            int pma = op.src / VERTEX_PER_PMA;
+            int ch = pma % CHANNEL_NUM;
+
+            if (task_buf_cnt[ch] >= (int)edge_buffer_len)
+            {
+                std::cerr << "Task buffer overflow on channel " << ch << std::endl;
+                return -1;
+            }
+            int* buf = task_buf_ptrs[ch];
+            int pos = task_buf_cnt[ch] * kTaskSlotSize;
+            buf[pos + 0] = op.src;
+            buf[pos + 1] = op.dst;
+            buf[pos + 2] = op.opcode;
+            task_buf_cnt[ch]++;
+        }
+
+        // Write sentinel and sync all task buffers
+        for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
+            int* buf = task_buf_ptrs[ch];
+            int pos = task_buf_cnt[ch] * kTaskSlotSize;
+            buf[pos + 0] = -1;  // sentinel
+            buf[pos + 1] = 0;
+            buf[pos + 2] = 0;
+            bo_task_bufs[ch].sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        }
+
+        int total = 0;
+        for (int ch = 0; ch < CHANNEL_NUM; ++ch) total += task_buf_cnt[ch];
+        std::cout << "[standalone] edge distribution: ";
+        for (int ch = 0; ch < CHANNEL_NUM; ++ch)
+            std::cout << "ch" << ch << "=" << task_buf_cnt[ch] << " ";
+        std::cout << "total=" << total << std::endl;
+        return total;
+    };
+
+    // --- Standalone: start all workers + alloc_access, wait for completion ---
+    auto run_update_batch = [&](int /*total_edges*/, const std::string& label, bool /*last*/) -> double {
+        auto phase_start = std::chrono::high_resolution_clock::now();
+
+        // Set edge_count for each worker and start them
+        for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
+            int a = 0;
+            auto& run = run_pma_insert_edge_kernels[ch];
+            // Re-set all args (necessary because run objects may be reused)
+            run.set_arg(a++, ch_bufs[ch]);         // hbm_gate
+            run.set_arg(a++, ch_bufs[ch]);         // hbm_bs
+            run.set_arg(a++, ch_bufs[ch]);         // hbm_rw
+            run.set_arg(a++, ch_bufs[ch]);         // hbm_red
+            run.set_arg(a++, bo_task_bufs[ch]);    // task_buffer
+            run.set_arg(a++, pma_raw_data_start);
+            run.set_arg(a++, pma_vecinfo_start);
+            run.set_arg(a++, task_buf_cnt[ch]);    // edge_count (per-worker!)
+        }
+
+        // Start alloc_access kernels first, then insert_edge workers
+        for (auto &r : run_alloc_access_kernels) { r.start(); }
+        for (auto &r : run_pma_insert_edge_kernels) { r.start(); }
+
+        // Wait for all insert_edge workers
+        for (auto &r : run_pma_insert_edge_kernels) { r.wait(); }
+        // Wait for alloc_access (receives STOP from insert_edge)
+        for (auto &r : run_alloc_access_kernels) { r.wait(); }
+
+        // DEBUG: read back processed count from each worker
+        for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
+            bo_task_bufs[ch].sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+            int dbg = task_buf_ptrs[ch][task_buf_cnt[ch] * 3 + 3];
+            std::cout << "[DBG] ch" << ch << " kernel_processed=" << dbg
+                      << " host_sent=" << task_buf_cnt[ch] << std::endl;
+        }
+
+        auto phase_end = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double> elapsed = phase_end - phase_start;
+        int total = 0;
+        for (int ch = 0; ch < CHANNEL_NUM; ++ch) total += task_buf_cnt[ch];
+        std::cout << label << " edges=" << total
+                  << ", time=" << elapsed.count() << " s (standalone)" << std::endl;
+        return elapsed.count();
+    };
+#else
+    // --- Original: load edges into generator buffers ---
     auto load_edge_batch = [&](const std::vector<Operation>& batch_ops) -> int {
         size_t edge_idx = 0;
         for (const auto &op : batch_ops)
@@ -763,7 +889,7 @@ int main(int argc, char** argv)
         // Only start the Generator for this batch.
         run_update_message_generator_kernel.start();
 
-        // Generator waits for ACK from Router internally, so when it finishes, 
+        // Generator waits for ACK from Router internally, so when it finishes,
         // the batch is guaranteed to be processed by downstream kernels.
         run_update_message_generator_kernel.wait();
 
@@ -773,6 +899,7 @@ int main(int argc, char** argv)
                   << ", time=" << elapsed.count() << " s" << std::endl;
         return elapsed.count();
     };
+#endif
 
     // 1. Load base graph into HBM (ts == -1 edges) BEFORE starting kernels
     if (base_max_vertex >= 0) {
@@ -792,6 +919,13 @@ int main(int argc, char** argv)
     }
 
     // 2. Start Long-Running (Keep Alive) Kernels
+#ifdef USE_STANDALONE_MODE
+    // Standalone: insert_edge + alloc_access started per-batch (not keep-alive)
+    // Read pipeline is keep-alive for verification
+    for (auto &run_worker : run_pma_read_worker_kernels) { run_worker.start(); }
+    run_pma_read_merger_kernel.start();
+    run_pma_read_router_kernel.start();
+#else
     for (auto &r : run_alloc_access_kernels) { r.start(); }
     for (auto &r : run_pma_insert_edge_kernels) { r.start(); }
     run_update_message_router_kernel.start();
@@ -802,6 +936,7 @@ int main(int argc, char** argv)
     bo_src.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     bo_dst.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     bo_opcode.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+#endif
 
     // Start from BaseGraph — FPGA has base edges in HBM
     std::vector<std::vector<int>> runtime_graph = BaseGraph;
@@ -837,6 +972,7 @@ int main(int argc, char** argv)
     timing_log << "batch,edges,update_time_s,read_time_s" << std::endl;
     int batch_idx = 0;
 
+#ifndef USE_STANDALONE_MODE
     auto send_update_stop_only = [&]() {
         auto run_update_message_generator_kernel = xrt::run(update_message_generator_kernel);
         run_update_message_generator_kernel.set_arg(0, 0); // add_vertex_num
@@ -850,6 +986,7 @@ int main(int argc, char** argv)
         run_update_message_generator_kernel.start();
         run_update_message_generator_kernel.wait();
     };
+#endif
     if (kBaseGraphReadOnlyTest)
     {
         if (!Graph.empty())
@@ -861,7 +998,11 @@ int main(int argc, char** argv)
             std::cout << "Base graph verification skipped (no vertices)." << std::endl;
         }
         // No incremental updates in this mode; send an explicit stop to update pipeline.
+#ifndef USE_STANDALONE_MODE
         send_update_stop_only();
+#else
+        // Standalone: no generator to send stop; read pipeline waits at end
+#endif
     }
     else
     {
@@ -1012,6 +1153,7 @@ int main(int argc, char** argv)
     }
 
     std::cout << "Waiting for long-running kernels to finish..." << std::endl;
+#ifndef USE_STANDALONE_MODE
     run_update_message_router_kernel.wait();
     for (auto &r : run_pma_insert_edge_kernels)
     {
@@ -1021,6 +1163,10 @@ int main(int argc, char** argv)
     {
         r.wait();
     }
+#else
+    // Standalone: insert_edge + alloc_access already exited per-batch;
+    // nothing extra to wait on here.
+#endif
     // for (auto &r : run_pma_insert_vertex_kernels)
     // {
     //     r.wait();
