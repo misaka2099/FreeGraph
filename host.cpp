@@ -359,14 +359,22 @@ int main(int argc, char** argv)
         std::fill_n(vec_info_ptrs[ch], MAX_PMA_NUM, 0);
     }
 
-    // Separate bitmap BOs (one per channel) — alloc_access owns these
+    // Bitmap: standalone uses ch_bufs bitmap area (no separate BO);
+    // non-standalone keeps separate bo_bitmap for alloc_access m_axi.
     std::vector<xrt::bo> bo_bitmap; bo_bitmap.reserve(CHANNEL_NUM);
+    std::vector<BYTE*> bitmap_ptrs; bitmap_ptrs.reserve(CHANNEL_NUM);
+#ifdef USE_STANDALONE_MODE
+    // Standalone: bitmap lives in ch_bufs at offset pma_bm_start.
+    // alloc_access gets initial bitmap via stream from insert_edge worker.
+    for (int ch = 0; ch < CHANNEL_NUM; ++ch)
+        bitmap_ptrs.push_back(hbm_base_addresses[ch] + pma_bm_start);
+#else
     for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
         bo_bitmap.emplace_back(device, BM_SIZE, alloc_access_kernels[ch].group_id(0));
     }
-    std::vector<BYTE*> bitmap_ptrs; bitmap_ptrs.reserve(CHANNEL_NUM);
     for (int ch = 0; ch < CHANNEL_NUM; ++ch)
         bitmap_ptrs.push_back(bo_bitmap[ch].map<BYTE*>());
+#endif
 
     std::cout << "[DBG] L327: hbm_base_addresses mapped, ch0=" << (void*)hbm_base_addresses[0] << " vi=" << (void*)vec_info_ptrs[0] << " bm=" << (void*)bitmap_ptrs[0] << std::endl;
     // Generator buffers
@@ -440,8 +448,11 @@ int main(int argc, char** argv)
         run.set_arg(a++, bo_task_bufs[ch]);  // task_buffer
         run.set_arg(a++, pma_raw_data_start);
         run.set_arg(a++, pma_vecinfo_start);
-        // edge_count set per-batch in run_update_batch_standalone
-        std::cout << "[DBG] L373: standalone insert_edge kernel args set (5 ports + 2 offsets) for " << CHANNEL_NUM << " channels" << std::endl;
+        // edge_count (arg 7) set per-batch in run_update_batch_standalone
+        // alloc_cmd_stream (arg 8), alloc_rsp_stream (arg 9): axis, no host set
+        run.set_arg(10, pma_bm_start);        // bitmap_offset (kernel arg 10)
+        // bitmap_init (arg 11): axis, no host set
+        std::cout << "[DBG] L373: standalone insert_edge kernel args set (5 ports + 3 offsets) for " << CHANNEL_NUM << " channels" << std::endl;
 #else
         std::cout << "[DBG] L373: insert_edge kernel args set (4 ports + 2 offsets) for " << CHANNEL_NUM << " channels" << std::endl;
         run.set_arg(a++, pma_raw_data_start);
@@ -460,10 +471,15 @@ int main(int argc, char** argv)
     // Merger edge_count_ptr: shares bo_num_edges with check_kernel, merger writes edge count via m_axi
     run_pma_read_merger_kernel.set_arg(6, bo_num_edges);
 
-    // alloc_access kernel args: bitmap BO (pointer already at bitmap start)
+    // alloc_access kernel args
+#ifdef USE_STANDALONE_MODE
+    // Standalone: alloc_access has no m_axi/s_axilite args — all axis streams
+    // (bitmap_init, cmd_stream, rsp_stream connected via system.cfg)
+#else
     for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
         run_alloc_access_kernels[ch].set_arg(0, bo_bitmap[ch]);
     }
+#endif
 
     auto verify_graph = [&](const std::vector<std::vector<int>>& expected_graph, int current_max_vertex, const std::string& label, bool last) -> double {
         std::cout << "Verifying " << label << "..." << std::endl;
@@ -735,7 +751,9 @@ int main(int argc, char** argv)
 
         // Sync modified buffers to device
         for (int ch = 0; ch < CHANNEL_NUM; ++ch) { ch_bufs[ch].sync(XCL_BO_SYNC_BO_TO_DEVICE); }
+#ifndef USE_STANDALONE_MODE
         for (int ch = 0; ch < CHANNEL_NUM; ++ch) { bo_bitmap[ch].sync(XCL_BO_SYNC_BO_TO_DEVICE); }
+#endif
 
         auto end_cpu_preprocess = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> elapsed_cpu_preprocess = end_cpu_preprocess - start_cpu_preprocess;
@@ -915,7 +933,9 @@ int main(int argc, char** argv)
             memset(bitmap_ptrs[ch], 0, BM_SIZE);
         }
         for (int ch = 0; ch < CHANNEL_NUM; ++ch) { ch_bufs[ch].sync(XCL_BO_SYNC_BO_TO_DEVICE); }
+#ifndef USE_STANDALONE_MODE
         for (int ch = 0; ch < CHANNEL_NUM; ++ch) { bo_bitmap[ch].sync(XCL_BO_SYNC_BO_TO_DEVICE); }
+#endif
     }
 
     // 2. Start Long-Running (Keep Alive) Kernels

@@ -17,6 +17,8 @@
 
 #define MAX_HELPER_WORDS 256
 
+// ALLOC_BITMAP_WORDS defined in data_type.h (shared with alloc_access_kernel)
+
 // File-scope helper: ALL_ONES and EMPTY_SEG with valid_count=0
 static ap_uint<512> make_empty_seg(int word) {
     ap_uint<512> x = -1;
@@ -306,13 +308,29 @@ void pma_gate(
     ap_uint<512> *hbm_gate,
     int pma_raw_data_start,
     int pma_vecinfo_start,
+    int bitmap_offset,
     hls::stream<PMA_UPDATE_MESSAGE>& cmd_in,
     hls::stream<PMA_UPDATE_MESSAGE>& cmd_out,
     hls::stream<ap_axiu<96,0,0,0>>& alloc_cmd_stream,
-    hls::stream<ap_axiu<64,0,0,0>>& alloc_rsp_stream)
+    hls::stream<ap_axiu<64,0,0,0>>& alloc_rsp_stream,
+    hls::stream<ap_axiu<ALLOC_BITMAP_STORAGE_WORD_BITS,0,0,0>>& bitmap_init)
 {
     ap_uint<512> pma_buffer[4096];
     #pragma HLS bind_storage variable=pma_buffer type=RAM_2P impl=URAM
+
+    // ---- Init bitmap: read from hbm_gate, send to alloc_access ----
+    // Runs once before processing any commands. Uses hbm_gate (this function's
+    // only m_axi), so no DATAFLOW conflict with pre-DATAFLOW sequential code.
+    int bm_word_off = bitmap_offset / 64;
+    for (int i = 0; i < ALLOC_BITMAP_WORDS; i++) {
+        #pragma HLS PIPELINE II=1
+        ap_axiu<ALLOC_BITMAP_STORAGE_WORD_BITS,0,0,0> w;
+        w.data = hbm_gate[bm_word_off + i];
+        w.last = 0;
+        w.keep = -1;
+        bitmap_init.write(w);
+    }
+
     while (true)
     {
         if (cmd_in.empty()) { ap_wait(); continue; }
@@ -1271,7 +1289,9 @@ extern "C"
         int pma_vecinfo_start,
         int edge_count,            // number of edges in this batch
         hls::stream<ap_axiu<96,0,0,0>>& alloc_cmd_stream,
-        hls::stream<ap_axiu<64,0,0,0>>& alloc_rsp_stream
+        hls::stream<ap_axiu<64,0,0,0>>& alloc_rsp_stream,
+        int bitmap_offset,          // byte offset in hbm_gate for bitmap
+        hls::stream<ap_axiu<ALLOC_BITMAP_STORAGE_WORD_BITS,0,0,0>>& bitmap_init   // bitmap → alloc_access
     )
     {
         #pragma HLS INTERFACE m_axi port=hbm_gate offset=slave bundle=gmem6 max_read_burst_length=256 max_write_burst_length=256
@@ -1288,9 +1308,11 @@ extern "C"
         #pragma HLS INTERFACE s_axilite port=pma_raw_data_start bundle=control
         #pragma HLS INTERFACE s_axilite port=pma_vecinfo_start bundle=control
         #pragma HLS INTERFACE s_axilite port=edge_count bundle=control
+        #pragma HLS INTERFACE s_axilite port=bitmap_offset bundle=control
         #pragma HLS INTERFACE s_axilite port=return bundle=control
         #pragma HLS INTERFACE axis port=alloc_cmd_stream
         #pragma HLS INTERFACE axis port=alloc_rsp_stream
+        #pragma HLS INTERFACE axis port=bitmap_init
 
         hls::stream<PMA_UPDATE_MESSAGE> cmd_from_reader;
         #pragma HLS STREAM variable=cmd_from_reader depth=16
@@ -1318,9 +1340,12 @@ extern "C"
 
         task_reader(task_buffer, edge_count, lock_tbl, dummy_ack_stream, cmd_from_reader);
 
+        // pma_gate handles bitmap init internally (reads hbm_gate, sends to alloc_access)
+        // before entering its main command-processing loop.
         pma_gate(hbm_gate, pma_raw_data_start, pma_vecinfo_start / 64,
+                 bitmap_offset,
                  cmd_from_reader, cmd_batch_stream,
-                 alloc_cmd_stream, alloc_rsp_stream);
+                 alloc_cmd_stream, alloc_rsp_stream, bitmap_init);
 
         bs_worker(hbm_bs, pma_raw_data_start, pma_vecinfo_start / 64,
                   cmd_batch_stream, bs_out);
@@ -1331,5 +1356,7 @@ extern "C"
 
         redistribution_phase(hbm_red, pma_raw_data_start, pma_vecinfo_start / 64,
                             task_fifo, redist_ack_stream);
+
+        // No post-DATAFLOW bitmap write-back — host reconstructs bitmap from data
     }
 }

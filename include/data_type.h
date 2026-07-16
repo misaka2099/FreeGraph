@@ -27,6 +27,13 @@ typedef ap_uint<8> BYTE;
 // #define PMA_GET_ALL_IN_EDGE_CSR 20
 #define PMA_GET_EDGE_COUNT_RANGE 21
 #define INIT_VEC_LEN_IN_BYTE 1024
+
+// Allocator bitmap: shared between alloc_access_kernel and pma_insert_edge
+// TOTAL_BLOCKS = CHANNEL_CAPACITY / INIT_VEC_LEN_IN_BYTE = 250*1024*1024 / 1024 = 256000
+// BITMAP_WORDS = ceil(TOTAL_BLOCKS / BITMAP_STORAGE_WORD_BITS)
+#define ALLOC_BITMAP_STORAGE_WORD_BITS 512
+#define ALLOC_BITMAP_TOTAL_BLOCKS (CHANNEL_CAPACITY / INIT_VEC_LEN_IN_BYTE)
+#define ALLOC_BITMAP_WORDS ((ALLOC_BITMAP_TOTAL_BLOCKS + ALLOC_BITMAP_STORAGE_WORD_BITS - 1) / ALLOC_BITMAP_STORAGE_WORD_BITS)
 //64 elements per segment, last element (idx 63) = valid_count
 #define SEGMENT_SIZE 64
 #define EDGE_SLOTS_PER_SEG 63  // SEGMENT_SIZE - 1, valid_count occupies the last slot

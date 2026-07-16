@@ -2,16 +2,8 @@
 #include <hls_stream.h>
 #include "data_type.h"
 
-// Configurable bitmap storage granularity (default: 512-bit per word).
-#ifndef BITMAP_STORAGE_WORD_BITS
-#define BITMAP_STORAGE_WORD_BITS 512
-#endif
-
-typedef ap_uint<BITMAP_STORAGE_WORD_BITS> bitmap_word_t;
-
-const int TOTAL_BLOCKS = (CHANNEL_CAPACITY / INIT_VEC_LEN_IN_BYTE);
-const int BITMAP_WORD_BITS = BITMAP_STORAGE_WORD_BITS;
-const int BITMAP_WORDS = (TOTAL_BLOCKS + BITMAP_WORD_BITS - 1) / BITMAP_WORD_BITS;
+// Bitmap constants from data_type.h (ALLOC_BITMAP_STORAGE_WORD_BITS / ALLOC_BITMAP_TOTAL_BLOCKS / WORDS)
+typedef ap_uint<ALLOC_BITMAP_STORAGE_WORD_BITS> bitmap_word_t;
 
 // ---- Alloc algorithm (unchanged) ----
 
@@ -23,9 +15,9 @@ static void set_bits(int start, int len, bitmap_word_t* bitmap)
 
     while (i < end)
     {
-        int word_idx = i / BITMAP_WORD_BITS;
-        int word_start = word_idx * BITMAP_WORD_BITS;
-        int word_end = word_start + BITMAP_WORD_BITS;
+        int word_idx = i / ALLOC_BITMAP_STORAGE_WORD_BITS;
+        int word_start = word_idx * ALLOC_BITMAP_STORAGE_WORD_BITS;
+        int word_end = word_start + ALLOC_BITMAP_STORAGE_WORD_BITS;
 
         int s = i - word_start;
         int e = ((end < word_end) ? end : word_end) - word_start;
@@ -33,7 +25,7 @@ static void set_bits(int start, int len, bitmap_word_t* bitmap)
 
         bitmap_word_t mask = 0;
         if (width <= 0) {
-        } else if (width >= BITMAP_WORD_BITS) {
+        } else if (width >= ALLOC_BITMAP_STORAGE_WORD_BITS) {
             mask = ~((bitmap_word_t)0);
         } else {
             bitmap_word_t one = (bitmap_word_t)1;
@@ -55,9 +47,9 @@ static bool is_free(int start, int len, int &first_set, bitmap_word_t* bitmap)
 
     while (i < end)
     {
-        int word_idx = i / BITMAP_WORD_BITS;
-        int word_start = word_idx * BITMAP_WORD_BITS;
-        int word_end = word_start + BITMAP_WORD_BITS;
+        int word_idx = i / ALLOC_BITMAP_STORAGE_WORD_BITS;
+        int word_start = word_idx * ALLOC_BITMAP_STORAGE_WORD_BITS;
+        int word_end = word_start + ALLOC_BITMAP_STORAGE_WORD_BITS;
         bitmap_word_t cur = bitmap[word_idx];
 
         int s = i - word_start;
@@ -66,7 +58,7 @@ static bool is_free(int start, int len, int &first_set, bitmap_word_t* bitmap)
 
         bitmap_word_t mask = 0;
         if (width <= 0) {
-        } else if (width >= BITMAP_WORD_BITS) {
+        } else if (width >= ALLOC_BITMAP_STORAGE_WORD_BITS) {
             mask = ~((bitmap_word_t)0);
         } else {
             bitmap_word_t one = (bitmap_word_t)1;
@@ -97,9 +89,9 @@ static void allocate_next_fit(int &start, int len, int &next_cursor, bitmap_word
 {
     #pragma HLS INLINE off
     start = -1;
-    if (len <= 0 || len > TOTAL_BLOCKS) return;
+    if (len <= 0 || len > ALLOC_BITMAP_TOTAL_BLOCKS) return;
 
-    const int max_start = TOTAL_BLOCKS - len;
+    const int max_start = ALLOC_BITMAP_TOTAL_BLOCKS - len;
     int first_set = -1;
 
     int begin = next_cursor;
@@ -114,7 +106,7 @@ static void allocate_next_fit(int &start, int len, int &next_cursor, bitmap_word
             start = i;
             set_bits(start, len, bitmap);
             next_cursor = start + len;
-            if (next_cursor >= TOTAL_BLOCKS) next_cursor = 0;
+            if (next_cursor >= ALLOC_BITMAP_TOTAL_BLOCKS) next_cursor = 0;
             return;
         }
         i = first_set;
@@ -130,7 +122,7 @@ static void allocate_next_fit(int &start, int len, int &next_cursor, bitmap_word
             start = i;
             set_bits(start, len, bitmap);
             next_cursor = start + len;
-            if (next_cursor >= TOTAL_BLOCKS) next_cursor = 0;
+            if (next_cursor >= ALLOC_BITMAP_TOTAL_BLOCKS) next_cursor = 0;
             return;
         }
         i = first_set;
@@ -145,9 +137,9 @@ static void reset_bits(int start, int len, bitmap_word_t* bitmap)
 
     while (i < end)
     {
-        int word_idx = i / BITMAP_WORD_BITS;
-        int word_start = word_idx * BITMAP_WORD_BITS;
-        int word_end = word_start + BITMAP_WORD_BITS;
+        int word_idx = i / ALLOC_BITMAP_STORAGE_WORD_BITS;
+        int word_start = word_idx * ALLOC_BITMAP_STORAGE_WORD_BITS;
+        int word_end = word_start + ALLOC_BITMAP_STORAGE_WORD_BITS;
 
         int s = i - word_start;
         int e = ((end < word_end) ? end : word_end) - word_start;
@@ -155,7 +147,7 @@ static void reset_bits(int start, int len, bitmap_word_t* bitmap)
 
         bitmap_word_t mask = 0;
         if (width <= 0) {
-        } else if (width >= BITMAP_WORD_BITS) {
+        } else if (width >= ALLOC_BITMAP_STORAGE_WORD_BITS) {
             mask = ~((bitmap_word_t)0);
         } else {
             bitmap_word_t one = (bitmap_word_t)1;
@@ -177,24 +169,25 @@ static void deallocate(int start, int len, bitmap_word_t* bitmap)
 }
 
 // ---- Worker: protocol matching insert_edge ----
+// Bitmap initialization comes from external worker via stream (not m_axi).
+// No write-back on STOP — host can reconstruct bitmap from data.
 
 static void alloc_free_worker(
     hls::stream<ap_axiu<96,0,0,0>>& cmd_stream,
     hls::stream<ap_axiu<64,0,0,0>>& rsp_stream,
-    bitmap_word_t* bm_in_hbm
+    hls::stream<ap_axiu<ALLOC_BITMAP_STORAGE_WORD_BITS,0,0,0>>& bitmap_init
 )
 {
-    #pragma HLS INTERFACE m_axi port=bm_in_hbm offset=slave bundle=gmem0
-
-    bitmap_word_t storage[BITMAP_WORDS];
+    bitmap_word_t storage[ALLOC_BITMAP_WORDS];
     #pragma HLS bind_storage variable=storage type=ram_t2p impl=bram
     #pragma HLS DEPENDENCE variable=storage inter false
 
-    // Init bitmap from HBM (pointer already offset by host, hbm[0] = bitmap word 0)
-    for (int i = 0 ; i < BITMAP_WORDS ; i++)
+    // Init bitmap from stream (sent by pma_gate at start of DATAFLOW)
+    for (int i = 0 ; i < ALLOC_BITMAP_WORDS ; i++)
     {
-        #pragma HLS PIPELINE II=1
-        storage[i] = bm_in_hbm[i];
+        // #pragma HLS PIPELINE II=1
+        ap_axiu<ALLOC_BITMAP_STORAGE_WORD_BITS,0,0,0> w = bitmap_init.read();
+        storage[i] = w.data;
     }
 
     int next_fit_cursor = 0;
@@ -208,12 +201,7 @@ static void alloc_free_worker(
         int len_byte   = (int)cmd.data.range(63, 32);
 
         if (cmd.last == 1 || opcode == 0) {
-            // STOP: write bitmap back to HBM and exit (no ACK — rtss protocol)
-            for (int i = 0; i < BITMAP_WORDS; i++)
-            {
-                #pragma HLS PIPELINE II=1
-                bm_in_hbm[i] = storage[i];
-            }
+            // STOP: no write-back — host reconstructs bitmap from data
             break;
         }
         else if (opcode == 1) {
@@ -246,26 +234,27 @@ static void alloc_free_worker(
 }
 
 // ---- Top-level ----
+// No m_axi port — bitmap received via stream from worker, no write-back.
 
 extern "C"
 {
     void alloc_access_kernel(
-        bitmap_word_t* bm_in_hbm,
+        hls::stream<ap_axiu<ALLOC_BITMAP_STORAGE_WORD_BITS,0,0,0>>& bitmap_init,
         hls::stream<ap_axiu<96,0,0,0>>& cmd_stream,
         hls::stream<ap_axiu<64,0,0,0>>& rsp_stream
     )
     {
-        #pragma HLS INTERFACE m_axi port=bm_in_hbm offset=slave bundle=gmem0
-        #pragma HLS INTERFACE s_axilite port=bm_in_hbm bundle=control
         #pragma HLS INTERFACE s_axilite port=return bundle=control
+        #pragma HLS INTERFACE axis port=bitmap_init
         #pragma HLS INTERFACE axis port=cmd_stream
         #pragma HLS INTERFACE axis port=rsp_stream
 
+        #pragma HLS STREAM variable=bitmap_init depth=16
         #pragma HLS STREAM variable=cmd_stream depth=16
         #pragma HLS STREAM variable=rsp_stream depth=4
 
         #pragma HLS DATAFLOW
 
-        alloc_free_worker(cmd_stream, rsp_stream, bm_in_hbm);
+        alloc_free_worker(cmd_stream, rsp_stream, bitmap_init);
     }
 }
