@@ -61,20 +61,22 @@ BFS_ALL_XO_FILES = $(MEM_XO_FILES) $(BFS_PMA_XO_FILES)
 BFS_XCLBIN := bfs_$(TARGET).xclbin
 
 # ---- Standalone mode: no generator, no router ----
-STANDALONE_PMA_XO_FILES := $(addprefix $(PMA_KERNEL_DIR)/, pma_insert_edge_standalone.xo pma_read_router_kernel.xo pma_read_worker_kernel.xo pma_read_merger_kernel.xo check_kernel.xo)
+STANDALONE_PMA_XO_FILES := $(addprefix $(PMA_KERNEL_DIR)/, pma_insert_edge_standalone.xo update_message_generator.xo update_message_router_stream.xo pma_read_router_kernel.xo pma_read_worker_kernel.xo pma_read_merger_kernel.xo check_kernel.xo)
 STANDALONE_ALL_XO := $(MEM_XO_FILES) $(STANDALONE_PMA_XO_FILES)
 STANDALONE_XCLBIN := $(TARGET)_standalone.xclbin
 standalone: subdirs_standalone $(STANDALONE_XCLBIN)
 subdirs_standalone:
 	$(MAKE) -C memkernel all TARGET=$(TARGET)
 	$(MAKE) -C pma_kernel pma_insert_edge_standalone.xo TARGET=$(TARGET)
+	$(MAKE) -C pma_kernel update_message_generator.xo TARGET=$(TARGET)
+	$(MAKE) -C pma_kernel update_message_router_stream.xo TARGET=$(TARGET)
 	$(MAKE) -C pma_kernel pma_read_router_kernel.xo TARGET=$(TARGET)
 	$(MAKE) -C pma_kernel pma_read_worker_kernel.xo TARGET=$(TARGET)
 	$(MAKE) -C pma_kernel pma_read_merger_kernel.xo TARGET=$(TARGET)
 	$(MAKE) -C pma_kernel check_kernel.xo TARGET=$(TARGET)
 $(STANDALONE_XCLBIN): $(STANDALONE_ALL_XO)
 	@echo "---- Linking standalone system to create $(STANDALONE_XCLBIN) ----"
-	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --kernel_frequency=150 --save-temps --config system_norouter.cfg -o $@ $^
+	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --kernel_frequency=150 --save-temps --config system_router_hbm.cfg -o $@ $^
 	@echo "---- Standalone link done: $@ ----"
 bfs: subdirs_bfs $(BFS_XCLBIN)
 subdirs_bfs:

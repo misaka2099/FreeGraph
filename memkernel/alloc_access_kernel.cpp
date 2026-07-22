@@ -179,7 +179,7 @@ static void alloc_free_worker(
 )
 {
     bitmap_word_t storage[ALLOC_BITMAP_WORDS];
-    #pragma HLS bind_storage variable=storage type=ram_t2p impl=bram
+    #pragma HLS bind_storage variable=storage type=RAM_2P impl=URAM
     #pragma HLS DEPENDENCE variable=storage inter false
 
     // Init bitmap from stream (sent by pma_gate at start of DATAFLOW)

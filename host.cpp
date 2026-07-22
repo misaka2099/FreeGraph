@@ -80,13 +80,21 @@ void print_pma(
 int main(int argc, char** argv)
 {
     if (argc < 3) {
-        std::cerr << "Usage: " << argv[0] << " <xclbin> <graph> [device_index=1]" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <xclbin> <graph> [--online] [device_index=1]" << std::endl;
+        std::cerr << "  --online   Use generator→router→worker online update path" << std::endl;
+        std::cerr << "  (default)  Host writes edges directly to per-worker task buffers" << std::endl;
         return 1;
     }
 
-
     std::string xclbin_name = argv[1];
     std::string graph_path = argv[2];
+    bool use_online_path = false;
+
+    for (int i = 3; i < argc; i++) {
+        std::string arg = argv[i];
+        if (arg == "--online") use_online_path = true;
+    }
+    std::cout << "Update path: " << (use_online_path ? "ONLINE (generator→router→worker)" : "DIRECT (host→task_buffer)") << std::endl;
     auto start_init = std::chrono::high_resolution_clock::now();
     
     std::fstream graph_file(graph_path);
@@ -200,7 +208,7 @@ int main(int argc, char** argv)
     std::cout << "Initialization (File Read & Graph Build) time: " << elapsed_init.count() << " s" << std::endl;
 
     auto xclbin = xrt::xclbin(xclbin_name);
-    auto device = xrt::device(0);
+    auto device = xrt::device(1);
 
     auto uuid = device.load_xclbin(xclbin);
     std::cout << "device name:     " << device.get_info<xrt::info::device::name>() << "\n";
@@ -222,9 +230,13 @@ int main(int argc, char** argv)
             "pma_read_worker_kernel:{pma_read_worker_kernel_" + std::to_string(i) + "}");
     }
     auto pma_read_merger_kernel = xrt::kernel(device, uuid, "pma_read_merger_kernel:{pma_read_merger_kernel_1}");
-#ifndef USE_STANDALONE_MODE
     auto update_message_generator_kernel = xrt::kernel(device, uuid, "update_message_generator");
+#ifndef USE_STANDALONE_MODE
     auto update_message_router_kernel = xrt::kernel(device, uuid, "update_message_router");
+#endif
+#ifdef USE_STANDALONE_MODE
+    auto update_message_router_stream_kernel = xrt::kernel(device, uuid,
+        "update_message_router_stream:{update_message_router_stream_1}");
 #endif
     auto try_add_kernel = [&](std::vector<xrt::kernel> &kernels, const std::string &name) -> bool {
         try {
@@ -387,6 +399,16 @@ int main(int argc, char** argv)
         std::cout << "Update buffer length: " << edge_buffer_len << std::endl;
     }
 
+    // Generator buffers (src, dst, opcode) — used in both modes
+    auto bo_src = xrt::bo(device, sizeof(int) * edge_buffer_len, update_message_generator_kernel.group_id(1));
+    auto bo_dst = xrt::bo(device, sizeof(int) * edge_buffer_len, update_message_generator_kernel.group_id(2));
+    auto bo_opcode = xrt::bo(device, sizeof(int) * edge_buffer_len, update_message_generator_kernel.group_id(3));
+    std::cout << "Generator buffers for edge operations allocated ("
+              << (sizeof(int)*edge_buffer_len/1024) << "KB each)." << std::endl;
+    int* src_ptr = bo_src.map<int*>();
+    int* dst_ptr = bo_dst.map<int*>();
+    int* opcode_ptr = bo_opcode.map<int*>();
+
 #ifdef USE_STANDALONE_MODE
     // Per-worker task buffers: {src, dst, opcode} * edge_buffer_len + sentinel
     const size_t kTaskSlotSize = 3;  // 3 ints per edge
@@ -403,16 +425,6 @@ int main(int argc, char** argv)
     // Per-worker edge counters for tracking fill position
     std::vector<int> task_buf_cnt(CHANNEL_NUM, 0);
     (void)edge_buffer_len;
-#else
-    auto bo_src = xrt::bo(device, sizeof(int) * edge_buffer_len, update_message_generator_kernel.group_id(1));
-    auto bo_dst = xrt::bo(device, sizeof(int) * edge_buffer_len, update_message_generator_kernel.group_id(2));
-    auto bo_opcode = xrt::bo(device, sizeof(int) * edge_buffer_len, update_message_generator_kernel.group_id(3));
-    std::cout << "Buffers for edge operations allocated." << std::endl;
-    int* src_ptr = bo_src.map<int*>();
-    int* dst_ptr = bo_dst.map<int*>();
-    int* opcode_ptr = bo_opcode.map<int*>();
-
-    // 边数据按阶段写入，初始不填充
 #endif
 
     std::cout << "[DBG] L335: Allocating COO buffers, buffer_len=" << buffer_len << " (" << (sizeof(int)*buffer_len/1024/1024) << "MB each)" << std::endl;
@@ -449,8 +461,8 @@ int main(int argc, char** argv)
         run.set_arg(a++, pma_raw_data_start);
         run.set_arg(a++, pma_vecinfo_start);
         // edge_count (arg 7) set per-batch in run_update_batch_standalone
-        // alloc_cmd_stream (arg 8), alloc_rsp_stream (arg 9): axis, no host set
-        run.set_arg(10, pma_bm_start);        // bitmap_offset (kernel arg 10)
+        // alloc_cmd_stream, alloc_rsp_stream, bitmap_init, online_in: axis, no host set
+        run.set_arg(8, pma_bm_start);        // bitmap_offset (kernel scalar, before axis ports)
         // bitmap_init (arg 11): axis, no host set
         std::cout << "[DBG] L373: standalone insert_edge kernel args set (5 ports + 3 offsets) for " << CHANNEL_NUM << " channels" << std::endl;
 #else
@@ -468,8 +480,7 @@ int main(int argc, char** argv)
         run.set_arg(a++, pma_raw_data_start);
         run.set_arg(a++, pma_vecinfo_start);
     }
-    // Merger edge_count_ptr: shares bo_num_edges with check_kernel, merger writes edge count via m_axi
-    run_pma_read_merger_kernel.set_arg(6, bo_num_edges);
+    // Merger has no s_axilite args — edge count forwarded to check_kernel via stream
 
     // alloc_access kernel args
 #ifdef USE_STANDALONE_MODE
@@ -774,57 +785,68 @@ int main(int argc, char** argv)
     std::cout << "Expected max vertex after update: " << (max_vertex_idx + 1) << std::endl;
 
 #ifdef USE_STANDALONE_MODE
-    // --- Standalone: partition edges by channel into per-worker task buffers ---
+    // --- Standalone: two update paths ---
+    //   DIRECT:  host partitions edges into per-worker task buffers
+    //   ONLINE:  host fills generator buffers; edges go via generator→router→worker
     auto load_edge_batch = [&](const std::vector<Operation>& batch_ops) -> int {
-        // Reset per-worker counters
-        for (int ch = 0; ch < CHANNEL_NUM; ++ch) task_buf_cnt[ch] = 0;
+        if (!use_online_path) {
+            // ---- DIRECT path: fill per-worker task buffers ----
+            for (int ch = 0; ch < CHANNEL_NUM; ++ch) task_buf_cnt[ch] = 0;
 
-        for (const auto &op : batch_ops)
-        {
-            int pma = op.src / VERTEX_PER_PMA;
-            int ch = pma % CHANNEL_NUM;
-
-            if (task_buf_cnt[ch] >= (int)edge_buffer_len)
-            {
-                std::cerr << "Task buffer overflow on channel " << ch << std::endl;
-                return -1;
+            for (const auto &op : batch_ops) {
+                int pma = op.src / VERTEX_PER_PMA;
+                int ch = pma % CHANNEL_NUM;
+                if (task_buf_cnt[ch] >= (int)edge_buffer_len) {
+                    std::cerr << "Task buffer overflow on channel " << ch << std::endl;
+                    return -1;
+                }
+                int* buf = task_buf_ptrs[ch];
+                int pos = task_buf_cnt[ch] * kTaskSlotSize;
+                buf[pos + 0] = op.src;
+                buf[pos + 1] = op.dst;
+                buf[pos + 2] = op.opcode;
+                task_buf_cnt[ch]++;
             }
-            int* buf = task_buf_ptrs[ch];
-            int pos = task_buf_cnt[ch] * kTaskSlotSize;
-            buf[pos + 0] = op.src;
-            buf[pos + 1] = op.dst;
-            buf[pos + 2] = op.opcode;
-            task_buf_cnt[ch]++;
-        }
 
-        // Write sentinel and sync all task buffers
-        for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
-            int* buf = task_buf_ptrs[ch];
-            int pos = task_buf_cnt[ch] * kTaskSlotSize;
-            buf[pos + 0] = -1;  // sentinel
-            buf[pos + 1] = 0;
-            buf[pos + 2] = 0;
-            bo_task_bufs[ch].sync(XCL_BO_SYNC_BO_TO_DEVICE);
-        }
+            for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
+                int* buf = task_buf_ptrs[ch];
+                int pos = task_buf_cnt[ch] * kTaskSlotSize;
+                buf[pos + 0] = -1;  // sentinel
+                buf[pos + 1] = 0;
+                buf[pos + 2] = 0;
+                bo_task_bufs[ch].sync(XCL_BO_SYNC_BO_TO_DEVICE);
+            }
 
-        int total = 0;
-        for (int ch = 0; ch < CHANNEL_NUM; ++ch) total += task_buf_cnt[ch];
-        std::cout << "[standalone] edge distribution: ";
-        for (int ch = 0; ch < CHANNEL_NUM; ++ch)
-            std::cout << "ch" << ch << "=" << task_buf_cnt[ch] << " ";
-        std::cout << "total=" << total << std::endl;
-        return total;
+            int total = 0;
+            for (int ch = 0; ch < CHANNEL_NUM; ++ch) total += task_buf_cnt[ch];
+            std::cout << "[standalone] edge distribution: ";
+            for (int ch = 0; ch < CHANNEL_NUM; ++ch)
+                std::cout << "ch" << ch << "=" << task_buf_cnt[ch] << " ";
+            std::cout << "total=" << total << std::endl;
+            return total;
+        } else {
+            // ---- ONLINE path: fill generator buffers ----
+            int count = std::min((int)batch_ops.size(), (int)edge_buffer_len);
+            for (int i = 0; i < count; i++) {
+                src_ptr[i] = batch_ops[i].src;
+                dst_ptr[i] = batch_ops[i].dst;
+                opcode_ptr[i] = batch_ops[i].opcode;
+            }
+            // Zero task_buf_cnt for all channels (edges come from online path)
+            for (int ch = 0; ch < CHANNEL_NUM; ++ch) task_buf_cnt[ch] = 0;
+            std::cout << "[standalone] online edges: " << count << std::endl;
+            return count;
+        }
     };
 
-    // --- Standalone: start all workers + alloc_access, wait for completion ---
-    auto run_update_batch = [&](int /*total_edges*/, const std::string& label, bool /*last*/) -> double {
+    // --- Standalone: start generator+router+workers+alloc_access, wait for completion ---
+    auto run_update_batch = [&](int gen_edge_count, const std::string& label, bool last) -> double {
         auto phase_start = std::chrono::high_resolution_clock::now();
 
         // Set edge_count for each worker and start them
         for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
             int a = 0;
             auto& run = run_pma_insert_edge_kernels[ch];
-            // Re-set all args (necessary because run objects may be reused)
             run.set_arg(a++, ch_bufs[ch]);         // hbm_gate
             run.set_arg(a++, ch_bufs[ch]);         // hbm_bs
             run.set_arg(a++, ch_bufs[ch]);         // hbm_rw
@@ -832,14 +854,41 @@ int main(int argc, char** argv)
             run.set_arg(a++, bo_task_bufs[ch]);    // task_buffer
             run.set_arg(a++, pma_raw_data_start);
             run.set_arg(a++, pma_vecinfo_start);
-            run.set_arg(a++, task_buf_cnt[ch]);    // edge_count (per-worker!)
+            // edge_count: DIRECT mode needs >=1 so sentinel is read on empty channels;
+            // ONLINE mode keeps 0 (kernel waits for online_in updates)
+            int ec = (gen_edge_count > 0) ? task_buf_cnt[ch] : std::max(task_buf_cnt[ch], 1);
+            run.set_arg(a++, ec);
+            run.set_arg(8, pma_bm_start);         // bitmap_offset (kernel scalar, before axis)
         }
 
-        // Start alloc_access kernels first, then insert_edge workers
+        // Start generator + router stream for online updates (skip if no edges)
+        bool use_online = (gen_edge_count > 0);
+        xrt::run run_generator(update_message_generator_kernel);
+        xrt::run run_router_stream(update_message_router_stream_kernel);
+        if (use_online) {
+            bo_src.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+            bo_dst.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+            bo_opcode.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+            run_generator.set_arg(0, gen_edge_count);
+            run_generator.set_arg(1, bo_src);
+            run_generator.set_arg(2, bo_dst);
+            run_generator.set_arg(3, bo_opcode);
+            run_generator.set_arg(4, static_cast<int>(last));
+            run_generator.start();
+            run_router_stream.start();
+        }
+
+        // Start alloc_access kernels, then insert_edge workers
         for (auto &r : run_alloc_access_kernels) { r.start(); }
         for (auto &r : run_pma_insert_edge_kernels) { r.start(); }
 
-        // Wait for all insert_edge workers
+        if (use_online) {
+            // Wait for generator (finishes after sending STOP + receiving ACK from router)
+            run_generator.wait();
+            // Wait for router stream (exits after forwarding STOP to all workers + ACK)
+            run_router_stream.wait();
+        }
+        // Wait for insert_edge workers (drain pool after online STOP or task_buffer sentinel)
         for (auto &r : run_pma_insert_edge_kernels) { r.wait(); }
         // Wait for alloc_access (receives STOP from insert_edge)
         for (auto &r : run_alloc_access_kernels) { r.wait(); }
@@ -1021,7 +1070,16 @@ int main(int argc, char** argv)
 #ifndef USE_STANDALONE_MODE
         send_update_stop_only();
 #else
-        // Standalone: no generator to send stop; read pipeline waits at end
+        // Standalone: send STOP through generator→router→worker path
+        if (use_online_path) {
+            auto run_g = xrt::run(update_message_generator_kernel);
+            run_g.set_arg(0, 0); run_g.set_arg(1, bo_src);
+            run_g.set_arg(2, bo_dst); run_g.set_arg(3, bo_opcode);
+            run_g.set_arg(4, 1);  // last=1
+            auto run_r = xrt::run(update_message_router_stream_kernel);
+            run_g.start(); run_r.start();
+            run_g.wait(); run_r.wait();
+        }
 #endif
     }
     else
@@ -1061,7 +1119,9 @@ int main(int argc, char** argv)
             }
 
             bool last = (idx == operations.size());
-            double update_time = run_update_batch(edge_count, "ts_" + std::to_string(current_ts), last);
+            // gen_edge_count: edges to send via generator→router→worker online path
+            int gen_edge_count = use_online_path ? edge_count : 0;
+            double update_time = run_update_batch(gen_edge_count, "ts_" + std::to_string(current_ts), last);
             incremental_phase_s += update_time;
 
             std::cout << "Waiting 5s after update batch..." << std::endl;

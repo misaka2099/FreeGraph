@@ -101,8 +101,9 @@ extern "C"
             #pragma HLS protocol fixed
             ap_wait();
             // Read completion packet from merger via data_to_coo_stream;
-            // edge count has already been written to *num_edges by merger via m_axi.
+            // merger sends total_edge_count as the data field.
             ap_axiu<64,0,0,0> completion = data_to_coo_stream.read();
+            *num_edges = (int)completion.data;
         }
         if (last)
             cmd_to_read.write({.data = PMA_STOP, .last = 1});
