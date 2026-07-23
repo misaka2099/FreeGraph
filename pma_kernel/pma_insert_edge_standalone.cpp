@@ -17,10 +17,21 @@
 
 #define MAX_HELPER_WORDS 256
 
-// Forwarded header info: pma_gate → bs_worker to eliminate redundant HBM reads
+// Forwarded header info: pma_gate → bs_worker → insert_phase
+// Eliminates redundant VEC_INFO + header HBM reads in downstream stages
 struct fwd_header_t {
-    int start_byte;           // absolute HBM byte offset of PMA data (from VEC_INFO)
-    ap_uint<512> range_word;  // header[0]: vertex ranges [15:0] + total_segs
+    int start_byte;              // absolute HBM byte offset of PMA data
+    ap_uint<512> range_word;     // header[0]: vertex ranges [15:0] + total_segs[511:480]
+    ap_uint<512> edge_count_word;// header[1]: per-vertex edge counts
+};
+
+// Rebalance task: insert_phase → redistribution_phase
+// Carries forwarded header to avoid redundant VEC_INFO/header HBM reads
+struct rebalance_task_t {
+    int pma;                     // PMA index
+    int payload;                 // segment index (>=0), -1=STOP, -2=ACK marker
+    int start_byte;              // forwarded: PMA absolute HBM byte offset
+    ap_uint<512> range_word;     // forwarded: header[0] — vertex ranges + total_segs
 };
 
 // ALLOC_BITMAP_WORDS defined in data_type.h (shared with alloc_access_kernel)
@@ -371,6 +382,7 @@ static void pma_gate_handle_existing(
             fwd_header_t fh;
             fh.start_byte = nstart + pma_raw_data_start;
             fh.range_word = range_word;
+            fh.edge_count_word = edge_count_word;  // unchanged by enlarge
             hdr_fwd.write(fh);
         }
     } else {
@@ -378,6 +390,7 @@ static void pma_gate_handle_existing(
         fwd_header_t fh;
         fh.start_byte = (int)vi.range(31, 0);
         fh.range_word = range_word;
+        fh.edge_count_word = edge_count_word;
         hdr_fwd.write(fh);
     }
 }
@@ -500,6 +513,7 @@ void pma_gate(
                 fwd_header_t fh;
                 fh.start_byte = nstart + pma_raw_data_start;
                 fh.range_word = pma_buffer[0];  // hdr0: vertex ranges
+                fh.edge_count_word = 0;          // hdr1: all edge counts zero
                 hdr_fwd.write(fh);
             }
         }
@@ -589,6 +603,9 @@ void bs_worker(
         // Process edges — serialized binary search (PIPELINE instead of UNROLL)
         bs_batch_t res;
         res.pma_idx = pma; res.op_mask = 0; res.count = cnt;
+        res.start_byte = fh.start_byte;
+        res.range_word = fh.range_word;
+        res.edge_count_word = fh.edge_count_word;
 
         for (int i = 0; i < MAX_CMD_NUM; i++) {
             #pragma HLS PIPELINE II=1
@@ -622,7 +639,7 @@ void insert_phase(
     ap_uint<512>* hbm,
     int data_off, int vi_wo,
     hls::stream<bs_batch_t>& bs_in,
-    hls::stream<ap_uint<64>>& task_fifo,
+    hls::stream<rebalance_task_t>& task_fifo,
     hls::stream<ap_uint<32>>& redist_ack_in,
     hls::stream<ap_uint<32>>& ack_out)
 {
@@ -648,30 +665,28 @@ void insert_phase(
 
         int pma = b.pma_idx;
 
-        // Read header+helper in one contiguous burst from HBM
-        VEC_INFO vi = vi_read(hbm, vi_wo, pma);
-        int boff = (int)vi.range(31, 0) - data_off;
+        // Use forwarded header from pma_gate → bs_worker
+        // (no VEC_INFO read, no header HBM read — only helper is read from HBM)
+        int boff = b.start_byte - data_off;
         int hbase = boff / 64;
-        // Read header first to determine hpw, then burst helper
-        ap_uint<512> hdr[HEADER_WORDS];
-        ap_uint<512> hlp_buf[MAX_HELPER_WORDS];
-        #pragma HLS bind_storage variable=hlp_buf type=RAM_2P impl=URAM
-        int total_hdr_hlp = HEADER_WORDS + MAX_HELPER_WORDS;
-        for (int w = 0; w < total_hdr_hlp; w++) {
-            #pragma HLS PIPELINE II=1
-            ap_uint<512> d = hbm[hbase + w];
-            if (w < HEADER_WORDS) hdr[w] = d;
-            else hlp_buf[w - HEADER_WORDS] = d;
-        }
-        int tseg = (int)hdr[0].range(15 * 32 + 31, 15 * 32);
+        int tseg = (int)b.range_word.range(15 * 32 + 31, 15 * 32);
         int hpw  = (tseg + 7) / 8;
         if (hpw > MAX_HELPER_WORDS) hpw = MAX_HELPER_WORDS;
 
+        // Read only helper from HBM (header already forwarded via stream)
+        ap_uint<512> hlp_buf[MAX_HELPER_WORDS];
+        #pragma HLS bind_storage variable=hlp_buf type=RAM_2P impl=URAM
+        for (int w = 0; w < hpw; w++) {
+            #pragma HLS PIPELINE II=1
+            hlp_buf[w] = hbm[hbase + HEADER_WORDS + w];
+        }
+
+        // Vertex ranges and edge counts from forwarded header
         int ec[VERTEX_PER_PMA], vr[VERTEX_PER_PMA];
         for (int v = 0; v < VERTEX_PER_PMA; v++) {
             #pragma HLS UNROLL
-            vr[v] = (int)hdr[0].range(v * 32 + 31, v * 32);
-            ec[v] = (int)hdr[1].range(v * 32 + 31, v * 32);
+            vr[v] = (int)b.range_word.range(v * 32 + 31, v * 32);
+            ec[v] = (int)b.edge_count_word.range(v * 32 + 31, v * 32);
         }
 
         // --- Process segment modifications ---
@@ -765,34 +780,39 @@ void insert_phase(
         }
 
         // Update edge_count + write back header
+        ap_uint<512> new_edge_count = b.edge_count_word;
         for (int v = 0; v < VERTEX_PER_PMA; v++) {
             #pragma HLS UNROLL
             ec[v] += ec_delta[v];
-            hdr[1].range(v * 32 + 31, v * 32) = (ap_uint<32>)ec[v];
+            new_edge_count.range(v * 32 + 31, v * 32) = (ap_uint<32>)ec[v];
         }
         int wb_base = boff / 64;
-        for (int w = 0; w < HEADER_WORDS; w++) {
-            #pragma HLS UNROLL
-            hbm[wb_base + w] = hdr[w];
-        }
+        hbm[wb_base + 0] = b.range_word;       // header[0]: vertex ranges (unchanged)
+        hbm[wb_base + 1] = new_edge_count;     // header[1]: updated edge counts
+        hbm[wb_base + 2] = 0;
+        hbm[wb_base + 3] = 0;
 
         // Push SEGMENT_REBALANCE tasks for overflowed segments
         bool has_rebalance = false;
         for (int si = 0; si < seg_cnt; si++) {
             #pragma HLS PIPELINE II=1
             if (!seg_overflow[si]) continue;
-            ap_uint<64> t;
-            t.range(31, 0) = seg_list[si];
-            t.range(63, 32) = pma;
+            rebalance_task_t t;
+            t.pma        = pma;
+            t.payload    = seg_list[si];
+            t.start_byte = b.start_byte;
+            t.range_word = b.range_word;
             task_fifo.write(t);
             has_rebalance = true;
         }
 
         if (has_rebalance) {
             // ACK marker → redistribution → redist_ack → forwarded upstream
-            ap_uint<64> ack_task;
-            ack_task.range(31, 0) = ap_uint<32>(-2);
-            ack_task.range(63, 32) = pma;
+            rebalance_task_t ack_task;
+            ack_task.pma        = pma;
+            ack_task.payload    = -2;
+            ack_task.start_byte = 0;
+            ack_task.range_word = 0;
             task_fifo.write(ack_task);
             pending_cnt++;
         } else {
@@ -802,9 +822,11 @@ void insert_phase(
     }
 
     // --- STOP: send STOP to redistribution, then drain pending table ---
-    ap_uint<64> stop_task;
-    stop_task.range(31, 0) = ap_uint<32>(-1);
-    stop_task.range(63, 32) = 0;
+    rebalance_task_t stop_task;
+    stop_task.pma        = 0;
+    stop_task.payload    = -1;
+    stop_task.start_byte = 0;
+    stop_task.range_word = 0;
     task_fifo.write(stop_task);
 
     while (pending_cnt > 0) {
@@ -929,13 +951,13 @@ void insert_phase(
 void redistribution_phase(
     ap_uint<512>* hbm,
     int data_off, int vi_wo,
-    hls::stream<ap_uint<64>>& task_fifo,
+    hls::stream<rebalance_task_t>& task_fifo,
     hls::stream<ap_uint<32>>& redist_ack_out)
 {
     while (true) {
-        ap_uint<64> task = task_fifo.read();
-        int payload = (int)task.range(31, 0);
-        int pm  = (int)task.range(63, 32);
+        rebalance_task_t task = task_fifo.read();
+        int payload = task.payload;
+        int pm  = task.pma;
         if (payload == -1) {  // STOP
             ap_uint<32> stop_ack = (ap_uint<32>)(-1);
             redist_ack_out.write(stop_ack);
@@ -948,27 +970,15 @@ void redistribution_phase(
 
         bool is_enlarge = (payload & 0x80000000) != 0;
 
-        // Read VEC_INFO → header → burst-read entire helper on-chip
-        int wi = pm / 8, si = pm % 8;
-        ap_uint<512> w = hbm[vi_wo + wi];
-        VEC_INFO vi;
-        vi.range(63, 0) = w.range(si * 64 + 63, si * 64);
-        if (vi == 0) continue;
-        int pma_start = (int)vi.range(31, 0);
-        int pma_boff  = pma_start - data_off;
-
+        // Use forwarded header from insert_phase (no VEC_INFO/header HBM reads)
+        int pma_boff = task.start_byte - data_off;
         int hbase = pma_boff / 64;
-        ap_uint<512> hdr_local[HEADER_WORDS];
-        for (int _w = 0; _w < HEADER_WORDS; _w++) {
-            #pragma HLS PIPELINE II=1
-            hdr_local[_w] = hbm[hbase + _w];
-        }
-        int total_segs = (int)hdr_local[0].range(15 * 32 + 31, 15 * 32);
+        int total_segs = (int)task.range_word.range(15 * 32 + 31, 15 * 32);
         if (total_segs == 0) continue;
         int hpw = (total_segs + 7) / 8;
         int hlp_base = hbase + HEADER_WORDS;
 
-        // Burst-read entire helper into local BRAM
+        // Burst-read helper from HBM (current valid counts needed for redistribution)
         ap_uint<512> hlp_local[MAX_HELPER_WORDS];
         #pragma HLS bind_storage variable=hlp_local type=RAM_2P impl=URAM
         for (int _w = 0; _w < hpw; _w++) {
@@ -976,10 +986,11 @@ void redistribution_phase(
             hlp_local[_w] = hbm[hlp_base + _w];
         }
 
+        // Vertex ranges from forwarded header
         int vr[VERTEX_PER_PMA];
         for (int vv = 0; vv < VERTEX_PER_PMA; vv++) {
             #pragma HLS UNROLL
-            vr[vv] = (int)hdr_local[0].range(vv * 32 + 31, vv * 32);
+            vr[vv] = (int)task.range_word.range(vv * 32 + 31, vv * 32);
         }
 
         // Macro: valid_count from local BRAM
@@ -1061,7 +1072,8 @@ void redistribution_phase(
         // C: fill write buffer (pre-filled with EMPTY_SEG template)
         int base  = total / group_sz;
         int extra = total % group_sz;
-        ap_uint<512> seg_buf_wr[256];
+        ap_uint<512> seg_buf_wr[512];
+        #pragma HLS bind_storage variable=seg_buf_wr type=RAM_2P impl=BRAM
         for (int i = 0; i < seg_words_total; i += SEG_WORDS_PER_SEG) {
             #pragma HLS PIPELINE II=1
             seg_buf_wr[i + 0] = EMPTY_SEG_ROM[0];
@@ -1206,145 +1218,162 @@ static void task_reader(
         pool[s].count++;
         pool_cnt[s] = pool[s].count;
     };
-    auto slot_flush_one_batch = [&](int s, hls::stream<PMA_UPDATE_MESSAGE>& out) {
+    // Non-blocking flush: each successful write advances tail+count immediately.
+    // If cmd_out fills up mid-batch, already-sent edges are committed;
+    // caller retries the remainder next cycle. Returns true iff any progress made.
+    auto slot_flush_one_batch = [&](int s, hls::stream<PMA_UPDATE_MESSAGE>& out) -> bool {
         int n = pool[s].count;
-        if (n == 0) { pool_pma[s] = -1; return; }
+        if (n == 0) { pool_pma[s] = -1; return true; }
         int batch = (n < MAX_CMD_NUM) ? n : MAX_CMD_NUM;
+        bool any_sent = false;
         for (int i = 0; i < batch; i++) {
             #pragma HLS PIPELINE II=1
+            if (out.full()) return any_sent;
             PMA_UPDATE_MESSAGE m = pool[s].edges[pool[s].tail];
-            pool[s].tail = (pool[s].tail + 1) % POOL_SLOT_CAPACITY;
             m.last = (i == batch - 1) ? 1 : 0;
             out.write(m);
+            // Commit this one edge immediately
+            pool[s].tail = (pool[s].tail + 1) % POOL_SLOT_CAPACITY;
+            pool[s].count--;
+            pool_cnt[s] = pool[s].count;
+            any_sent = true;
         }
-        pool[s].count -= batch;
-        pool_cnt[s] = pool[s].count;
         if (pool[s].count == 0) {
             pool_pma[s] = -1; pool[s].pma = -1;
         }
+        return true;
     };
+    // Find best victim: shortest non-empty, non-locked queue (excluding for_pma)
     auto slot_evict = [&](int for_pma) -> int {
         int best = -1;
+        int best_cnt = POOL_SLOT_CAPACITY + 1;
         for (int i = 0; i < STANDALONE_POOL_SIZE; i++) {
             int ev_pma = pool_pma[i];
             if (ev_pma == -1 || ev_pma == for_pma) continue;
             if (lock_is_locked(lock_tbl, ev_pma)) continue;
-            if (best == -1 || pool_cnt[i] > 0) best = i;
+            if (pool_cnt[i] > 0 && pool_cnt[i] < best_cnt) {
+                best = i; best_cnt = pool_cnt[i];
+            }
         }
         return best;
     };
 
-    // Burst-read buffer
-    int burst_buf[TASK_BURST_CHUNK * 3];
-    #pragma HLS bind_storage variable=burst_buf type=RAM_2P impl=BRAM
 
     int processed = 0;
-    int base = 0;
-    int live_edges = edge_count;  // grows with online updates
     bool online_done = false;
     bool sentinel_hit = false;
-    
+    int inflight_pma_number = 0;
     lock_init(lock_tbl);
-    while ((base < live_edges || !online_done) && !sentinel_hit) {
-        // ---- Poll online updates, append to task HBM ----
-        while   (!online_in.empty() && !online_done) {
+    bool is_direct = (edge_count > 0);  // DIRECT: host pre-loaded edges + sentinel
+    int end_pointer = is_direct ? edge_count : 0;  // sentinel position
+    int task_pointer = 0;
+    while (!sentinel_hit)
+    {
+        // ==== Poll ACKs (non-blocking) ====
+        while (!ack_in.empty()) {
+            ap_uint<32> val = ack_in.read();
+            int ack_pma = (int)val;
+            if (ack_pma != -1) lock_release(lock_tbl, ack_pma);
+            inflight_pma_number--;
+        }
+
+        // ==== Poll online updates ====
+        while (!online_in.empty() && !online_done) {
             PMA_UPDATE_MESSAGE om = online_in.read();
             if (om.opcode == PMA_UPDATE_STOP) {
-                online_done = true;  // any STOP terminates online stream
-            } else {
-                int wp = live_edges * 3;
-                task_buffer[wp]     = om.src;
-                task_buffer[wp + 1] = om.dst;
-                task_buffer[wp + 2] = (int)om.opcode;
-                live_edges++;
+                // Write sentinel at current end position before marking done
+                int sp = end_pointer * 3;
+                task_buffer[sp]     = -1;
+                task_buffer[sp + 1] = 0;
+                task_buffer[sp + 2] = 0;
+                online_done = true;
+                break;
+            }
+            int wp = end_pointer * 3;
+            task_buffer[wp]     = om.src;
+            task_buffer[wp + 1] = om.dst;
+            task_buffer[wp + 2] = (int)om.opcode;
+            inflight_pma_number++;
+            end_pointer++;
+        }
+
+
+
+
+        // ==== Proactive eviction: keep pool occupancy low ====
+        {
+            int occupied = 0;
+            for (int i = 0; i < STANDALONE_POOL_SIZE; i++) {
+                if (pool_pma[i] != -1) occupied++;
+            }
+            if (occupied >= 8) {
+                int best = -1, best_cnt = POOL_SLOT_CAPACITY + 1;
+                for (int i = 0; i < STANDALONE_POOL_SIZE; i++) {
+                    if (pool_pma[i] == -1) continue;
+                    if (lock_is_locked(lock_tbl, pool_pma[i])) continue;
+                    if (pool_cnt[i] > 0 && pool_cnt[i] < best_cnt) {
+                        best = i; best_cnt = pool_cnt[i];
+                    }
+                }
+                if (best != -1) {
+                    slot_flush_one_batch(best, cmd_out);  // non-blocking; ignore return
+                }
             }
         }
 
-        if (base >= live_edges) continue;  // wait for more data
-
-        int chunk = live_edges - base;
-        if (chunk > TASK_BURST_CHUNK) chunk = TASK_BURST_CHUNK;
-
-        // Phase A: burst-read chunk
-        int m_axi_off = base * 3;
-        int words = chunk * 3;
-        for (int j = 0; j < words; j++) {
-            #pragma HLS PIPELINE II=1
-            burst_buf[j] = task_buffer[m_axi_off + j];
+        // ==== Read next edge from task_buffer ====
+        if (task_pointer > end_pointer) {
+            continue;
         }
+        int src = task_buffer[task_pointer * 3];
+        int dst = task_buffer[task_pointer * 3 + 1];
+        int opcode = task_buffer[task_pointer * 3 + 2];
 
-        // Phase B: process from BRAM with router-style enqueue+retry
-        for (int j = 0; j < chunk && !sentinel_hit; j++) {
+        if (src == -1) { sentinel_hit = true; break; }
 
-            // Phase-independent: poll ACKs
-            while (!ack_in.empty()) {
-                ap_uint<32> val = ack_in.read();
-                int ack_pma = (int)val;
-                if (ack_pma != -1) lock_release(lock_tbl, ack_pma);
-            }
-
-            int src = burst_buf[j * 3];
-            int dst = burst_buf[j * 3 + 1];
-            int op  = burst_buf[j * 3 + 2];
-            if (src == -1) { sentinel_hit = true; break; }
-
-            int pma = src / VERTEX_PER_PMA;
-            int slot = slot_find(pma);
-            if (slot == -1) slot = slot_alloc(pma);
-
-            // If slot is full, flush one batch (wait for lock first)
-            if (slot != -1 && pool_cnt[slot] >= MAX_CMD_NUM) {
-                while (lock_is_locked(lock_tbl, pma)) {
-                    while (!ack_in.empty()) {
-                        ap_uint<32> val = ack_in.read();
-                        int ap = (int)val;
-                        if (ap != -1) lock_release(lock_tbl, ap);
+        int pma = src >> 4;
+        int slot = slot_find(pma);
+        if (slot == -1) slot = slot_alloc(pma);
+        bool blocked = false;
+        if (slot == -1)
+        {
+            //try flush
+            int evict_pma = slot_evict(pma);
+            if (evict_pma == -1) { continue; }
+            else
+            {
+                int ev_pma = pool_pma[evict_pma];
+                if (lock_is_locked(lock_tbl, ev_pma)) {
+                    blocked = true;
+                } else {
+                    // Drain victim — stop if cmd_out fills up
+                    bool drain_ok = true;
+                    while (pool_cnt[evict_pma] > 0) {
+                        if (cmd_out.full()) { drain_ok = false; break; }
+                        slot_flush_one_batch(evict_pma, cmd_out);
+                    }
+                    if (drain_ok) {
+                        lock_acquire(lock_tbl, ev_pma);
+                        pool[evict_pma].pma = pma; pool[evict_pma].head = 0;
+                        pool[evict_pma].tail = 0; pool[evict_pma].count = 0;
+                        pool_pma[evict_pma] = pma; pool_cnt[evict_pma] = 0;
+                        slot = evict_pma;
+                    } else {
+                        blocked = true;
                     }
                 }
-                slot_flush_one_batch(slot, cmd_out);
-                lock_acquire(lock_tbl, pma);
-                // After flush, slot might be freed (if empty). If still used, find/create.
-                if (pool_pma[slot] != pma) slot = slot_alloc(pma);
             }
-
-            // If no slot (pool full), evict with retry
-            if (slot == -1) {
-                int ev = slot_evict(pma);
-                if (ev != -1) {
-                    int ev_pma = pool_pma[ev];
-                    while (lock_is_locked(lock_tbl, ev_pma)) {
-                        while (!ack_in.empty()) {
-                            ap_uint<32> val = ack_in.read();
-                            int ap = (int)val;
-                            if (ap != -1) lock_release(lock_tbl, ap);
-                        }
-                    }
-                    // Drain victim completely
-                    while (pool_cnt[ev] > 0) {
-                        slot_flush_one_batch(ev, cmd_out);
-                    }
-                    lock_acquire(lock_tbl, ev_pma);
-                    // Reuse slot
-                    pool[ev].pma = pma; pool[ev].head = 0;
-                    pool[ev].tail = 0; pool[ev].count = 0;
-                    pool_pma[ev] = pma; pool_cnt[ev] = 0;
-                    slot = ev;
-                }
-            }
-
-            // Enqueue edge (with retry if slot still unavailable)
-            if (slot == -1) continue; // shouldn't happen; edge lost as last resort
-
+        }
+        if (!blocked && slot != -1) {
             PMA_UPDATE_MESSAGE msg;
             msg.src = src; msg.dst = dst;
-            msg.opcode = (PMA_UPDATE_OPCODE)op; msg.last = 0;
+            msg.opcode = (PMA_UPDATE_OPCODE)opcode; msg.last = 0;
             slot_enq(slot, msg);
-            processed++;
+            task_pointer++;
         }
-        base += chunk;
     }
 
-    // ---- Drain: flush all remaining slots with lock sync ----
+    // ==== Drain: flush all remaining slots before STOP ====
     bool any_left = true;
     while (any_left) {
         while (!ack_in.empty()) {
@@ -1353,15 +1382,145 @@ static void task_reader(
             if (ack_pma != -1) lock_release(lock_tbl, ack_pma);
         }
         any_left = false;
-        for (int j = 0; j < STANDALONE_POOL_SIZE; j++) {
-            if (pool_cnt[j] == 0) continue;
-            int pma = pool_pma[j];
+        for (int i = 0; i < STANDALONE_POOL_SIZE; i++) {
+            if (pool_cnt[i] == 0) continue;
+            int pma = pool_pma[i];
             if (lock_is_locked(lock_tbl, pma)) { any_left = true; continue; }
-            lock_acquire(lock_tbl, pma);
-            slot_flush_one_batch(j, cmd_out);
-            if (pool_cnt[j] > 0) any_left = true;
+            while (pool_cnt[i] > 0) {
+                if (!slot_flush_one_batch(i, cmd_out)) { any_left = true; break; }
+            }
         }
     }
+    // while ((base < live_edges || !online_done) && !sentinel_hit) {
+    //     // ==== Phase 0: poll ACKs + online edges (ALWAYS, non-blocking) ====
+
+    //     while (!ack_in.empty()) {
+    //         ap_uint<32> val = ack_in.read();
+    //         int ack_pma = (int)val;
+    //         if (ack_pma != -1) lock_release(lock_tbl, ack_pma);
+    //     }
+
+    //     while (!online_in.empty() && !online_done) {
+    //         PMA_UPDATE_MESSAGE om = online_in.read();
+    //         if (om.opcode == PMA_UPDATE_STOP) {
+    //             online_done = true;
+    //             break;
+    //         }
+    //         int wp = live_edges * 3;
+    //         task_buffer[wp]     = om.src;
+    //         task_buffer[wp + 1] = om.dst;
+    //         task_buffer[wp + 2] = (int)om.opcode;
+    //         live_edges++;
+    //     }
+
+    //     if (base >= live_edges) { chunk_valid = false; continue; }
+
+    //     // ==== Phase A: load chunk from HBM (burst, only when needed) ====
+
+    //     if (!chunk_valid) {
+    //         int chunk = live_edges - base;
+    //         if (chunk > TASK_BURST_CHUNK) chunk = TASK_BURST_CHUNK;
+    //         int m_axi_off = base * 3;
+    //         int words = chunk * 3;
+    //         for (int jj = 0; jj < words; jj++) {
+    //             #pragma HLS PIPELINE II=1
+    //             burst_buf[jj] = task_buffer[m_axi_off + jj];
+    //         }
+    //         chunk_size  = chunk;
+    //         chunk_valid = true;
+    //         j = 0;
+    //     }
+
+    //     // ==== Phase B: process ONE edge slot (non-blocking — retry if blocked) ====
+
+    //     if (j >= chunk_size) {
+    //         base += chunk_size;
+    //         chunk_valid = false;
+    //         continue;
+    //     }
+
+    //     int src = burst_buf[j * 3];
+    //     int dst = burst_buf[j * 3 + 1];
+    //     int op  = burst_buf[j * 3 + 2];
+    //     if (src == -1) { sentinel_hit = true; break; }
+
+    //     int pma = src / VERTEX_PER_PMA;
+    //     int slot = slot_find(pma);
+    //     if (slot == -1) slot = slot_alloc(pma);
+    //     bool blocked = false;
+
+    //     // --- Flush full slot (non-blocking) ---
+    //     if (!blocked && slot != -1 && pool_cnt[slot] >= MAX_CMD_NUM) {
+    //         if (lock_is_locked(lock_tbl, pma)) {
+    //             blocked = true;
+    //         } else if (cmd_out.full()) {
+    //             blocked = true;
+    //         } else {
+    //             slot_flush_one_batch(slot, cmd_out);
+    //             lock_acquire(lock_tbl, pma);
+    //             if (pool_pma[slot] != pma) slot = slot_alloc(pma);
+    //         }
+    //     }
+
+    //     // --- Evict if pool full (non-blocking) ---
+    //     if (!blocked && slot == -1) {
+    //         int ev = slot_evict(pma);
+    //         if (ev == -1) {
+    //             blocked = true;  // no victim yet — retry after ACKs free locks
+    //         } else {
+    //             int ev_pma = pool_pma[ev];
+    //             if (lock_is_locked(lock_tbl, ev_pma)) {
+    //                 blocked = true;
+    //             } else {
+    //                 // Drain victim — stop if cmd_out fills up
+    //                 bool drain_ok = true;
+    //                 while (pool_cnt[ev] > 0) {
+    //                     if (cmd_out.full()) { drain_ok = false; break; }
+    //                     slot_flush_one_batch(ev, cmd_out);
+    //                 }
+    //                 if (drain_ok) {
+    //                     lock_acquire(lock_tbl, ev_pma);
+    //                     pool[ev].pma = pma; pool[ev].head = 0;
+    //                     pool[ev].tail = 0; pool[ev].count = 0;
+    //                     pool_pma[ev] = pma; pool_cnt[ev] = 0;
+    //                     slot = ev;
+    //                 } else {
+    //                     blocked = true;
+    //                 }
+    //             }
+    //         }
+    //     }
+
+    //     // --- Enqueue edge (advance j only on success) ---
+    //     if (!blocked && slot != -1) {
+    //         PMA_UPDATE_MESSAGE msg;
+    //         msg.src = src; msg.dst = dst;
+    //         msg.opcode = (PMA_UPDATE_OPCODE)op; msg.last = 0;
+    //         slot_enq(slot, msg);
+    //         processed++;
+    //         j++;  // advance — this edge is done
+    //     }
+    //     // blocked → j stays, retry next outer iteration (after ACK/online poll)
+    // }
+
+    // // ---- Drain: flush all remaining slots with lock sync ----
+    // bool any_left = true;
+    // while (any_left) {
+    //     while (!ack_in.empty()) {
+    //         ap_uint<32> val = ack_in.read();
+    //         int ack_pma = (int)val;
+    //         if (ack_pma != -1) lock_release(lock_tbl, ack_pma);
+    //     }
+    //     any_left = false;
+    //     for (int j = 0; j < STANDALONE_POOL_SIZE; j++) {
+    //         if (pool_cnt[j] == 0) continue;
+    //         int pma = pool_pma[j];
+    //         if (lock_is_locked(lock_tbl, pma)) { any_left = true; continue; }
+    //         lock_acquire(lock_tbl, pma);
+    //         slot_flush_one_batch(j, cmd_out);
+    //         if (pool_cnt[j] > 0) any_left = true;
+    //     }
+    // }
 
     // DEBUG: write processed count to HBM
     task_buffer[edge_count * 3 + 3] = processed;
@@ -1423,7 +1582,7 @@ extern "C"
         hls::stream<bs_batch_t> bs_out;
         #pragma HLS STREAM variable=bs_out depth=8
 
-        hls::stream<ap_uint<64>> task_fifo;
+        hls::stream<rebalance_task_t> task_fifo;
         #pragma HLS STREAM variable=task_fifo depth=64
 
         hls::stream<ap_uint<32>> redist_ack_stream;

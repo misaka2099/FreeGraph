@@ -208,7 +208,7 @@ int main(int argc, char** argv)
     std::cout << "Initialization (File Read & Graph Build) time: " << elapsed_init.count() << " s" << std::endl;
 
     auto xclbin = xrt::xclbin(xclbin_name);
-    auto device = xrt::device(1);
+    auto device = xrt::device(0);
 
     auto uuid = device.load_xclbin(xclbin);
     std::cout << "device name:     " << device.get_info<xrt::info::device::name>() << "\n";
