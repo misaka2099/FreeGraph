@@ -694,7 +694,7 @@ void bs_worker(
             if (i < cnt) {
                 res.dst[i]       = edges[i].dst;
                 res.local_src[i] = edges[i].src & 0xF;
-                res.target_group[i] = 0;
+                res.target_group_start[i] = 0;
             }
         }
 
@@ -732,7 +732,7 @@ void bs_worker(
                 int group_rel = -1;
                 sub_search(&first_edge_cache[fe_entry_start], 0, fe_entries, dst, group_rel);
                 if (group_rel == -1) group_rel = 0;
-                res.target_group[i] = vs + group_rel * HELPER_FE_GRANULARITY;
+                res.target_group_start[i] = vs + group_rel * HELPER_FE_GRANULARITY;
             }
         }
         bs_out.write(res);
@@ -753,27 +753,7 @@ void insert_phase(
 {
     int pending_cnt = 0;
 
-    // Buffers for segment modification — outside while for HLS lifetime analysis
-    int ec[VERTEX_PER_PMA], vr[VERTEX_PER_PMA];
-    int ec_delta[VERTEX_PER_PMA];
-    int seg_dsts[16][16];
-    #pragma HLS ARRAY_PARTITION variable=seg_dsts complete dim=2
-    int seg_dst_cnt[16];
-    #pragma HLS ARRAY_PARTITION variable=seg_dst_cnt complete
-
-    // Per-group processing: one group's segments (16 segs × 4 words = 64 words)
-    ap_uint<512> group_buf[HELPER_FE_GRANULARITY * SEG_WORDS_PER_SEG];
-    #pragma HLS bind_storage variable=group_buf type=RAM_2P impl=BRAM
-
-    // Edge grouping by target_group (max one group per edge = 16)
-    int group_list[16], group_cnt;
-    int group_edge_idx[16][16];
-    int group_edge_cnt[16];
-
     while (true) {
-        // #pragma HLS PIPELINE II=1
-
-        // --- read_nb: poll redistribution ACK every cycle ---
         if (!redist_ack_in.empty()) {
             ap_uint<32> ack_val = redist_ack_in.read();
             int ack_pma = (int)ack_val;
@@ -785,129 +765,147 @@ void insert_phase(
 
         if (bs_in.empty()) { ap_wait(); continue; }
         bs_batch_t b = bs_in.read();
-
         if (b.pma_idx == -1) { break; }
 
         int pma = b.pma_idx;
-
-        // Use forwarded header from pma_gate → bs_worker
-        // (no VEC_INFO read, no header HBM read — only helper is read from HBM)
         int boff = b.start_byte - data_off;
         int hbase = boff / 64;
-        int tseg = (int)b.range_word.range(15 * 32 + 31, 15 * 32);
-        int fe_words = fe_words_for(tseg);
+        int total_segs = (int)b.range_word.range(15 * 32 + 31, 15 * 32);
+
+        int fe_words = fe_words_for(total_segs);
+        int vc_words = vc_words_for(total_segs);
         int vc_hbm_base = hbase + HEADER_WORDS + fe_words;
-        int tseg_hlp_words = fe_words + vc_words_for(tseg);
+        int total_hlp_words = fe_words + vc_words;
 
         // Vertex ranges and edge counts from forwarded header
+        int ec[VERTEX_PER_PMA], vr[VERTEX_PER_PMA];
         for (int v = 0; v < VERTEX_PER_PMA; v++) {
             #pragma HLS UNROLL
             vr[v] = (int)b.range_word.range(v * 32 + 31, v * 32);
             ec[v] = (int)b.edge_count_word.range(v * 32 + 31, v * 32);
         }
 
-        // --- Phase 1: Decode + group edges by target_group ---
+        int ec_delta[VERTEX_PER_PMA];
         for (int v = 0; v < VERTEX_PER_PMA; v++) ec_delta[v] = 0;
-        group_cnt = 0;
-        for (int g = 0; g < 16; g++) group_edge_cnt[g] = 0;
+
+        // --- Fine search: target_group_start → exact segment ---
+        // Each group covers up to 16 segments, bounded by vertex end.
+        // Group read is cached — if multiple edges share the same group, read once.
+        ap_uint<512> group_buf[HELPER_FE_GRANULARITY * SEG_WORDS_PER_SEG];
+        #pragma HLS bind_storage variable=group_buf type=RAM_2P impl=BRAM
+        int exact_seg[16];
+        int cached_group = -1, cached_group_count = 0;
 
         for (int i = 0; i < b.count; i++) {
-            int tg = b.target_group[i];
+            int tg = b.target_group_start[i];
             int v  = b.local_src[i];
-            ec_delta[v]++;
-
-            // Find or create group slot
-            int gslot = -1;
-            for (int g = 0; g < 16; g++) {
-                #pragma HLS UNROLL
-                if (group_list[g] == tg) { gslot = g; break; }
-            }
-            if (gslot == -1 && group_cnt < 16) {
-                gslot = group_cnt;
-                group_list[gslot] = tg;
-                group_cnt++;
-            }
-            // Record edge index for this group
-            group_edge_idx[gslot][group_edge_cnt[gslot]++] = i;
-        }
-
-        // --- Phase 2: Process each group (read → search+modify → write) ---
-        int overflow_seg_buf[16], overflow_cnt = 0;
-
-        for (int g = 0; g < group_cnt; g++) {
-            #pragma HLS UNROLL factor=4
-            int tg = group_list[g];
-            int gcnt = group_edge_cnt[g];
-
-            // Determine group segment bounds (use first edge's vertex)
-            int first_i = group_edge_idx[g][0];
-            int v  = b.local_src[first_i];
             int vs = (v == 0) ? 0 : vr[v - 1];
             int ve = vr[v];
             int group_end = tg + HELPER_FE_GRANULARITY;
             if (group_end > ve) group_end = ve;
-            int group_seg_count = group_end - tg;
+            int gcnt = group_end - tg;
+            ec_delta[v]++;
 
-            // 2.1: Burst-read group segments from HBM
-            int group_base = (boff + HEADER_BYTES + tseg_hlp_words * 64
-                              + tg * SEG_BYTES) / 64;
-            for (int w = 0; w < group_seg_count * SEG_WORDS_PER_SEG; w++) {
-                #pragma HLS PIPELINE II=1
-                group_buf[w] = hbm[group_base + w];
+            // Burst-read group if not cached
+            if (tg != cached_group) {
+                int group_base = (boff + HEADER_BYTES + total_hlp_words * 64
+                                  + tg * SEG_BYTES) / 64;
+                for (int w = 0; w < gcnt * SEG_WORDS_PER_SEG; w++) {
+                    #pragma HLS PIPELINE II=1
+                    group_buf[w] = hbm[group_base + w];
+                }
+                cached_group = tg;
+                cached_group_count = gcnt;
             }
 
-            // 2.2: Fine search + accumulate dsts per segment within this group
-            for (int si = 0; si < 16; si++) seg_dst_cnt[si] = 0;
-            for (int e = 0; e < gcnt; e++) {
-                int i   = group_edge_idx[g][e];
-                int dst = b.dst[i];
-
-                // Fine search: rightmost segment with first_edge <= dst
-                int seg_rel = 0;
-                for (int s = 0; s < group_seg_count; s++) {
-                    #pragma HLS UNROLL factor=4
-                    int seg_fe = (int)group_buf[s * SEG_WORDS_PER_SEG].range(31, 0);
-                    if (seg_fe != UNUSED_ICON && seg_fe <= dst)
-                        seg_rel = s;
-                }
-                int ts = tg + seg_rel;
-                // Accumulate dst (using seg_rel as slot within this group)
-                seg_dsts[seg_rel][seg_dst_cnt[seg_rel]++] = dst;
-            }
-
-            // 2.3: seg_insert + write-back for modified segments in this group
-            for (int seg_rel = 0; seg_rel < group_seg_count; seg_rel++) {
-                #pragma HLS UNROLL factor=4
-                if (seg_dst_cnt[seg_rel] == 0) continue;
-
-                int ts = tg + seg_rel;
-                bool ovf = false;
-                int new_vc = 0;
-                seg_insert(&group_buf[seg_rel * SEG_WORDS_PER_SEG],
-                           seg_dsts[seg_rel], seg_dst_cnt[seg_rel],
-                           &group_buf[seg_rel * SEG_WORDS_PER_SEG],
-                           new_vc, ovf);
-
-                // Write back modified segment to HBM
-                int seg_base = (boff + HEADER_BYTES + tseg_hlp_words * 64
-                                + ts * SEG_BYTES) / 64;
-                for (int w = 0; w < SEG_WORDS_PER_SEG; w++) {
-                    #pragma HLS UNROLL
-                    hbm[seg_base + w] = group_buf[seg_rel * SEG_WORDS_PER_SEG + w];
-                }
-
-                // Update VC helper
-                int vc_word_idx = ts / VC_SOA_ENTRIES_PER_WORD;
-                int vc_slot     = ts % VC_SOA_ENTRIES_PER_WORD;
-                ap_uint<512> vc_word = hbm[vc_hbm_base + vc_word_idx];
-                vc_word.range(vc_slot * 32 + 31, vc_slot * 32) = (ap_uint<32>)new_vc;
-                hbm[vc_hbm_base + vc_word_idx] = vc_word;
-
-                // Track overflow for rebalance
-                if (ovf) {
-                    overflow_seg_buf[overflow_cnt++] = ts;
+            // Search: rightmost non-empty segment with first_edge <= dst
+            int dst = b.dst[i];
+            int seg_rel = 0;
+            bool found_nonempty = false;
+            for (int s = 0; s < cached_group_count; s++) {
+                int seg_fe = (int)group_buf[s * SEG_WORDS_PER_SEG].range(31, 0);
+                if (seg_fe != UNUSED_ICON) {
+                    found_nonempty = true;
+                    if (seg_fe <= dst) seg_rel = s;
                 }
             }
+            if (!found_nonempty) seg_rel = 0;
+            exact_seg[i] = tg + seg_rel;
+        }
+
+        // --- Build seg_list from exact_seg (dedup) ---
+        int seg_list[16], seg_cnt = 0;
+        for (int i = 0; i < b.count; i++) {
+            int ts = exact_seg[i];
+            bool found = false;
+            for (int j = 0; j < seg_cnt; j++) {
+                if (seg_list[j] == ts) { found = true; break; }
+            }
+            if (!found && seg_cnt < 16) seg_list[seg_cnt++] = ts;
+        }
+
+        // --- Phase A: burst-read all modified segments ---
+        ap_uint<512> seg_buf[16][SEG_WORDS_PER_SEG];
+        #pragma HLS bind_storage variable=seg_buf type=RAM_2P impl=BRAM
+        #pragma HLS ARRAY_PARTITION variable=seg_buf complete dim=2
+        int seg_bases[16];
+        #pragma HLS ARRAY_PARTITION variable=seg_bases complete
+
+        for (int si = 0; si < seg_cnt; si++) {
+            #pragma HLS PIPELINE II=SEG_WORDS_PER_SEG
+            int seg = seg_list[si];
+            int base = (boff + HEADER_BYTES + total_hlp_words * 64 + seg * SEG_BYTES) / 64;
+            seg_bases[si] = base;
+            for (int w = 0; w < SEG_WORDS_PER_SEG; w++) {
+                #pragma HLS UNROLL
+                seg_buf[si][w] = hbm[base + w];
+            }
+        }
+
+        // --- Phase A.5: distribute edges to per-segment dst arrays ---
+        int seg_dsts[16][16];
+        #pragma HLS ARRAY_PARTITION variable=seg_dsts complete dim=2
+        int seg_dst_cnt[16];
+        #pragma HLS ARRAY_PARTITION variable=seg_dst_cnt complete
+        for (int i = 0; i < 16; i++) seg_dst_cnt[i] = 0;
+
+        for (int i = 0; i < b.count; i++) {
+            int ts = exact_seg[i];
+            for (int si = 0; si < seg_cnt; si++) {
+                #pragma HLS UNROLL
+                if (seg_list[si] == ts) {
+                    seg_dsts[si][seg_dst_cnt[si]++] = b.dst[i];
+                }
+            }
+        }
+
+        // --- Phase B: parallel seg_insert ---
+        int seg_valid_buf[16];
+        #pragma HLS ARRAY_PARTITION variable=seg_valid_buf complete
+        bool seg_overflow[16];
+        for (int i = 0; i < 16; i++) seg_overflow[i] = false;
+
+        for (int si = 0; si < seg_cnt; si++) {
+            #pragma HLS UNROLL factor=4
+            seg_insert(seg_buf[si], seg_dsts[si], seg_dst_cnt[si],
+                       seg_buf[si], seg_valid_buf[si], seg_overflow[si]);
+        }
+
+        // --- Phase C: write back segments + update VC helper ---
+        for (int si = 0; si < seg_cnt; si++) {
+            #pragma HLS PIPELINE II=SEG_WORDS_PER_SEG
+            int base = seg_bases[si];
+            int seg  = seg_list[si];
+            for (int w = 0; w < SEG_WORDS_PER_SEG; w++) {
+                #pragma HLS UNROLL
+                hbm[base + w] = seg_buf[si][w];
+            }
+            // Update SoA valid_count on HBM (RMW per segment)
+            int vc_word_idx = seg / VC_SOA_ENTRIES_PER_WORD;
+            int vc_slot     = seg % VC_SOA_ENTRIES_PER_WORD;
+            ap_uint<512> vc_word = hbm[vc_hbm_base + vc_word_idx];
+            vc_word.range(vc_slot * 32 + 31, vc_slot * 32) = (ap_uint<32>)seg_valid_buf[si];
+            hbm[vc_hbm_base + vc_word_idx] = vc_word;
         }
 
         // Update edge_count + write back header
@@ -925,11 +923,11 @@ void insert_phase(
 
         // Push SEGMENT_REBALANCE tasks for overflowed segments
         bool has_rebalance = false;
-        for (int i = 0; i < overflow_cnt; i++) {
-            #pragma HLS PIPELINE II=1
+        for (int si = 0; si < seg_cnt; si++) {
+            if (!seg_overflow[si]) continue;
             rebalance_task_t t;
             t.pma        = pma;
-            t.payload    = overflow_seg_buf[i];
+            t.payload    = seg_list[si];
             t.start_byte = b.start_byte;
             t.range_word = b.range_word;
             task_fifo.write(t);
@@ -937,7 +935,6 @@ void insert_phase(
         }
 
         if (has_rebalance) {
-            // ACK marker → redistribution → redist_ack → forwarded upstream
             rebalance_task_t ack_task;
             ack_task.pma        = pma;
             ack_task.payload    = -2;
@@ -946,12 +943,10 @@ void insert_phase(
             task_fifo.write(ack_task);
             pending_cnt++;
         } else {
-            // No rebalance: ACK upstream directly
             ack_out.write((ap_uint<32>)pma);
         }
     }
 
-    // --- STOP: send STOP to redistribution, then drain pending table ---
     rebalance_task_t stop_task;
     stop_task.pma        = 0;
     stop_task.payload    = -1;
@@ -969,8 +964,6 @@ void insert_phase(
             }
         }
     }
-
-    // Send STOP ACK upstream
     ack_out.write((ap_uint<32>)-1);
 }
 
