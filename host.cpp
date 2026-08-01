@@ -18,7 +18,7 @@
 #include <random>
 bool final_match = true;
 // Uncomment for standalone mode (no generator, no router, per-worker task buffers)
-#define USE_STANDALONE_MODE
+//#define USE_STANDALONE_MODE
 
 const bool kBaseGraphReadOnlyTest = false;
 const bool kVertexOnlyTest = false;
@@ -410,19 +410,6 @@ int main(int argc, char** argv)
     int* opcode_ptr = bo_opcode.map<int*>();
 
 #ifdef USE_STANDALONE_MODE
-    // Device-only edge buffer for collect_edge_to_buffer / redistribute_edge_to_hbm.
-    // Holds up to MAX_ONCHIP_SEG * EDGE_SLOTS_PER_SEG edges packed as 512-bit words.
-    // Kernel-internal only — host never reads/writes this buffer.
-    constexpr size_t kEdgeBufWords = 4096;  // ≥ ceil(1024 * 63 / 16)
-    constexpr size_t kEdgeBufBytes = kEdgeBufWords * 64;
-    std::vector<xrt::bo> bo_edge_bufs;
-    bo_edge_bufs.reserve(CHANNEL_NUM);
-    for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
-        bo_edge_bufs.emplace_back(device, kEdgeBufBytes,
-                                   XRT_BO_FLAGS_DEV_ONLY,
-                                   pma_insert_edge_kernels[ch].group_id(4));
-    }
-
     // Per-worker task buffers: {src, dst, opcode} * edge_buffer_len + sentinel
     const size_t kTaskSlotSize = 3;  // 3 ints per edge
     std::vector<xrt::bo> bo_task_bufs;
@@ -431,7 +418,7 @@ int main(int argc, char** argv)
     task_buf_ptrs.reserve(CHANNEL_NUM);
     for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
         bo_task_bufs.emplace_back(device, sizeof(int) * (edge_buffer_len + 1) * kTaskSlotSize,
-                                   pma_insert_edge_kernels[ch].group_id(5));
+                                   pma_insert_edge_kernels[ch].group_id(4));
         task_buf_ptrs.push_back(bo_task_bufs[ch].map<int*>());
         std::fill_n(task_buf_ptrs[ch], (edge_buffer_len + 1) * kTaskSlotSize, 0);
     }
@@ -470,13 +457,12 @@ int main(int argc, char** argv)
         run.set_arg(a++, ch_bufs[ch]);  // hbm_rw
         run.set_arg(a++, ch_bufs[ch]);  // hbm_red
 #ifdef USE_STANDALONE_MODE
-        run.set_arg(a++, bo_edge_bufs[ch]);  // hbm_buffer_for_red
         run.set_arg(a++, bo_task_bufs[ch]);  // task_buffer
         run.set_arg(a++, pma_raw_data_start);
         run.set_arg(a++, pma_vecinfo_start);
-        // edge_count (arg 8) set per-batch in run_update_batch
+        // edge_count (arg 7) set per-batch in run_update_batch_standalone
         // alloc_cmd_stream, alloc_rsp_stream, bitmap_init, online_in: axis, no host set
-        run.set_arg(9, pma_bm_start);        // bitmap_offset (kernel scalar, before axis ports)
+        run.set_arg(8, pma_bm_start);        // bitmap_offset (kernel scalar, before axis ports)
         // bitmap_init (arg 11): axis, no host set
         std::cout << "[DBG] L373: standalone insert_edge kernel args set (5 ports + 3 offsets) for " << CHANNEL_NUM << " channels" << std::endl;
 #else
@@ -865,7 +851,6 @@ int main(int argc, char** argv)
             run.set_arg(a++, ch_bufs[ch]);         // hbm_bs
             run.set_arg(a++, ch_bufs[ch]);         // hbm_rw
             run.set_arg(a++, ch_bufs[ch]);         // hbm_red
-            run.set_arg(a++, bo_edge_bufs[ch]);    // hbm_buffer_for_red
             run.set_arg(a++, bo_task_bufs[ch]);    // task_buffer
             run.set_arg(a++, pma_raw_data_start);
             run.set_arg(a++, pma_vecinfo_start);
@@ -873,7 +858,7 @@ int main(int argc, char** argv)
             // ONLINE mode keeps 0 (kernel waits for online_in updates)
             int ec = (gen_edge_count > 0) ? task_buf_cnt[ch] : std::max(task_buf_cnt[ch], 1);
             run.set_arg(a++, ec);
-            run.set_arg(9, pma_bm_start);         // bitmap_offset (kernel scalar, before axis)
+            run.set_arg(8, pma_bm_start);         // bitmap_offset (kernel scalar, before axis)
         }
 
         // Start generator + router stream for online updates (skip if no edges)

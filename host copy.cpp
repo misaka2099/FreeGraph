@@ -41,7 +41,9 @@ void print_pma(int pma_idx, VEC_INFO* pos_info, BYTE* storage)
     std::cout << "PMA " << pma_idx << " ADDR START FROM " << start << " LEN " << len << std::endl;
     PMA_HEADER header;
     memcpy(&header, storage + start, sizeof(PMA_HEADER));
-    int* pma_data = (int*)(storage + sizeof(PMA_HEADER) + start);
+    int total_segs = header.vertex_range[VERTEX_PER_PMA - 1];
+    int hlp_words = hlp_total_words(total_segs);
+    int* pma_data = (int*)(storage + sizeof(PMA_HEADER) + hlp_words * 64 + start);
     for (int i = 0; i < VERTEX_PER_PMA; i++) {
         int src = pma_idx * VERTEX_PER_PMA + i;
         int edge_count = header.edge_count[i];

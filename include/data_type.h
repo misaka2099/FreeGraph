@@ -283,7 +283,7 @@ struct bs_batch_t {
     int start_byte;              // forwarded: PMA absolute HBM byte offset
     ap_uint<512> range_word;     // forwarded: header[0] — vertex ranges + total_segs
     ap_uint<512> edge_count_word;// forwarded: header[1] — per-vertex edge counts
-    int target_group_start[16];          // absolute segment group for each op
+    int target_seg[16];          // absolute segment index for each op
     int dst[16];                 // destination vertex
     int local_src[16];           // source vertex within PMA (0..15)
     ap_uint<16> op_mask;         // bit i: 0=insert_edge, 1=delete_edge
