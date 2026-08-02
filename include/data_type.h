@@ -252,19 +252,31 @@ struct MEMORY_INFO_ACCESS_COMMAND
 #define PMA_ENLARGE_FACTOR 4
 
 // --- Helper Array Layout (per PMA, after header) ---
-// Each segment has a 64-bit helper entry: [31:0]=first_dst, [63:32]=valid_count
-// 8 entries packed per 512-bit word
-#define HELPER_ENTRIES_PER_WORD 8
+// SoA layout: FE area + VC area
+//   first_edge area: 1 entry per segment (= first_edge, 32-bit)
+//                    16 entries per 512-bit word
+//   valid_count area: 1 entry per segment (= valid_count, 32-bit)
+//                     16 entries per 512-bit word
+static const int FE_SOA_ENTRIES_PER_WORD = 16;
+static const int VC_SOA_ENTRIES_PER_WORD = 16;
 
-// Helper entry helpers
-#define HELPER_FIRST_MASK  0x00000000FFFFFFFFUL  // bits [31:0]
+// Deprecated AoS constants kept for reference:
+#define HELPER_ENTRIES_PER_WORD 8   // old AoS: 8 × 64-bit entries per word
+#define HELPER_FIRST_MASK  0x00000000FFFFFFFFUL
 #define HELPER_VALID_SHIFT 32
-
-// Helper word count for a PMA with total_segs segments
 #define HELPER_WORDS(total_segs) (((total_segs) + HELPER_ENTRIES_PER_WORD - 1) / HELPER_ENTRIES_PER_WORD)
 
-// Total PMA words: header + helper + segments
-#define PMA_TOTAL_WORDS(total_segs) (4 + HELPER_WORDS(total_segs) + (total_segs) * 4)
+// SoA helper word counts
+static inline int fe_words_for(int segs) {
+    return (segs + FE_SOA_ENTRIES_PER_WORD - 1) / FE_SOA_ENTRIES_PER_WORD;
+}
+static inline int vc_words_for(int segs) {
+    return (segs + VC_SOA_ENTRIES_PER_WORD - 1) / VC_SOA_ENTRIES_PER_WORD;
+}
+static inline int hlp_total_words(int segs) { return fe_words_for(segs) + vc_words_for(segs); }
+
+// Total PMA words: header + helper (FE+VC) + segments
+static inline int pma_total_words_for(int segs) { return 4 + hlp_total_words(segs) + segs * 4; }
 
 // --- Three-Phase Pipeline Types ---
 
