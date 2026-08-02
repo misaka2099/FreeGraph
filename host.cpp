@@ -473,9 +473,10 @@ int main(int argc, char** argv)
         run.set_arg(a++, pma_raw_data_start);
         run.set_arg(a++, pma_vecinfo_start);
         // edge_count (arg 8) set per-batch in run_update_batch
+        run.set_arg(9, ch);                  // worker_id (kernel scalar)
         // alloc_cmd_stream, alloc_rsp_stream, bitmap_init, online_in: axis, no host set
-        run.set_arg(9, pma_bm_start);        // bitmap_offset (kernel scalar, before axis ports)
-        std::cout << "[DBG] L373: standalone insert_edge kernel args set (6 ports + 3 offsets) for " << CHANNEL_NUM << " channels" << std::endl;
+        run.set_arg(10, pma_bm_start);       // bitmap_offset (kernel scalar, before axis ports)
+        std::cout << "[DBG] L373: standalone insert_edge kernel args set (6 ports + 4 scalars) for " << CHANNEL_NUM << " channels" << std::endl;
 #else
         std::cout << "[DBG] L373: insert_edge kernel args set (4 ports + 2 offsets) for " << CHANNEL_NUM << " channels" << std::endl;
         run.set_arg(a++, pma_raw_data_start);
@@ -870,7 +871,8 @@ int main(int argc, char** argv)
             // ONLINE mode keeps 0 (kernel waits for online_in updates)
             int ec = (gen_edge_count > 0) ? task_buf_cnt[ch] : std::max(task_buf_cnt[ch], 1);
             run.set_arg(a++, ec);
-            run.set_arg(9, pma_bm_start);         // bitmap_offset (kernel scalar, before axis)
+            run.set_arg(9, ch);                  // worker_id (kernel scalar)
+            run.set_arg(10, pma_bm_start);        // bitmap_offset (kernel scalar, before axis)
         }
 
         // Start generator + router stream for online updates (skip if no edges)
