@@ -952,8 +952,8 @@ void collect_edge_to_buffer(
         }
 
         // ==== Phase 2: init edge_buf + pack valid edges (all on-chip) ====
-        int segs_in_chunk = chunk_words / SEG_WORDS_PER_SEG;
-        int max_edge_words = (segs_in_chunk * EDGE_SLOTS_PER_SEG + 15) / 16;
+        int segs_in_chunk = chunk_words >> 2;  // / SEG_WORDS_PER_SEG (4)
+        int max_edge_words = ((segs_in_chunk * EDGE_SLOTS_PER_SEG + 15) >> 4) + 1;
 
         // Initialize edge_buf to all UNUSED_ICON (all 1s = -1 in every slot)
         for (int i = 0; i < max_edge_words; i++) {
@@ -961,9 +961,16 @@ void collect_edge_to_buffer(
             edge_buf[i] = ~ap_uint<512>(0);
         }
 
-        int edge_cnt = 0;
+        // Edges are packed with GLOBAL edge indices so chunks stay contiguous
+        // across the 16-slot word boundary: edge #(total_edges + edge_cnt)
+        // lands at word (total_edges + edge_cnt) >> 4, slot ... & 0xF, relative
+        // to hbm_wo = total_edges >> 4. Without this, chunk N overwrites the
+        // tail of chunk N-1's last word when the cumulative edge count is not
+        // a multiple of 16.
+        int hbm_wo    = total_edges >> 4;
+        int edge_cnt  = 0;
         for (int s = 0; s < segs_in_chunk; s++) {
-            int seg_base = s * SEG_WORDS_PER_SEG;
+            int seg_base = s << 2;  // s * SEG_WORDS_PER_SEG (4)
             // valid_count lives in word 3, bits [511:480]
             int vc = (int)onchip_buffer[seg_base + 3].range(511, 480);
             if (vc > EDGE_SLOTS_PER_SEG) vc = EDGE_SLOTS_PER_SEG;
@@ -972,19 +979,19 @@ void collect_edge_to_buffer(
                 // No PIPELINE — RMW on same edge_buf word across consecutive
                 // iterations is resolved by HLS with safe II; on-chip access
                 // is not the bottleneck (HBM burst dominates).
-                int wi = seg_base + k / 16;
-                int si = k % 16;
+                int wi = seg_base + (k >> 4);
+                int si = k & 0xF;
                 int edge = (int)onchip_buffer[wi].range(si * 32 + 31, si * 32);
-                int word_idx = edge_cnt / 16;
-                int slot     = edge_cnt % 16;
+                int global_edge = total_edges + edge_cnt;
+                int word_idx = (global_edge >> 4) - hbm_wo;
+                int slot     = global_edge & 0xF;
                 edge_buf[word_idx].range(slot * 32 + 31, slot * 32) = (ap_uint<32>)edge;
                 edge_cnt++;
             }
         }
 
         // ==== Phase 3: burst-write edge_buf → hbm_buffer ====
-        int edge_words = (edge_cnt + 15) / 16;
-        int hbm_wo = total_edges / 16;  // 512-bit word offset in hbm_buffer
+        int edge_words = ((total_edges + edge_cnt + 15) >> 4) - hbm_wo;
         for (int i = 0; i < edge_words; i++) {
             #pragma HLS PIPELINE II=1
             hbm_buffer[hbm_wo + i] = edge_buf[i];
@@ -1045,8 +1052,13 @@ void redistribute_edge_from_hbm(
         }
 
         // ==== Phase 2: burst-read edges from hbm_buffer → edge_buf ====
-        int edge_words = (chunk_edges + 15) >> 4;
+        // edge_words must cover the full word range: the starting word may be
+        // partially consumed (edge_offset + edge_start not a multiple of 16),
+        // so the read length is ceil((start_mod + chunk_edges) / 16), not
+        // ceil(chunk_edges / 16) — otherwise the tail words are garbage.
         int hbm_edge_wo = (edge_offset + edge_start) >> 4;
+        int start_mod   = (edge_offset + edge_start) & 0xF;
+        int edge_words  = ((start_mod + chunk_edges + 15) >> 4);
         for (int i = 0; i < edge_words; i++) {
             #pragma HLS PIPELINE II=1
             edge_buf[i] = hbm_buffer[hbm_edge_wo + i];
@@ -1277,6 +1289,7 @@ static void pma_redist_enlarge(
         fcmd.range(95, 64) = 2;                   // opcode=FREE
         redist_alloc_cmd.write(fcmd);
     }
+    ap_wait();  // barrier: FREE 必须排在 VEC_INFO 更新之前 (CLAUDE.md)
 
     // ---- Step 8: update VEC_INFO + report new location ----
     VEC_INFO nvi = 0;

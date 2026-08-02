@@ -23,7 +23,7 @@ bool final_match = true;
 const bool kBaseGraphReadOnlyTest = false;
 const bool kVertexOnlyTest = false;
 const bool kShuffleSameTimestampOps = true; // Set to true to enable shuffling of operations with the same timestamp
-const bool kMismatchfileOutput = false; // Set to true to output mismatch details to files
+const bool kMismatchfileOutput = true; // Set to true to output mismatch details to files
 void print_pma(
     int pma_idx,
     VEC_INFO* pos_info,
@@ -36,22 +36,25 @@ void print_pma(
     PMA_HEADER header;
     memcpy(&header, storage + start, sizeof(PMA_HEADER));
     int total_segs = header.vertex_range[VERTEX_PER_PMA - 1];
-    int hpw = (total_segs + 7) / 8;
-    // Helper: hpw × 64 bytes after header, 8 entries per 512-bit word
-    ap_uint<512>* helper_ptr = (ap_uint<512>*)(storage + start + sizeof(PMA_HEADER));
-    // Segment data: after helper
-    int *pma_data = (int*)(storage + start + sizeof(PMA_HEADER) + hpw * 64);
+    int fe_words = fe_words_for(total_segs);
+    int vc_words = vc_words_for(total_segs);
+    int hlp_words = fe_words + vc_words;  // = hlp_total_words(total_segs)
+    // SoA layout: FE area (1 entry per segment, 16 entries/word) + VC area (same)
+    ap_uint<512>* fe_ptr = (ap_uint<512>*)(storage + start + sizeof(PMA_HEADER));
+    ap_uint<512>* vc_ptr = fe_ptr + fe_words;
+    // Segment data: after header + helper
+    int *pma_data = (int*)(storage + start + sizeof(PMA_HEADER) + hlp_words * 64);
 
     std::cout << "=== PMA " << pma_idx << " start=" << start << " len=" << len
-              << " total_segs=" << total_segs << " hpw=" << hpw << " ===" << std::endl;
+              << " total_segs=" << total_segs << " hlp_words=" << hlp_words << " ===" << std::endl;
 
-    // Print helper
+    // Print helper (SoA: FE and VC separate, 16 entries per 512-bit word)
     std::cout << "  Helper (first_edge, valid_count):" << std::endl;
     for (int s = 0; s < total_segs; s++) {
-        int w = s / 8, slot = s % 8;
-        ap_uint<64> entry = helper_ptr[w].range(slot * 64 + 63, slot * 64);
-        int first_edge = (int)entry.range(31, 0);
-        int vc = (int)entry.range(63, 32);
+        int fe_word = s / FE_SOA_ENTRIES_PER_WORD, fe_slot = s % FE_SOA_ENTRIES_PER_WORD;
+        int vc_word = s / VC_SOA_ENTRIES_PER_WORD, vc_slot = s % VC_SOA_ENTRIES_PER_WORD;
+        int first_edge = (int)fe_ptr[fe_word].range(fe_slot * 32 + 31, fe_slot * 32);
+        int vc         = (int)vc_ptr[vc_word].range(vc_slot * 32 + 31, vc_slot * 32);
         std::cout << "    seg" << s << ": fe=" << first_edge << " vc=" << vc;
         if ((s + 1) % 4 == 0 || s == total_segs - 1) std::cout << std::endl;
         else std::cout << " | ";
@@ -1219,7 +1222,7 @@ int main(int argc, char** argv)
                     int first_vtx = -1;
                     while (std::getline(mf, line)) {
                         if (line.rfind("MISMATCH AT VERTEX ", 0) == 0) {
-                            first_vtx = std::stoi(line.substr(20));
+                            first_vtx = std::stoi(line.substr(19));
                             break;
                         }
                     }
