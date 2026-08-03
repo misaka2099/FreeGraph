@@ -136,6 +136,25 @@ test_hbm_build_time: test_hbm_build_time.cpp
 bfs_host: bfs_host.cpp
 	g++ -std=c++17 $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
 
+# ---- Read pipeline + ReGraph compute (regraph_read) ----
+# 只含读管线 + ReGraph 计算链: 无 router/merger/insert/check。
+# edgeReader 直接驱动 CHANNEL_NUM 个 pma_read_worker_kernel。
+READ_REGRAPH_XO_FILES := $(PMA_KERNEL_DIR)/pma_read_worker_kernel.xo \
+	$(REGRAPH_KERNEL_DIR)/edgeReader.xo $(REGRAPH_KERNEL_DIR)/littleKernelScatterGather.xo \
+	$(REGRAPH_KERNEL_DIR)/kernelLittleGSMerger.xo $(REGRAPH_KERNEL_DIR)/kernelApply.xo \
+	$(REGRAPH_KERNEL_DIR)/kernelHBMWrapper.xo
+READ_REGRAPH_XCLBIN := $(TARGET)_regraph_read.xclbin
+regraph_read: subdirs_regraph_read $(READ_REGRAPH_XCLBIN)
+subdirs_regraph_read:
+	$(MAKE) -C pma_kernel pma_read_worker_kernel.xo TARGET=$(TARGET)
+	$(MAKE) -C ReGraph -f makekernel.mk xokernels/edgeReader.xo xokernels/littleKernelScatterGather.xo xokernels/kernelLittleGSMerger.xo xokernels/kernelApply.xo xokernels/kernelHBMWrapper.xo TARGET=$(TARGET) WHOLE_HOST_DEFINES="$(WHOLE_HOST_DEFINES)" ALGO=$(ALGO)
+$(READ_REGRAPH_XCLBIN): $(READ_REGRAPH_XO_FILES)
+	@echo "---- Linking read-pipeline + ReGraph system to create $@ ----"
+	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --kernel_frequency=150 --save-temps --config regraph_read_system.cfg -o $@ $^
+	@echo "---- Link done: $@ ----"
+regraph_read_host: regraph_read_host.cpp
+	g++ -std=c++17 $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
+
 clean:
 	$(MAKE) -C memkernel clean
 	$(MAKE) -C pma_kernel clean

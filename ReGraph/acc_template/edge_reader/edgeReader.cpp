@@ -1,5 +1,6 @@
 #include <hls_stream.h>
 #include <ap_int.h>
+#include <ap_axi_sdata.h>
 
 #include "acc_data_types.h"
 #include "acc_config.h"
@@ -7,18 +8,16 @@
 #include "l1_api.h"
 #include "data_type.h"
 
-#ifndef LITTLE_KERNEL_DST_BUFFER_SIZE
-#define LITTLE_KERNEL_DST_BUFFER_SIZE 65536
-#endif
-
-#ifndef BIG_KERNEL_DST_BUFFER_SIZE
-#define BIG_KERNEL_DST_BUFFER_SIZE 524288
-#endif
-
 #ifndef SRC_BUFFER_SIZE
 #define SRC_BUFFER_SIZE 4096
 #endif
 
+// Read pipeline worker count — must match pma_read_worker_kernel instances in
+// regraph_read_system.cfg (CHANNEL_NUM from data_type.h).
+static const int READ_WORKERS = CHANNEL_NUM;
+
+// Same packet type as pma_read_worker_kernel's pkt_to_merger port.
+typedef ap_axiu<64, 8, 0, 0> READ_PKT_STREAM;
 
 static inline void init_dummy_burst(edge_burst_dt &burst)
 {
@@ -31,221 +30,263 @@ static inline void init_dummy_burst(edge_burst_dt &burst)
     }
 }
 
-static inline void emit_count(hls::stream<ap_axiu<32,0,0,0>> &count_stm, ap_uint<32> count)
-{
-#pragma HLS INLINE
-    ap_axiu<32,0,0,0> pkt = {};
-    pkt.data = count;
-    pkt.keep = 0xF;
-    pkt.strb = 0xF;
-    pkt.last = 1;
-    count_stm.write(pkt);
-}
-
+// edgeReader drives the PMA read pipeline directly (no read router, no read
+// merger): it broadcasts commands to all READ_WORKERS and merges their packet
+// streams itself, converting the COO stream into ReGraph edge bursts.
+//
+// Merging strategy — per-PMA round robin:
+//   Each worker streams its own PMAs in order (pma_idx = worker_id, +READ_WORKERS),
+//   delimited by per-PMA end markers (keep!=0, last==1) and terminated by a
+//   done marker (keep==0, last==1). Draining one PMA per worker in round-robin
+//   order yields a globally src-sorted edge stream, which the ReGraph GS
+//   kernel's src-property ping-pong prefetch relies on.
+//
+// Edge count protocol:
+//   Phase 1 requests PMA_GET_EDGE_COUNT_RANGE per SRC_BUFFER_SIZE chunk, sums
+//   the workers' partial counts, and computes the exact padding needed to keep
+//   every 8-edge burst within one src buffer. The count sent to the GS kernel
+//   (total + padding + one dummy burst) is emitted as exactly that many bursts
+//   in phase 2, so the GS kernel never blocks or over-reads.
 extern "C"
 {
-    static inline void pad_to_burst(
-        edge_burst_dt &burst,
-        hls::stream<edge_burst_dt> &out_stm,
-        ap_uint<32> last_src,
-        ap_uint<32> &fill,
-        ap_uint<32> &edge_count,
-        bool mark_src_msb)
-    {
-#pragma HLS INLINE
-        while (fill != 0)
-        {
-            ap_uint<32> src = mark_src_msb ? (last_src | 0x80000000) : last_src;
-            burst.edges[fill].src = src;
-            burst.edges[fill].dst = (ap_uint<32>)ENDFLAG | (ap_uint<32>)0x80000000;
-            fill++;
-            edge_count++;
-            if (fill == NUM_EDGE_PER_BURST)
-            {
-                write_to_stream(out_stm, burst);
-                init_dummy_burst(burst);
-                fill = 0;
-            }
-        }
-    }
-
     void edgeReader(
-        ap_uint<32> little_part_dst_offset,
-        // ap_uint<32> big_part_dst_offset,
-        // ap_uint<32> *coo_array,
-        int last,
+        ap_uint<64> *edge_count_out,
+        int num_vertices,
         hls::stream<edge_burst_dt> &little_edge_burst_stm,
-        // hls::stream<edge_burst_dt> &big_edge_burst_stm,
         hls::stream<ap_axiu<32,0,0,0>> &little_edge_num_stm,
-        // hls::stream<ap_axiu<32,0,0,0>> &big_edge_num_stm,
-
-        hls::stream<READ_COMMAND_STREAM> &little_cmd_stm,
-        hls::stream<ap_axiu<32,0,0,0>> &little_coo_edge_num_stm,
-        hls::stream<ap_axiu<64,0,0,0>> &coo_array_stm
-        // hls::stream<READ_COMMAND_STREAM> &big_cmd_stm
+        hls::stream<READ_COMMAND_STREAM> &worker_cmd_0,
+        hls::stream<READ_COMMAND_STREAM> &worker_cmd_1,
+        hls::stream<READ_COMMAND_STREAM> &worker_cmd_2,
+        hls::stream<READ_PKT_STREAM> &worker_pkt_0,
+        hls::stream<READ_PKT_STREAM> &worker_pkt_1,
+        hls::stream<READ_PKT_STREAM> &worker_pkt_2
     )
     {
-    // #pragma HLS INTERFACE m_axi port=coo_array offset=slave bundle=gmem0
-    // #pragma HLS INTERFACE s_axilite port=coo_array bundle=control
-    #pragma HLS INTERFACE axis port=little_edge_burst_stm
-    #pragma HLS INTERFACE s_axilite port=last bundle=control
-    // #pragma HLS INTERFACE axis port=big_edge_burst_stm
-    #pragma HLS INTERFACE axis port=little_edge_num_stm
-    // #pragma HLS INTERFACE axis port=big_edge_num_stm
-    #pragma HLS INTERFACE axis port=little_coo_edge_num_stm
-    #pragma HLS INTERFACE axis port=coo_array_stm
-
-    #pragma HLS INTERFACE s_axilite port=little_part_dst_offset bundle=control
-    // #pragma HLS INTERFACE s_axilite port=big_part_dst_offset bundle=control
+    #pragma HLS INTERFACE m_axi port=edge_count_out offset=slave bundle=gmem0
+    #pragma HLS INTERFACE s_axilite port=edge_count_out bundle=control
+    #pragma HLS INTERFACE s_axilite port=num_vertices bundle=control
     #pragma HLS INTERFACE s_axilite port=return bundle=control
-    #pragma HLS INTERFACE axis port=little_cmd_stm
-    // #pragma HLS INTERFACE axis port=big_cmd_stm
+    #pragma HLS INTERFACE axis port=little_edge_burst_stm
+    #pragma HLS INTERFACE axis port=little_edge_num_stm
+    #pragma HLS INTERFACE axis port=worker_cmd_0
+    #pragma HLS INTERFACE axis port=worker_cmd_1
+    #pragma HLS INTERFACE axis port=worker_cmd_2
+    #pragma HLS INTERFACE axis port=worker_pkt_0
+    #pragma HLS INTERFACE axis port=worker_pkt_1
+    #pragma HLS INTERFACE axis port=worker_pkt_2
 
-        const ap_uint<32> little_size = LITTLE_KERNEL_DST_BUFFER_SIZE;
-        const ap_uint<32> big_size = BIG_KERNEL_DST_BUFFER_SIZE;
-        ap_uint<32> prev_src_buffer = (ap_uint<32>)0xFFFFFFFF;
+    #pragma HLS STREAM variable=worker_cmd_0 depth=16
+    #pragma HLS STREAM variable=worker_cmd_1 depth=16
+    #pragma HLS STREAM variable=worker_cmd_2 depth=16
+    #pragma HLS STREAM variable=worker_pkt_0 depth=128
+    #pragma HLS STREAM variable=worker_pkt_1 depth=128
+    #pragma HLS STREAM variable=worker_pkt_2 depth=128
+    #pragma HLS STREAM variable=little_edge_burst_stm depth=16
+    #pragma HLS STREAM variable=little_edge_num_stm depth=4
 
-        edge_burst_dt little_burst;
-        init_dummy_burst(little_burst);
-        ap_wait();
-        ap_uint<32> little_edge_count = 0;
-        ap_uint<32> little_fill = 0;
-        ap_uint<32> little_last_src = 0;
-        ap_uint<32> little_prev_src = (ap_uint<32>)0xFFFFFFFF;
-        bool little_has_edge = false;
+        // ---------------- Phase 1: edge counting + padding budget ----------------
+        // Request the edge count per SRC_BUFFER_SIZE chunk so that the padding
+        // needed at src-buffer boundaries can be accounted for exactly.
+        int num_buffers = (num_vertices + SRC_BUFFER_SIZE - 1) / SRC_BUFFER_SIZE;
+        ap_uint<32> total_edge_count = 0;
+        ap_uint<32> padding_sum = 0;
 
-        // READ_COMMAND_STREAM cmd;
-        // cmd.data = PMA_GET_ALL_OUT_EDGE_COO;
-        // cmd.last = 0;
-        // little_cmd_stm.write(cmd);
+        for (int b = 0; b < num_buffers; b++)
+        {
+            int chunk_start = b * SRC_BUFFER_SIZE;
+            int chunk_end = chunk_start + SRC_BUFFER_SIZE;
+            if (chunk_end > num_vertices) chunk_end = num_vertices;
 
-
-        // 第一步：先请求边数目
-        int src_idx = 0;
-        bool edge_count_last = false;
-        int total_edge_count_after_padding = 0;
-        int total_edge_count = 0;
-        do 
-        {    
             READ_COMMAND_STREAM count_cmd = {};
             count_cmd.data.range(31, 0)  = PMA_GET_EDGE_COUNT_RANGE;
-            count_cmd.data.range(63, 32) = src_idx;           // start_v = 0
-            count_cmd.data.range(95, 64) = src_idx + SRC_BUFFER_SIZE;  // end_v = 全量
+            count_cmd.data.range(63, 32) = chunk_start;
+            count_cmd.data.range(95, 64) = chunk_end;
             count_cmd.last = 0;
-            little_cmd_stm.write(count_cmd);
+            count_cmd.keep = 0xFF;
+            count_cmd.strb = 0xFF;
+            worker_cmd_0.write(count_cmd);
+            worker_cmd_1.write(count_cmd);
+            worker_cmd_2.write(count_cmd);
             #pragma HLS protocol fixed
             ap_wait();
-            // 等 pma_read_kernel 把边总数写到 coo_edge_count_stream
-            auto edge_num = little_coo_edge_num_stm.read();
-            edge_count_last = edge_num.last;
-            int padding_count = edge_num.data;
-            total_edge_count += edge_num.data;
-            // 向上取8的标准写法
-            padding_count = ((padding_count + 7) / 8) * 8;
-            total_edge_count_after_padding += padding_count;
-            src_idx += SRC_BUFFER_SIZE;
+
+            // Each worker answers with exactly one count packet (partial sum)
+            // followed by one done marker.
+            ap_uint<32> chunk_count = 0;
+            READ_PKT_STREAM count_pkt_0 = worker_pkt_0.read();
+            chunk_count += count_pkt_0.data.range(31, 0);
+            READ_PKT_STREAM done_pkt_0 = worker_pkt_0.read();
+            (void)done_pkt_0;
+            READ_PKT_STREAM count_pkt_1 = worker_pkt_1.read();
+            chunk_count += count_pkt_1.data.range(31, 0);
+            READ_PKT_STREAM done_pkt_1 = worker_pkt_1.read();
+            (void)done_pkt_1;
+            READ_PKT_STREAM count_pkt_2 = worker_pkt_2.read();
+            chunk_count += count_pkt_2.data.range(31, 0);
+            READ_PKT_STREAM done_pkt_2 = worker_pkt_2.read();
+            (void)done_pkt_2;
+
+            total_edge_count += chunk_count;
+            ap_uint<32> chunk_remainder = chunk_count % 8;
+            if (chunk_remainder != 0) padding_sum += (8 - chunk_remainder);
         }
-        while (!edge_count_last);
-        total_edge_count_after_padding = (total_edge_count_after_padding / 8 + 1) * 8;
-        // 向上8对齐边数量后再转发给 little GS kernel, 如果正好8对齐还要再额外发一个包
 
-        
-        ap_axiu<32,0,0,0> aligned_edge_num = {total_edge_count_after_padding};
-        little_edge_num_stm.write(aligned_edge_num);  // 转发给 little GS kernel（已向上8对齐）
+        // count_to_send: real edges + boundary/final padding + one extra dummy
+        // burst (keeps the GS kernel's burst counter exact in all cases).
+        ap_uint<32> count_to_send = total_edge_count + padding_sum + 8;
 
-        // 第二步：再请求 COO 边数据
+        // Forward the (8-aligned) count to the GS kernel before any burst.
+        ap_axiu<32,0,0,0> edge_num_pkt = {};
+        edge_num_pkt.data = count_to_send;
+        edge_num_pkt.keep = 0xF;
+        edge_num_pkt.strb = 0xF;
+        edge_num_pkt.last = 1;
+        little_edge_num_stm.write(edge_num_pkt);
+
+        // Report counts to the host (verification + performance accounting).
+        edge_count_out[0] = (ap_uint<64>)total_edge_count;
+        edge_count_out[1] = (ap_uint<64>)count_to_send;
+
+        // ---------------- Phase 2: stream all edges as COO ----------------
         READ_COMMAND_STREAM coo_cmd = {};
         coo_cmd.data = PMA_GET_ALL_OUT_EDGE_COO;
         coo_cmd.last = 0;
-        little_cmd_stm.write(coo_cmd);
-        ap_uint<32> idx = 0;
-        int last_src = 0;
-        for (int i = 0 ; i < total_edge_count; i++)
+        coo_cmd.keep = 0xFF;
+        coo_cmd.strb = 0xFF;
+        worker_cmd_0.write(coo_cmd);
+        worker_cmd_1.write(coo_cmd);
+        worker_cmd_2.write(coo_cmd);
+        #pragma HLS protocol fixed
+        ap_wait();
+
+        bool worker_done[READ_WORKERS];
+        for (int w = 0; w < READ_WORKERS; w++)
         {
-        #pragma HLS PIPELINE II=1
+    #pragma HLS UNROLL
+            worker_done[w] = false;
+        }
+        int done_count = 0;
+        int worker_idx = 0;
 
-            auto single_edge = coo_array_stm.read();
-            ap_uint<64> single_edge_data = single_edge.data;
+        edge_burst_dt burst;
+        init_dummy_burst(burst);
+        int fill_count = 0;
+        ap_uint<32> emitted_count = 0;
+        ap_uint<32> prev_src_buffer = (ap_uint<32>)0xFFFFFFFF;
+        ap_uint<32> last_real_src = 0;
 
-            ap_uint<32> src = single_edge_data.range(63,32);
-            ap_uint<32> dst = single_edge_data.range(31,0);
+        // Per-PMA round-robin merge of the three worker streams.
+        while (done_count < READ_WORKERS)
+        {
+    #pragma HLS PIPELINE II=1
+            if (worker_done[worker_idx])
+            {
+                worker_idx = (worker_idx + 1) % READ_WORKERS;
+                continue;
+            }
 
+            READ_PKT_STREAM pkt;
+            if      (worker_idx == 0) pkt = worker_pkt_0.read();
+            else if (worker_idx == 1) pkt = worker_pkt_1.read();
+            else                      pkt = worker_pkt_2.read();
+
+            if (pkt.keep == 0 && pkt.last == 1)
+            {
+                // Done marker: this worker has no more PMAs.
+                worker_done[worker_idx] = true;
+                done_count++;
+                worker_idx = (worker_idx + 1) % READ_WORKERS;
+                continue;
+            }
+            if (pkt.keep != 0 && pkt.last == 1)
+            {
+                // Per-PMA end marker: move to the next worker's next PMA.
+                worker_idx = (worker_idx + 1) % READ_WORKERS;
+                continue;
+            }
+
+            // Data packet: (src << 32) | dst
+            ap_uint<32> src = pkt.data.range(63, 32);
+            ap_uint<32> dst = pkt.data.range(31, 0);
             ap_uint<32> current_src_buffer = src / SRC_BUFFER_SIZE;
 
-            if (current_src_buffer != prev_src_buffer && little_fill != 0)
+            // Pad the in-flight burst to 8 at a src-buffer boundary so no burst
+            // straddles two buffers (the GS scatter reads props per burst head).
+            if (current_src_buffer != prev_src_buffer && fill_count != 0)
             {
-                // padding 到 8（不加 mask！和 host 一样）
-                while (little_fill != 0)
+                int pad_num = 8 - fill_count;
+                for (int p = 0; p < 8; p++)
                 {
-                    little_burst.edges[little_fill].src = little_last_src;
-                    little_burst.edges[little_fill].dst =
-                        (ap_uint<32>)ENDFLAG | (ap_uint<32>)0x80000000;
-
-                    little_fill++;
-                    little_edge_count++;
-
-                    if (little_fill == NUM_EDGE_PER_BURST)
+    #pragma HLS UNROLL
+                    if (p < pad_num)
                     {
-                        write_to_stream(little_edge_burst_stm, little_burst);
-                        init_dummy_burst(little_burst);
-                        little_fill = 0;
+                        burst.edges[fill_count + p].src = last_real_src | 0x80000000;
+                        burst.edges[fill_count + p].dst =
+                            (ap_uint<32>)ENDFLAG | (ap_uint<32>)0x80000000;
                     }
                 }
+                little_edge_burst_stm.write(burst);
+                init_dummy_burst(burst);
+                emitted_count += pad_num;
+                fill_count = 0;
             }
 
-            // 正常写 edge
-            little_burst.edges[little_fill].src = src;
-            little_burst.edges[little_fill].dst = dst;
-
-            little_last_src = src;
+            burst.edges[fill_count].src = src;
+            burst.edges[fill_count].dst = dst;
+            last_real_src = src;
             prev_src_buffer = current_src_buffer;
+            fill_count++;
+            emitted_count++;
 
-            little_fill++;
-            little_edge_count++;
-
-            if (little_fill == NUM_EDGE_PER_BURST)
+            if (fill_count == NUM_EDGE_PER_BURST)
             {
-                write_to_stream(little_edge_burst_stm, little_burst);
-                init_dummy_burst(little_burst);
-                little_fill = 0;
+                little_edge_burst_stm.write(burst);
+                init_dummy_burst(burst);
+                fill_count = 0;
             }
         }
-        coo_array_stm.read();
 
-
-        while (little_fill != 0)
+        // Final pad to the burst boundary, then dummy edges up to count_to_send.
+        if (fill_count != 0)
         {
-            little_burst.edges[little_fill].src = little_last_src;
-            little_burst.edges[little_fill].dst =
-                (ap_uint<32>)ENDFLAG | (ap_uint<32>)0x80000000;
-
-            little_fill++;
-            little_edge_count++;
-
-            if (little_fill == NUM_EDGE_PER_BURST)
+            int pad_num = 8 - fill_count;
+            for (int p = 0; p < 8; p++)
             {
-                write_to_stream(little_edge_burst_stm, little_burst);
-                init_dummy_burst(little_burst);
-                little_fill = 0;
+    #pragma HLS UNROLL
+                if (p < pad_num)
+                {
+                    burst.edges[fill_count + p].src = last_real_src | 0x80000000;
+                    burst.edges[fill_count + p].dst =
+                        (ap_uint<32>)ENDFLAG | (ap_uint<32>)0x80000000;
+                }
             }
+            little_edge_burst_stm.write(burst);
+            init_dummy_burst(burst);
+            emitted_count += pad_num;
+            fill_count = 0;
         }
-        if (little_edge_count % 8 == 0)
+        while (emitted_count < count_to_send)
         {
-            // no edges: emit a single dummy burst
-            for (int i = 0; i < NUM_EDGE_PER_BURST; ++i)
+            burst.edges[fill_count].src = last_real_src | 0x80000000;
+            burst.edges[fill_count].dst = (ap_uint<32>)ENDFLAG | (ap_uint<32>)0x80000000;
+            fill_count++;
+            emitted_count++;
+            if (fill_count == NUM_EDGE_PER_BURST)
             {
-#pragma HLS UNROLL
-                little_burst.edges[i].src = last_src | 0x80000000;
-                little_burst.edges[i].dst = (ap_uint<32>)ENDFLAG | (ap_uint<32>)0x80000000;
+                little_edge_burst_stm.write(burst);
+                init_dummy_burst(burst);
+                fill_count = 0;
             }
-            write_to_stream(little_edge_burst_stm, little_burst);
-            little_edge_count = NUM_EDGE_PER_BURST;
         }
-        READ_COMMAND_STREAM stop_pkt = {};
-        stop_pkt.data = (ap_uint<64>)PMA_STOP;
-        stop_pkt.keep = (ap_uint<8>)0xFF;
-        stop_pkt.strb = (ap_uint<8>)0xFF;
-        stop_pkt.last = last;
-        little_cmd_stm.write(stop_pkt);
+
+        // Terminate the read pipeline: workers exit on PMA_STOP with last=1.
+        READ_COMMAND_STREAM stop_cmd = {};
+        stop_cmd.data = (ap_uint<96>)PMA_STOP;
+        stop_cmd.last = 1;
+        stop_cmd.keep = 0xFF;
+        stop_cmd.strb = 0xFF;
+        worker_cmd_0.write(stop_cmd);
+        worker_cmd_1.write(stop_cmd);
+        worker_cmd_2.write(stop_cmd);
     }
 }

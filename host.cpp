@@ -878,8 +878,11 @@ int main(int argc, char** argv)
             run.set_arg(10, pma_bm_start);        // bitmap_offset (kernel scalar, before axis)
         }
 
-        // Start generator + router stream for online updates (skip if no edges)
-        bool use_online = (gen_edge_count > 0);
+        // Start generator + router stream for online updates.
+        // ALWAYS started (even in DIRECT mode, gen_edge_count==0): the
+        // generator sends STOP immediately with 0 edges, which terminates the
+        // workers' online stream — task_reader relies on STOP to finish.
+        bool use_online = true;
         xrt::run run_generator(update_message_generator_kernel);
         xrt::run run_router_stream(update_message_router_stream_kernel);
         if (use_online) {

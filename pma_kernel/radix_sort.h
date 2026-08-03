@@ -1,0 +1,122 @@
+#ifndef RADIX_SORT_H
+#define RADIX_SORT_H
+
+// ---- Radix LSD sort (by src, 24 bits, 6 passes × 4 bits) ----
+// Edges are (src, dst, opcode) triplets in buf[3i .. 3i+2]; sorted by src only.
+//   src = pma<<4 | vertex, so sorting by src groups edges by PMA then vertex.
+//
+// LSD radix: sort the least-significant digit first, each pass STABLE
+// (histogram → prefix sum → in-order reorder), so later (higher) passes
+// preserve the lower-digit order. After 6 passes the array is sorted by the
+// full 24-bit src.
+//
+// Ping-pong: even passes read buf_a → write buf_b, odd read buf_b → write
+// buf_a. After 6 passes (pass 5 is odd) the result is back in buf_a.
+//
+// Note: n is a runtime value; src values must fit in 24 bits (i.e. max vertex
+// index < 2^24 = 16M, matching host MAX_PMA_NUM * VERTEX_PER_PMA).
+
+static void radix_pass(int* src_buf, int* dst_buf, int n, int shift) {
+    int hist[16];
+    #pragma HLS ARRAY_PARTITION variable=hist complete
+    for (int b = 0; b < 16; b++) hist[b] = 0;
+
+    // histogram of the 4-bit digit
+    for (int i = 0; i < n; i++) {
+        #pragma HLS PIPELINE II=1
+        int src = src_buf[i * 3];
+        hist[(src >> shift) & 0xF]++;
+    }
+
+    // prefix sum → per-bucket write offsets
+    int off[16];
+    #pragma HLS ARRAY_PARTITION variable=off complete
+    int acc = 0;
+    for (int b = 0; b < 16; b++) { off[b] = acc; acc += hist[b]; }
+
+    // stable reorder: scan in original order, each element goes to its
+    // bucket's next slot → equal keys keep their relative order
+    for (int i = 0; i < n; i++) {
+        #pragma HLS PIPELINE II=1
+        int src = src_buf[i * 3];
+        int bucket = (src >> shift) & 0xF;
+        int pos = off[bucket];
+        dst_buf[pos * 3 + 0] = src_buf[i * 3 + 0];
+        dst_buf[pos * 3 + 1] = src_buf[i * 3 + 1];
+        dst_buf[pos * 3 + 2] = src_buf[i * 3 + 2];
+        off[bucket]++;
+    }
+}
+
+static void radix_sort_src(int* buf_a, int* buf_b, int n) {
+    for (int pass = 0; pass < 6; pass++) {
+        if ((pass & 1) == 0) radix_pass(buf_a, buf_b, n, pass * 4);
+        else                 radix_pass(buf_b, buf_a, n, pass * 4);
+    }
+    // pass 5 (odd) writes buf_a → result in buf_a
+}
+
+// ---- In-segment bitonic sort by dst (for merge-insert groundwork) ----
+// Sorts edges buf[3i..3i+2] for i in [seg_start, seg_end) by dst ascending,
+// using tmp (≥ 256×3 ints) as scratch. max_size = segment size rounded up to
+// the next power of two (dynamic, ≤ 256); unused slots are padded with
+// dst = INT_MAX sentinels which sink to the end and are dropped on copy-back.
+// Segments larger than 256 are left untouched (caller skips or falls back).
+// Bitonic networks are NOT stable — irrelevant for dst ordering (duplicates
+// are interchangeable).
+#define SEG_BITONIC_MAX 256
+
+static void bitonic_segment_by_dst(int* buf, int* tmp, int seg_start, int seg_end) {
+    int n = seg_end - seg_start;
+    if (n < 2) return;                       // 0/1 element already sorted
+
+    int max_size = 1;
+    while (max_size < n) max_size <<= 1;
+    if (max_size > SEG_BITONIC_MAX) return;  // oversized segment: skip
+
+    // copy segment into tmp + pad with dst sentinels
+    for (int i = 0; i < max_size; i++) {
+        #pragma HLS PIPELINE II=1
+        if (i < n) {
+            tmp[i * 3 + 0] = buf[(seg_start + i) * 3 + 0];
+            tmp[i * 3 + 1] = buf[(seg_start + i) * 3 + 1];
+            tmp[i * 3 + 2] = buf[(seg_start + i) * 3 + 2];
+        } else {
+            tmp[i * 3 + 0] = 0x7FFFFFFF;     // src sentinel
+            tmp[i * 3 + 1] = 0x7FFFFFFF;     // dst sentinel → sinks to end
+            tmp[i * 3 + 2] = 0;
+        }
+    }
+
+    // classic bitonic sorting network on the dst field
+    for (int k = 2; k <= max_size; k <<= 1) {
+        for (int j = k >> 1; j > 0; j >>= 1) {
+            for (int i = 0; i < max_size; i++) {
+                #pragma HLS PIPELINE II=1
+                int ixj = i ^ j;
+                if (ixj > i) {
+                    bool do_swap;
+                    if ((i & k) == 0) do_swap = (tmp[i * 3 + 1] > tmp[ixj * 3 + 1]);
+                    else              do_swap = (tmp[i * 3 + 1] < tmp[ixj * 3 + 1]);
+                    if (do_swap) {
+                        int t0 = tmp[i * 3 + 0], t1 = tmp[i * 3 + 1], t2 = tmp[i * 3 + 2];
+                        tmp[i * 3 + 0] = tmp[ixj * 3 + 0];
+                        tmp[i * 3 + 1] = tmp[ixj * 3 + 1];
+                        tmp[i * 3 + 2] = tmp[ixj * 3 + 2];
+                        tmp[ixj * 3 + 0] = t0; tmp[ixj * 3 + 1] = t1; tmp[ixj * 3 + 2] = t2;
+                    }
+                }
+            }
+        }
+    }
+
+    // copy back (valid elements only, sentinels dropped)
+    for (int i = 0; i < n; i++) {
+        #pragma HLS PIPELINE II=1
+        buf[(seg_start + i) * 3 + 0] = tmp[i * 3 + 0];
+        buf[(seg_start + i) * 3 + 1] = tmp[i * 3 + 1];
+        buf[(seg_start + i) * 3 + 2] = tmp[i * 3 + 2];
+    }
+}
+
+#endif // RADIX_SORT_H
