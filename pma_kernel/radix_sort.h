@@ -1,6 +1,8 @@
 #ifndef RADIX_SORT_H
 #define RADIX_SORT_H
 
+#include <ap_int.h>
+
 // ---- Radix LSD sort (by src, 24 bits, 6 passes × 4 bits) ----
 // Edges are (src, dst, opcode) triplets in buf[3i .. 3i+2]; sorted by src only.
 //   src = pma<<4 | vertex, so sorting by src groups edges by PMA then vertex.
@@ -54,6 +56,49 @@ static void radix_sort_src(int* buf_a, int* buf_b, int n) {
         else                 radix_pass(buf_b, buf_a, n, pass * 4);
     }
     // pass 5 (odd) writes buf_a → result in buf_a
+}
+
+// ---- Radix LSD sort by (src, dst) lexicographic ascending ----
+// key = (src << 32) | dst (64-bit): src 优先, dst 其次 → 字典序。
+// 8-bit radix, 8 passes (shift 0, 8, ..., 56)。Edges are (src, dst, opcode)
+// triplets in buf[3i..3i+2]; the full triplet moves together.
+// Ping-pong: after 8 passes (pass 7 is odd) the result is back in buf_a.
+static void radix_pass_8bit(int* src_buf, int* dst_buf, int n, int shift) {
+    int hist[256];
+    #pragma HLS ARRAY_PARTITION variable=hist complete
+    for (int b = 0; b < 256; b++) hist[b] = 0;
+
+    // histogram of the 8-bit digit of the 64-bit (src<<32)|dst key
+    for (int i = 0; i < n; i++) {
+        #pragma HLS PIPELINE II=1
+        ap_uint<64> key = ((ap_uint<64>)(ap_uint<32>)src_buf[i * 3] << 32) | (ap_uint<32>)src_buf[i * 3 + 1];
+        hist[(int)((key >> shift) & 0xFF)]++;
+    }
+
+    int off[256];
+    #pragma HLS ARRAY_PARTITION variable=off complete
+    int acc = 0;
+    for (int b = 0; b < 256; b++) { off[b] = acc; acc += hist[b]; }
+
+    // stable reorder
+    for (int i = 0; i < n; i++) {
+        #pragma HLS PIPELINE II=1
+        ap_uint<64> key = ((ap_uint<64>)(ap_uint<32>)src_buf[i * 3] << 32) | (ap_uint<32>)src_buf[i * 3 + 1];
+        int bucket = (int)((key >> shift) & 0xFF);
+        int pos = off[bucket];
+        dst_buf[pos * 3 + 0] = src_buf[i * 3 + 0];
+        dst_buf[pos * 3 + 1] = src_buf[i * 3 + 1];
+        dst_buf[pos * 3 + 2] = src_buf[i * 3 + 2];
+        off[bucket]++;
+    }
+}
+
+static void sort_src_dst(int* buf_a, int* buf_b, int n) {
+    for (int pass = 0; pass < 8; pass++) {
+        if ((pass & 1) == 0) radix_pass_8bit(buf_a, buf_b, n, pass * 8);
+        else                 radix_pass_8bit(buf_b, buf_a, n, pass * 8);
+    }
+    // pass 7 (odd) writes buf_a → result in buf_a
 }
 
 // ---- In-segment bitonic sort by dst (for merge-insert groundwork) ----

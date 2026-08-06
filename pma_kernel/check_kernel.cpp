@@ -31,7 +31,11 @@ extern "C"
 
         if (mode == 1) {  // COO mode — scan all vertices
             READ_COMMAND_STREAM cmd;
-            cmd.data = PMA_GET_ALL_OUT_EDGE_COO;
+            cmd.data.range(31, 0)  = PMA_GET_ALL_OUT_EDGE_COO;
+            cmd.data.range(63, 32) = (ap_uint<32>)-1;   // src_start: 不限
+            cmd.data.range(95, 64) = (ap_uint<32>)-1;   // src_end: 不限
+            cmd.data.range(127, 96)  = (ap_uint<32>)-1; // dst_start: 不限
+            cmd.data.range(159, 128) = (ap_uint<32>)-1; // dst_end: 不限
             cmd.last = 0;
             #pragma HLS protocol fixed
             ap_wait();

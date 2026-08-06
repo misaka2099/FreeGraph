@@ -78,7 +78,15 @@ struct PMA_UPDATE_MESSAGE
 
 // #define OUT_DIRECTION 0
 // #define IN_DIRECTION 1
-typedef ap_axiu<96,0,0,0> READ_COMMAND_STREAM; 
+// 读命令格式 (5×32 = 160 位):
+//   [31:0]    opcode
+//   [63:32]   src_start    (含)
+//   [95:64]   src_end      (不含)
+//   [127:96]  dst_start    (含)
+//   [159:128] dst_end      (不含)
+// 范围语义: -1 = 该维度不限 (全遍历)。COO 指令两维度都 -1 = 全图遍历;
+// src 为 -1 仅 dst 限定时 = 遍历所有 src 顶点、只输出 dst 在范围内的边。
+typedef ap_axiu<160,0,0,0> READ_COMMAND_STREAM;
 typedef  ap_axiu<8,0,0,0> CLEAR_ICON;
 
 

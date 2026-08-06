@@ -40,6 +40,17 @@ extern "C"
                 return;
             }
 
+            if (msg.opcode == PMA_UPDATE_FLUSH_CACHE) {
+                // 批间 barrier: 广播给所有 worker (各 worker 关闭当前波), ACK 回 generator,
+                // 不 return (继续服务后续批次)。
+                cmd_to_worker_0.write(msg);
+                cmd_to_worker_1.write(msg);
+                cmd_to_worker_2.write(msg);
+                WHOLE_ACK ack; ack.data = 0; ack.last = 1;
+                ack_to_generator.write(ack);
+                continue;
+            }
+
             int channel = (msg.src / VERTEX_PER_PMA) % CHANNEL_NUM;
             if (channel == 0)      cmd_to_worker_0.write(msg);
             else if (channel == 1) cmd_to_worker_1.write(msg);

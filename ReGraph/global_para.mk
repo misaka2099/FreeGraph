@@ -1,6 +1,9 @@
-#Little kernel setup 
+#Little kernel setup
 LITTLE_KERNEL_NUM=1
-LITTLE_KERNEL_DST_BUFFER_SIZE=65536
+# dst 缓冲大小 = 可处理的最大顶点数。
+# 上限分析: gather URAM = 32B × 顶点数 (8 PE × 4B/顶点), 131072 → 4MB ≈ SLR URAM 的 ~90%;
+# dst 编码 20 位 (bit19 = dummy 标记) → 硬上限 524288。超过需多分区或改内核编码。
+LITTLE_KERNEL_DST_BUFFER_SIZE=131072
 #################################################################################################################
 #Big kernel setup 
 BIG_KERNEL_NUM=0

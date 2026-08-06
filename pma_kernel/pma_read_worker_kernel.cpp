@@ -156,7 +156,34 @@ void pma_read_worker_kernel(
             write_pkt(pkt_to_merger, 0, 0xFF, 1, KEEP64);
             write_pkt(pkt_to_merger, 0, 0, 1, 0);
         } else if (mode == PMA_GET_ALL_OUT_EDGE_COO || mode == PMA_GET_ALL_OUT_EDGE_CSR) {
-            for (int pma_idx = worker_id; ; pma_idx += READ_WORKERS) {
+            // 160 位命令: opcode | src_start | src_end | dst_start | dst_end
+            // 范围语义: -1 = 该维度不限。两者都 -1 = 全图遍历;
+            // 仅 src -1 = 遍历所有 src 顶点、只输出 dst 在 [dst_start, dst_end) 的边。
+            int src_start = (int)cmd.data.range(63, 32);
+            int src_end   = (int)cmd.data.range(95, 64);
+            int dst_start = (int)cmd.data.range(127, 96);
+            int dst_end   = (int)cmd.data.range(159, 128);
+            // 范围语义: 任一侧为 -1 = 该维度全遍历 (另一侧值被忽略)
+            bool all_src = (src_start == -1 || src_end == -1);
+            bool all_dst = (dst_start == -1 || dst_end == -1);
+
+            // src 范围 → PMA 遍历区间 [pma_lo, pma_hi] (按 worker 序列对齐);
+            // 全图模式: 从 worker 自己的第一个 PMA 起, 直到 vec_info==0。
+            int pma_lo, pma_hi;
+            if (all_src) {
+                pma_lo = worker_id;
+                pma_hi = -1;   // 哨兵: 不限定上限
+            } else {
+                int first_pma = src_start / VERTEX_PER_PMA;
+                pma_lo = first_pma;
+                int rem = pma_lo % READ_WORKERS;
+                if (rem != worker_id) pma_lo += ((worker_id - rem) + READ_WORKERS) % READ_WORKERS;
+                if (pma_lo < worker_id) pma_lo = worker_id;
+                pma_hi = (src_end - 1) / VERTEX_PER_PMA;
+            }
+
+            for (int pma_idx = pma_lo; ; pma_idx += READ_WORKERS) {
+                if (!all_src && pma_idx > pma_hi) break;
                 VEC_INFO vec_info = vi_read_simple(hbm_ptr, vi_wo, pma_idx);
                 if (vec_info == 0) break;
 
@@ -171,9 +198,10 @@ void pma_read_worker_kernel(
                 int segment_buffer[SEGMENT_SIZE];
 
                 for (int local_v = 0; local_v < VERTEX_PER_PMA; local_v++) {
+                    int src = pma_idx * VERTEX_PER_PMA + local_v;
+                    if (!all_src && (src < src_start || src >= src_end)) continue;
                     int s_start = (local_v == 0) ? 0 : pma_header.vertex_range[local_v - 1];
                     int s_end = pma_header.vertex_range[local_v];
-                    int src = pma_idx * VERTEX_PER_PMA + local_v;
                     for (int s = s_start; s < s_end; s++) {
                         int seg_byte_off = pma_data_base + s * SEG_BYTES - pma_raw_data_start;
                         read_seg(hbm_ptr, segment_buffer, seg_byte_off);
@@ -181,8 +209,10 @@ void pma_read_worker_kernel(
                         for (int j = 0; j < cnt; j++) {
                             #pragma HLS PIPELINE II=1
                             int neighbor = segment_buffer[j];
-                            ap_uint<64> pair = ((ap_uint<64>)(ap_uint<32>)src << 32) | (ap_uint<32>)neighbor;
-                            write_pkt(pkt_to_merger, pair, 0xFF, 0, KEEP64);
+                            if (all_dst || (neighbor >= dst_start && neighbor < dst_end)) {
+                                ap_uint<64> pair = ((ap_uint<64>)(ap_uint<32>)src << 32) | (ap_uint<32>)neighbor;
+                                write_pkt(pkt_to_merger, pair, 0xFF, 0, KEEP64);
+                            }
                         }
                     }
                 }

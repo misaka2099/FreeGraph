@@ -475,11 +475,11 @@ int main(int argc, char** argv)
         run.set_arg(a++, bo_task_bufs[ch]);  // task_buffer
         run.set_arg(a++, pma_raw_data_start);
         run.set_arg(a++, pma_vecinfo_start);
-        // edge_count (arg 8) set per-batch in run_update_batch
-        run.set_arg(9, ch);                  // worker_id (kernel scalar)
+        run.set_arg(a++, 0);                 // edge_count (arg 8): 占位, 每批在 run_update_batch 重设
+        run.set_arg(a++, ch);                // worker_id (kernel scalar, arg 9)
+        run.set_arg(a++, pma_bm_start);      // bitmap_offset (kernel scalar, arg 10)
         // alloc_cmd_stream, alloc_rsp_stream, bitmap_init, online_in: axis, no host set
-        run.set_arg(10, pma_bm_start);       // bitmap_offset (kernel scalar, before axis ports)
-        std::cout << "[DBG] L373: standalone insert_edge kernel args set (6 ports + 4 scalars) for " << CHANNEL_NUM << " channels" << std::endl;
+        std::cout << "[DBG] L373: standalone insert_edge kernel args set (6 ports + 5 scalars) for " << CHANNEL_NUM << " channels" << std::endl;
 #else
         std::cout << "[DBG] L373: insert_edge kernel args set (4 ports + 2 offsets) for " << CHANNEL_NUM << " channels" << std::endl;
         run.set_arg(a++, pma_raw_data_start);
@@ -874,14 +874,14 @@ int main(int argc, char** argv)
             // ONLINE mode keeps 0 (kernel waits for online_in updates)
             int ec = (gen_edge_count > 0) ? task_buf_cnt[ch] : std::max(task_buf_cnt[ch], 1);
             run.set_arg(a++, ec);
-            run.set_arg(9, ch);                  // worker_id (kernel scalar)
-            run.set_arg(10, pma_bm_start);        // bitmap_offset (kernel scalar, before axis)
+            run.set_arg(a++, ch);                  // worker_id (kernel scalar, arg 9)
+            run.set_arg(a++, pma_bm_start);        // bitmap_offset (kernel scalar, arg 10)
         }
 
         // Start generator + router stream for online updates.
-        // ALWAYS started (even in DIRECT mode, gen_edge_count==0): the
-        // generator sends STOP immediately with 0 edges, which terminates the
-        // workers' online stream — task_reader relies on STOP to finish.
+        // 每批都启动: 中间批次 (last=0) generator 发 FLUSH_CACHE (router 广播 + ACK),
+        // 最后批次 (last=1) 发 STOP (router 转发 + ACK) — 两者都被 ACK, 不会卡死。
+        // DIRECT 模式 gen_edge_count=0: generator 只发 FLUSH/STOP, 边走 task_buffer。
         bool use_online = true;
         xrt::run run_generator(update_message_generator_kernel);
         xrt::run run_router_stream(update_message_router_stream_kernel);
@@ -1076,6 +1076,19 @@ int main(int argc, char** argv)
         run_update_message_generator_kernel.wait();
     };
 #endif
+#ifdef USE_STANDALONE_MODE
+    // Standalone: 通过 generator→router_stream→worker 发 STOP (last=1)。
+    // task_reader 的收波循环阻塞等 STOP — 任何模式下都必须发, 否则 worker 卡死。
+    auto send_stop_to_workers = [&]() {
+        auto run_g = xrt::run(update_message_generator_kernel);
+        run_g.set_arg(0, 0); run_g.set_arg(1, bo_src);
+        run_g.set_arg(2, bo_dst); run_g.set_arg(3, bo_opcode);
+        run_g.set_arg(4, 1);  // last=1
+        auto run_r = xrt::run(update_message_router_stream_kernel);
+        run_g.start(); run_r.start();
+        run_g.wait(); run_r.wait();
+    };
+#endif
     if (kBaseGraphReadOnlyTest)
     {
         if (!Graph.empty())
@@ -1090,16 +1103,9 @@ int main(int argc, char** argv)
 #ifndef USE_STANDALONE_MODE
         send_update_stop_only();
 #else
-        // Standalone: send STOP through generator→router→worker path
-        if (use_online_path) {
-            auto run_g = xrt::run(update_message_generator_kernel);
-            run_g.set_arg(0, 0); run_g.set_arg(1, bo_src);
-            run_g.set_arg(2, bo_dst); run_g.set_arg(3, bo_opcode);
-            run_g.set_arg(4, 1);  // last=1
-            auto run_r = xrt::run(update_message_router_stream_kernel);
-            run_g.start(); run_r.start();
-            run_g.wait(); run_r.wait();
-        }
+        // Standalone: 总是发 STOP 关闭 worker 的 online 流 —
+        // task_reader 的收波循环 (online_in.read) 阻塞等 STOP, 不发则死锁。
+        send_stop_to_workers();
 #endif
     }
     else
@@ -1251,6 +1257,11 @@ int main(int argc, char** argv)
             }
         }
     }
+#ifdef USE_STANDALONE_MODE
+    // 无增量批次 (纯 base 图): else 分支的循环未执行, 未发过 STOP — 补发,
+    // 否则 worker 的 task_reader 收波循环 (online_in.read) 永远等不到 STOP。
+    if (operations.empty()) send_stop_to_workers();
+#endif
 
     std::cout << "Waiting for long-running kernels to finish..." << std::endl;
 #ifndef USE_STANDALONE_MODE

@@ -99,8 +99,10 @@ extern "C"
 
             READ_COMMAND_STREAM count_cmd = {};
             count_cmd.data.range(31, 0)  = PMA_GET_EDGE_COUNT_RANGE;
-            count_cmd.data.range(63, 32) = chunk_start;
-            count_cmd.data.range(95, 64) = chunk_end;
+            count_cmd.data.range(63, 32) = chunk_start;   // src_start
+            count_cmd.data.range(95, 64) = chunk_end;     // src_end
+            count_cmd.data.range(127, 96)  = (ap_uint<32>)-1;  // dst_start: 不限
+            count_cmd.data.range(159, 128) = (ap_uint<32>)-1;  // dst_end: 不限
             count_cmd.last = 0;
             count_cmd.keep = 0xFF;
             count_cmd.strb = 0xFF;
@@ -115,14 +117,19 @@ extern "C"
             ap_uint<32> chunk_count = 0;
             READ_PKT_STREAM count_pkt_0 = worker_pkt_0.read();
             chunk_count += count_pkt_0.data.range(31, 0);
+            ap_wait();
             READ_PKT_STREAM done_pkt_0 = worker_pkt_0.read();
             (void)done_pkt_0;
+            ap_wait();
             READ_PKT_STREAM count_pkt_1 = worker_pkt_1.read();
             chunk_count += count_pkt_1.data.range(31, 0);
+            ap_wait();
             READ_PKT_STREAM done_pkt_1 = worker_pkt_1.read();
             (void)done_pkt_1;
+            ap_wait();
             READ_PKT_STREAM count_pkt_2 = worker_pkt_2.read();
             chunk_count += count_pkt_2.data.range(31, 0);
+            ap_wait();
             READ_PKT_STREAM done_pkt_2 = worker_pkt_2.read();
             (void)done_pkt_2;
 
@@ -148,8 +155,13 @@ extern "C"
         edge_count_out[1] = (ap_uint<64>)count_to_send;
 
         // ---------------- Phase 2: stream all edges as COO ----------------
+        // 全图遍历: src/dst 范围都是 -1 (160 位命令格式)
         READ_COMMAND_STREAM coo_cmd = {};
-        coo_cmd.data = PMA_GET_ALL_OUT_EDGE_COO;
+        coo_cmd.data.range(31, 0)  = PMA_GET_ALL_OUT_EDGE_COO;
+        coo_cmd.data.range(63, 32) = (ap_uint<32>)-1;   // src_start: 不限
+        coo_cmd.data.range(95, 64) = (ap_uint<32>)-1;   // src_end: 不限
+        coo_cmd.data.range(127, 96)  = (ap_uint<32>)-1; // dst_start: 不限
+        coo_cmd.data.range(159, 128) = (ap_uint<32>)-1; // dst_end: 不限
         coo_cmd.last = 0;
         coo_cmd.keep = 0xFF;
         coo_cmd.strb = 0xFF;
@@ -176,9 +188,11 @@ extern "C"
         ap_uint<32> last_real_src = 0;
 
         // Per-PMA round-robin merge of the three worker streams.
+        // 注意: 循环边界 (done_count) 是运行时的, 不能加 #pragma HLS PIPELINE II=1 —
+        // HLS 会把 pipeline 解释成 complete unroll, 可变边界无法展开 → II violation
+        // (worker_idx 存储/加载循环依赖 + %3 的 36-cycle srem), 综合出的硬件退出不可靠。
         while (done_count < READ_WORKERS)
         {
-    #pragma HLS PIPELINE II=1
             if (worker_done[worker_idx])
             {
                 worker_idx = (worker_idx + 1) % READ_WORKERS;
@@ -281,12 +295,14 @@ extern "C"
 
         // Terminate the read pipeline: workers exit on PMA_STOP with last=1.
         READ_COMMAND_STREAM stop_cmd = {};
-        stop_cmd.data = (ap_uint<96>)PMA_STOP;
+        stop_cmd.data = (ap_uint<160>)PMA_STOP;
         stop_cmd.last = 1;
         stop_cmd.keep = 0xFF;
         stop_cmd.strb = 0xFF;
         worker_cmd_0.write(stop_cmd);
         worker_cmd_1.write(stop_cmd);
         worker_cmd_2.write(stop_cmd);
+        #pragma HLS protocol fixed
+        ap_wait();
     }
 }

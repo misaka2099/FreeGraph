@@ -51,8 +51,14 @@ extern "C"
             cmd_to_router.write(msg);
         }
         HERE
-        cmd_to_router.write({.src=-1, .dst=-1, .opcode = PMA_UPDATE_STOP, .last = last});
-        // If this is the final batch, wait for ACK from router indicating completion
+        // 中间批次 (last=0) 发 FLUSH_CACHE (批间 barrier, router 广播 + ACK);
+        // 最后批次 (last=1) 发 STOP (router 转发 + ACK + 退出)。
+        if (last) {
+            cmd_to_router.write({.src=-1, .dst=-1, .opcode = PMA_UPDATE_STOP, .last = 1});
+        } else {
+            cmd_to_router.write({.src=-1, .dst=-1, .opcode = PMA_UPDATE_FLUSH_CACHE, .last = 0});
+        }
+        // Wait for ACK from router indicating the barrier/STOP was processed
         WHOLE_ACK ack_pkt;
         // blocking read to ensure router processed the whole batch
         ack_from_router.read(ack_pkt);

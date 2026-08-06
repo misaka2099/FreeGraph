@@ -219,40 +219,37 @@ void seg_insert(
 // redistribution may still need ENLARGE allocations afterwards. FREE (opcode=2)
 // is fire-and-forget (no response); only ALLOC (opcode=1) gets a response.
 
+// ---- bitmap init (2026-08-04: pma_gate removed, init moved here) ----
+// Reads the allocation bitmap from hbm_gate and streams it to alloc_access
+// (which counts ALLOC_BITMAP_WORDS packets). Runs once at DATAFLOW start.
+static void bitmap_init_reader(
+    ap_uint<512>* hbm,
+    int bitmap_offset,
+    hls::stream<ap_axiu<ALLOC_BITMAP_STORAGE_WORD_BITS,0,0,0>>& bitmap_init)
+{
+    int bm_word_off = bitmap_offset / 64;
+    for (int i = 0; i < ALLOC_BITMAP_WORDS; i++) {
+        #pragma HLS PIPELINE II=1
+        ap_axiu<ALLOC_BITMAP_STORAGE_WORD_BITS,0,0,0> w;
+        w.data = hbm[bm_word_off + i];
+        w.last = 0;
+        w.keep = -1;
+        bitmap_init.write(w);
+    }
+}
+
+// 2026-08-04: pma_gate removed — only redistribution side remains.
+// STOP marker (opcode=0) from redistribution terminates the merger.
 static void alloc_merger(
-    hls::stream<ap_uint<96>>& gate_alloc_cmd,
-    hls::stream<ap_uint<64>>& gate_alloc_rsp,
     hls::stream<ap_uint<96>>& redist_alloc_cmd,
     hls::stream<ap_uint<64>>& redist_alloc_rsp,
     hls::stream<ap_axiu<96,0,0,0>>& alloc_cmd_stream,
     hls::stream<ap_axiu<64,0,0,0>>& alloc_rsp_stream)
 {
-    bool gate_done = false;
     bool redist_done = false;
 
     while (true) {
         bool served = false;
-
-        // pma_gate side
-        if (!gate_alloc_cmd.empty()) {
-            ap_uint<96> cmd = gate_alloc_cmd.read();
-            int opcode = (int)cmd.range(95, 64);
-            if (opcode == 0) {
-                gate_done = true;               // STOP marker from pma_gate
-            } else {
-                ap_axiu<96,0,0,0> acmd;
-                acmd.data = cmd;
-                acmd.last = 0;
-                acmd.keep = 0xFFF;
-                alloc_cmd_stream.write(acmd);
-                ap_wait();
-                if (opcode == 1) {              // ALLOC → wait for response
-                    ap_axiu<64,0,0,0> arsp = alloc_rsp_stream.read();
-                    gate_alloc_rsp.write(arsp.data.range(63, 0));
-                }
-            }
-            served = true;
-        }
 
         // redistribution side
         if (!redist_alloc_cmd.empty()) {
@@ -275,8 +272,8 @@ static void alloc_merger(
             served = true;
         }
 
-        // Both consumers done → forward the single STOP and terminate
-        if (gate_done && redist_done) {
+        // Consumer done → forward the single STOP and terminate
+        if (redist_done) {
             ap_axiu<96,0,0,0> scmd;
             scmd.data.range(95, 64) = 0;        // opcode=STOP
             scmd.last = 1;
@@ -289,185 +286,13 @@ static void alloc_merger(
     }
 }
 
-// ---- pma_gate helper: handle existing (non-empty) PMA ----
-// Extracted to a separate function to prevent HLS if-conversion
-// from speculating alloc/free/m_axi writes when vi==0.
-// ENLARGE no longer happens here — overflow is handled by redistribution_phase.
-// This function only forwards the existing header to bs_worker.
-static void pma_gate_handle_existing(
-    ap_uint<512>* hbm_gate,
-    int pma_raw_data_start,
-    int pma_idx,
-    VEC_INFO vi,
-    PMA_UPDATE_MESSAGE* cmd_batch,
-    int cmd_count,
-    ap_uint<512>* pma_buffer,
-    hls::stream<ap_uint<96>>& gate_alloc_cmd,
-    hls::stream<ap_uint<64>>& gate_alloc_rsp,
-    hls::stream<fwd_header_t>& hdr_fwd)
-{
-    ap_uint<512> range_word = hbm_gate[(int)(vi.range(31,0) - pma_raw_data_start) / 64];
-    ap_uint<512> edge_count_word = hbm_gate[(int)(vi.range(31,0) - pma_raw_data_start) / 64 + 1];
-    fwd_header_t fh;
-    fh.start_byte = (int)vi.range(31, 0);
-    fh.pma_idx    = pma_idx;
-    fh.range_word = range_word;
-    fh.edge_count_word = edge_count_word;
-    hdr_fwd.write(fh);
-}
-
-void pma_gate(
-    ap_uint<512> *hbm_gate,
-    int pma_raw_data_start,
-    int pma_vecinfo_start,
-    int bitmap_offset,
-    hls::stream<PMA_UPDATE_MESSAGE>& cmd_in,
-    hls::stream<PMA_UPDATE_MESSAGE>& cmd_out,
-    hls::stream<ap_uint<96>>& gate_alloc_cmd,
-    hls::stream<ap_uint<64>>& gate_alloc_rsp,
-    hls::stream<ap_axiu<ALLOC_BITMAP_STORAGE_WORD_BITS,0,0,0>>& bitmap_init,
-    hls::stream<fwd_header_t>& hdr_fwd)
-{
-    ap_uint<512> pma_buffer[4096];
-    #pragma HLS bind_storage variable=pma_buffer type=RAM_2P impl=URAM
-
-    // ---- Init bitmap: read from hbm_gate, send to alloc_access ----
-    // Runs once before processing any commands. Uses hbm_gate (this function's
-    // only m_axi), so no DATAFLOW conflict with pre-DATAFLOW sequential code.
-    int bm_word_off = bitmap_offset / 64;
-    for (int i = 0; i < ALLOC_BITMAP_WORDS; i++) {
-        #pragma HLS PIPELINE II=1
-        ap_axiu<ALLOC_BITMAP_STORAGE_WORD_BITS,0,0,0> w;
-        w.data = hbm_gate[bm_word_off + i];
-        w.last = 0;
-        w.keep = -1;
-        bitmap_init.write(w);
-    }
-
-    while (true)
-    {
-        if (cmd_in.empty()) { ap_wait(); continue; }
-        PMA_UPDATE_MESSAGE first = cmd_in.read();
-        if (first.opcode == PMA_UPDATE_STOP && first.last == 1) {
-            cmd_out.write(first);
-            // Send STOP marker to alloc_merger (forwarded once both consumers done)
-            ap_uint<96> scmd = 0;               // opcode=STOP
-            gate_alloc_cmd.write(scmd);
-            return;
-        }
-        PMA_UPDATE_MESSAGE cmd_batch[MAX_CMD_NUM];
-        cmd_batch[0] = first;
-        int cmd_count = 1;
-        int pma_idx = first.src >> 4;
-        bool done = (first.last == 1);
-        for (int i = 1 ; i < MAX_CMD_NUM && !done; i++) {
-            if (done) break;
-            PMA_UPDATE_MESSAGE cmd = cmd_in.read();
-            cmd_batch[i] = cmd; cmd_count++;
-            done = (cmd.last == 1);
-        }
-
-        // check empty pma
-        VEC_INFO vi = vi_read(hbm_gate, pma_vecinfo_start, pma_idx);
-        // hls::print("GATE vi=%d\n", (unsigned)(int)vi.range(31,0));
-        if (vi == 0)
-        {
-            // Initialize empty PMA in pma_buffer: header + SoA helper + 16 segments
-            int isegs = VERTEX_PER_PMA;  // 16 vertices, 1 segment each
-            int ife_words = fe_words_for(isegs);   // first_edge area (1 entry per segment)
-            int ivc_words = vc_words_for(isegs);   // valid_count area (1 entry per segment)
-            int ihlp      = ife_words + ivc_words; // = hlp_total_words(isegs)
-
-            // Alloc new PMA space
-            int ibytes = (HEADER_WORDS + ihlp + isegs * SEG_WORDS_PER_SEG) * 64;
-            ap_uint<96> acmd = 0;
-            acmd.range(31, 0)  = 0;        // start=0 for ALLOC
-            acmd.range(63, 32) = (ap_uint<32>)ibytes;   // request bytes
-            acmd.range(95, 64) = 1;        // opcode=ALLOC
-            gate_alloc_cmd.write(acmd);
-
-            // ---- Build PMA in pma_buffer from ROM WHILE alloc is in flight ----
-            // (nstart not needed until write-back)
-
-            // Header: from ROM
-            pma_buffer[0] = EMPTY_PMA_HDR0;     // vertex_range: 1 seg per vertex, total=16
-            pma_buffer[1] = 0;                   // edge_count all zero
-            pma_buffer[2] = 0;
-            pma_buffer[3] = 0;
-
-            // Helper SoA: first_edge area (all UNUSED_ICON) + valid_count area (all 0)
-            int hlp_off = HEADER_WORDS;
-            for (int w = 0; w < ife_words; w++) {
-                #pragma HLS PIPELINE II=1
-                pma_buffer[hlp_off + w] = EMPTY_FE_WORD;
-            }
-            for (int w = 0; w < ivc_words; w++) {
-                #pragma HLS PIPELINE II=1
-                pma_buffer[hlp_off + ife_words + w] = EMPTY_VC_WORD;
-            }
-
-            // Segments: 16 × EMPTY_SEG_ROM
-            int seg_off = HEADER_WORDS + ihlp;
-            for (int i = 0; i < isegs * SEG_WORDS_PER_SEG; i += SEG_WORDS_PER_SEG) {
-                #pragma HLS PIPELINE II=1
-                pma_buffer[seg_off + i + 0] = EMPTY_SEG_ROM[0];
-                pma_buffer[seg_off + i + 1] = EMPTY_SEG_ROM[1];
-                pma_buffer[seg_off + i + 2] = EMPTY_SEG_ROM[2];
-                pma_buffer[seg_off + i + 3] = EMPTY_SEG_ROM[3];
-            }
-
-            // Alloc latency hidden: wait for response, then write to HBM
-            ap_wait();
-            ap_uint<64> arsp = gate_alloc_rsp.read();
-            int nstart = (int)arsp.range(31, 0);
-
-            int write_start_in_512_pattern = nstart / 64;
-            int ibody_words = HEADER_WORDS + ihlp + isegs * SEG_WORDS_PER_SEG;
-            for (int i = 0; i < ibody_words; i++)
-            {
-                #pragma HLS PIPELINE II=1
-                hbm_gate[write_start_in_512_pattern + i] = pma_buffer[i];
-            }
-
-            // Update VEC_INFO so subsequent accesses see the PMA
-            VEC_INFO nvi = 0;
-            nvi.range(31, 0)  = (ap_uint<32>)(nstart + pma_raw_data_start);
-            nvi.range(63, 32) = (ap_uint<32>)ibytes;
-            vi_write(hbm_gate, pma_vecinfo_start, pma_idx, nvi);
-
-            // Forward NEW header to bs_worker (post-init)
-            {
-                fwd_header_t fh;
-                fh.start_byte = nstart + pma_raw_data_start;
-                fh.pma_idx    = pma_idx;
-                fh.range_word = pma_buffer[0];  // hdr0: vertex ranges
-                fh.edge_count_word = 0;          // hdr1: all edge counts zero
-                hdr_fwd.write(fh);
-            }
-        }
-        //check pma enlargement
-        else
-        {
-            // hls::print("GATE else enter\n");
-            pma_gate_handle_existing(hbm_gate, pma_raw_data_start,
-                                     pma_idx, vi, cmd_batch, cmd_count, pma_buffer,
-                                     gate_alloc_cmd, gate_alloc_rsp, hdr_fwd);
-        }
-        for (int i = 0 ; i < cmd_count; i++)
-        {
-            cmd_out.write(cmd_batch[i]);
-        }
-    }
-}
-
 // ---- Phase 1: BS Worker ----
 // Reads ONLY the first_edge area from HBM (1 entry per segment) and binary
 // searches directly for the exact target segment of each edge.
 
 void bs_worker(
     ap_uint<512>* hbm,
-    int data_off,
-    hls::stream<fwd_header_t>& hdr_fwd,
+    int data_off, int vi_wo,
     hls::stream<PMA_UPDATE_MESSAGE>& edge_in,
     hls::stream<bs_batch_t>& bs_out
 )
@@ -498,15 +323,19 @@ void bs_worker(
             }
         }
 
-        // Read forwarded header from pma_gate (avoids VEC_INFO + header HBM reads)
-        fwd_header_t fh = hdr_fwd.read();
-        int byte_off = fh.start_byte - data_off;
+        // Read VEC_INFO + header directly from HBM (no pma_gate forwarder).
+        // PMA 已由 redistribution 的 pre_expand 预分配/扩容 (vi != 0)。
+        VEC_INFO vi = vi_read(hbm, vi_wo, pma);
+        int start_byte = (int)vi.range(31, 0);
+        int byte_off = start_byte - data_off;
         int hbase = byte_off / 64;
+        ap_uint<512> range_word = hbm[hbase];
+        ap_uint<512> edge_count_word = hbm[hbase + 1];
 
-        // Extract vertex_range from forwarded header
+        // Extract vertex_range from header
         for (int v = 0; v < VERTEX_PER_PMA; v++)
             #pragma HLS UNROLL
-            vr[v] = (int)fh.range_word.range(v * 32 + 31, v * 32);
+            vr[v] = (int)range_word.range(v * 32 + 31, v * 32);
 
         // FE area base (word offset): 1 entry per segment, 16 entries per 512-bit word
         int fe_hbm_base = hbase + HEADER_WORDS;
@@ -515,9 +344,9 @@ void bs_worker(
         // entries: result IS the exact segment (no fine search needed)
         bs_batch_t res;
         res.pma_idx = pma; res.op_mask = 0; res.count = cnt;
-        res.start_byte = fh.start_byte;
-        res.range_word = fh.range_word;
-        res.edge_count_word = fh.edge_count_word;
+        res.start_byte = start_byte;
+        res.range_word = range_word;
+        res.edge_count_word = edge_count_word;
 
         for (int i = 0; i < MAX_CMD_NUM; i++) {
             #pragma HLS PIPELINE II=1
@@ -1322,28 +1151,52 @@ static void pma_pre_expand(
     }
     int old_hlp = hlp_total_words(old_tseg);
 
-    // New layout: vertex v gets old_count + ceil(count[v]/47) segments.
-    // ntseg accumulates in Step 2 (same loop computes the range).
+    // New layout: vertex v gets 2x segments when it must grow (capacity doubled),
+    // otherwise keeps old segment count. INIT (vi==0) allocates 1 + ceil(count/47).
+    // ntseg accumulates in the same loop computing the range.
     int ntseg = 0;
     int nfe_words = 0, nvc_words = 0, nhlp = 0, npwords = 0, npbytes = 0;
 
-    // ---- Step 1: new vertex_range (cumulative) + total segments ----
+    // ---- Step 1: per-vertex grow decision + new vertex_range (cumulative) ----
+    // 按 vertex 粒度判断: 现有边数 + 本次插入数 > 现有容量 (旧 segment × 47)
+    // → 该 vertex 需要扩容 (segment 数 2 倍翻倍)。
+    // 所有 vertex 都不需要扩容 → 直接返回 (调用处照常发 ACK, 跳过 alloc/collect/
+    // redistribute/FREE 整套开销)。INIT 必须 alloc (新 PMA 无空间)。
     ap_uint<512> new_range_word = 0;
+    bool need_expand = is_init;
     {
         int cum = 0;
         for (int v = 0; v < VERTEX_PER_PMA; v++) {
             #pragma HLS PIPELINE II=1
             int old_cnt = 1;
+            int old_edges = 0;
             if (!is_init) {
                 int vs = (v == 0) ? 0 : (int)old_range_word.range((v - 1) * 32 + 31, (v - 1) * 32);
                 int ve = (int)old_range_word.range(v * 32 + 31, v * 32);
                 old_cnt = ve - vs;
+                old_edges = (int)old_ec_word.range(v * 32 + 31, v * 32);   // header.edge_count[v]
             }
-            int extra = (count[v] + 46) / 47;        // ceil(count[v]/47)
-            cum += old_cnt + extra;
+            int new_cnt = old_cnt;
+            if (is_init) {
+                // 新 PMA: segment 数基于该 vertex 的插入边数 (vc 计数)。
+                // 1 段容量 47 — count ≤ 47 保持 1 段 (不浪费); 超过则
+                // ceil(count/47) 向上取 2 的幂 (与扩容翻倍语义一致)。
+                int need = (count[v] + 46) / 47;   // ceil(count/47): 最小段数 (count=0 → 0)
+                int p = 1;
+                while (p < need) p <<= 1;
+                new_cnt = (need <= 1) ? 1 : p;     // 至少 1 段, 2 的幂
+            } else if (old_edges + count[v] > old_cnt * 47) {
+                new_cnt = old_cnt * 2;                      // 需扩容: segment 数 2 倍翻倍
+                need_expand = true;
+            }
+            cum += new_cnt;
             new_range_word.range(v * 32 + 31, v * 32) = (ap_uint<32>)cum;
         }
         ntseg = cum;
+    }
+    if (!need_expand) {
+        // 无需扩容: 直接返回 (redistribution_phase 调用处仍发 pre_ack)
+        return;
     }
     nfe_words = fe_words_for(ntseg);
     nvc_words = vc_words_for(ntseg);
@@ -1625,11 +1478,57 @@ void redistribution_phase(
 // Two-phase design: burst-read chunks into local BRAM, then process from BRAM
 // to avoid data-dependent break that prevents HLS burst inference.
 
+
+// ---- PMA 锁 (位图): 按 local_pma = pma_idx / CHANNEL_NUM 压缩, 1 bit/PM ----
+// 每个 worker 只处理 pma % CHANNEL_NUM == worker_id 的 PMA, 所以锁表索引
+// 用"本 worker 的第几个 PMA" (local_pma), 8 个 PMA 占 1 字节。
+void lock_pma(uint8_t* pma_lock, int pma_idx, int worker_id) {
+    int local_pma = pma_idx / CHANNEL_NUM;
+    int lock_pma_word = local_pma / 8;
+    int lock_pma_bit  = local_pma % 8;
+    uint8_t mask = (1 << lock_pma_bit);
+    pma_lock[lock_pma_word] |= mask;
+}
+void unlock_pma(uint8_t* pma_lock, int pma_idx, int worker_id) {
+    int local_pma = pma_idx / CHANNEL_NUM;
+    int lock_pma_word = local_pma / 8;
+    int lock_pma_bit  = local_pma % 8;
+    uint8_t mask = ~(1 << lock_pma_bit);
+    pma_lock[lock_pma_word] &= mask;
+}
+static inline bool is_pma_locked(const uint8_t* pma_lock, int pma_idx, int worker_id) {
+    int local_pma = pma_idx / CHANNEL_NUM;
+    int lock_pma_word = local_pma / 8;
+    int lock_pma_bit  = local_pma % 8;
+    return ((pma_lock[lock_pma_word] >> lock_pma_bit) & 1) != 0;
+}
 #define TASK_BURST_CHUNK 256    // edges per offline burst chunk
 #define WAVE_CAPACITY 8192      // max edges per wave (barrier closes the wave)
 
-#include "radix_sort.h"
+#include "radix_sort.h"         // radix_sort_src / sort_src_dst
 
+// 非阻塞收 ACK: pre_ack_in (redistribution 预扩完成) + ack_in (insert 批完成)
+// 收到即解锁对应 PMA — 锁 = "该 PMA 有一个在飞操作 (预扩或数据批)"。
+// 两个流都必须轮询: 只收 pre_ack 而忽略批 ACK 会导致批完成后锁永不解 → 死锁。
+void check_ack_back(
+    uint8_t* pma_lock,
+    hls::stream<ap_uint<32>>& pre_ack_in,
+    hls::stream<ap_uint<32>>& ack_in,
+    int& inflight_pma_count,
+    int worker_id
+)
+{
+    if (!pre_ack_in.empty()) {
+        ap_uint<32> ack = pre_ack_in.read();
+        unlock_pma(pma_lock, (int)ack, worker_id);
+        inflight_pma_count--;
+    }
+    if (!ack_in.empty()) {
+        ap_uint<32> ack = ack_in.read();
+        unlock_pma(pma_lock, (int)ack, worker_id);
+        inflight_pma_count--;
+    }
+}
 static void task_reader(
     int* task_buffer,
     int edge_count,
@@ -1642,153 +1541,168 @@ static void task_reader(
 ) {
 
     // ---- Wave buffer: edges of the current wave (before processing) ----
-    // Online edges and offline chunks both land here; a barrier (FLUSH_CACHE /
-    // STOP / offline exhausted / buffer full) closes the wave. The wave is then
-    // radix-sorted by src (= pma<<4 | vertex) so per-PMA segments become
-    // contiguous and per-vertex insert counts fall out of a linear scan —
-    // no separate profile table, no pool.
+    // Online edges and offline chunks both land here; wave closes on STOP /
+    // offline exhausted / wave buffer full. FLUSH_CACHE is filtered (dropped).
+    // The wave is radix-sorted by src (= pma<<4 | vertex) so per-PMA segments
+    // become contiguous; per-vertex counts fall out of a linear scan.
     int wave_buffer[WAVE_CAPACITY * 3];
-    #pragma HLS bind_storage variable=wave_buffer type=RAM_2P impl=BRAM
-    // Radix ping-pong partner (result ends up back in wave_buffer)
-    int radix_tmp[WAVE_CAPACITY * 3];
+    int radix_tmp[WAVE_CAPACITY * 3];   // sort_src_dst 的 ping-pong 伙伴
+    int seperations[WAVE_CAPACITY];
+    int seperation_cursors[WAVE_CAPACITY];
     #pragma HLS bind_storage variable=radix_tmp type=RAM_2P impl=BRAM
+    #pragma HLS bind_storage variable=seperation_cursors type=RAM_2P impl=BRAM
+    #pragma HLS bind_storage variable=seperations type=RAM_2P impl=BRAM
+    #pragma HLS bind_storage variable=wave_buffer type=RAM_2P impl=BRAM
+    // PMA 锁: 本轮已处理的 PMA (按 PMA 值直接索引, 1 字节/PM)。
+    // 大小 65536: 支持 PMA 索引 < 65536 (顶点数 < 2^20 = 1048576)。
+    // 给 PMA 上锁后, 本轮扫描跳过该 PMA 的所有段; 轮末 ACK 全部完成 = 解锁。
+    #define PMA_LOCK_SIZE 65536
+    uint8_t pma_lock[PMA_LOCK_SIZE];
+    #pragma HLS bind_storage variable=pma_lock type=RAM_2P impl=BRAM
 
-    int processed = 0;
+    int processed_total = 0;
     int offline_base = 0;
     bool offline_done = false;
     bool online_done = false;
-
-    while (true) {
-        // ================= 收波 =================
-        // Sources: online stream (edges + FLUSH/STOP barriers) and offline
-        // task_buffer chunks. A wave closes on: FLUSH_CACHE (immediate update),
-        // STOP (final), offline exhausted, or wave buffer full.
-        int wave_cnt = 0;
-        bool wave_closed = false;
-        while (!wave_closed) {
-            bool did_work = false;
-
-            // online 优先（应收尽收，不积压）
-            if (!online_done && !online_in.empty()) {
-                PMA_UPDATE_MESSAGE om = online_in.read();
-                did_work = true;
-                if (om.opcode == PMA_UPDATE_STOP) {
-                    online_done = true;          // 终止信号（非 barrier，offline 继续收）
-                } else if (om.opcode == PMA_UPDATE_FLUSH_CACHE) {
-                    wave_closed = true;          // barrier：立即更新
-                } else {
-                    wave_buffer[wave_cnt * 3 + 0] = om.src;
-                    wave_buffer[wave_cnt * 3 + 1] = om.dst;
-                    wave_buffer[wave_cnt * 3 + 2] = (int)om.opcode;
-                    wave_cnt++;
-                    if (wave_cnt >= WAVE_CAPACITY) wave_closed = true;
-                }
+    bool flush = false;
+    int write_cursor = edge_count;
+    int read_cursor = 0;
+    int inflight_pma_count = 0;
+    while (true)
+    {
+        COLLET_EDGE_LOOP:
+        while (!online_done && !flush)
+        {
+            #pragma HLS PIPELINE off
+            PMA_UPDATE_MESSAGE msg = online_in.read();
+            if (msg.opcode == PMA_UPDATE_STOP) {
+                online_done = true;
             }
-
-            // offline chunk（burst 读入 wave_buffer）
-            if (!offline_done && offline_base < edge_count && wave_cnt < WAVE_CAPACITY) {
-                int chunk = edge_count - offline_base;
-                if (chunk > TASK_BURST_CHUNK) chunk = TASK_BURST_CHUNK;
-                if (wave_cnt + chunk > WAVE_CAPACITY) chunk = WAVE_CAPACITY - wave_cnt;
-                int m_axi_off = offline_base * 3;
-                int dst_off = wave_cnt * 3;
-                for (int j = 0; j < chunk * 3; j++) {
-                    #pragma HLS PIPELINE II=1
-                    wave_buffer[dst_off + j] = task_buffer[m_axi_off + j];
-                }
-                // sentinel 检测（edge_count 不精确时的兼容）
-                int added = 0;
-                for (int j = 0; j < chunk; j++) {
-                    #pragma HLS PIPELINE II=1
-                    if (wave_buffer[dst_off + j * 3] == -1) { offline_done = true; break; }
-                    added++;
-                }
-                wave_cnt += added;
-                offline_base += chunk;
-                if (offline_base >= edge_count) offline_done = true;
-                if (wave_cnt >= WAVE_CAPACITY) wave_closed = true;
-                did_work = true;
+            else if (msg.opcode == PMA_UPDATE_FLUSH_CACHE) {
+                // FLUSH_CACHE is filtered (dropped)
+                flush = true;
             }
-
-            // 两端完成 → 收波结束
-            if (offline_done && online_done) wave_closed = true;
-            if (!did_work) ap_wait();
+            else 
+            {    
+                task_buffer[write_cursor * 3 + 0] = msg.src;
+                task_buffer[write_cursor * 3 + 1] = msg.dst;
+                task_buffer[write_cursor * 3 + 2] = msg.opcode;
+                write_cursor++;
+            }
         }
-
-        // ================= 波处理 =================
-        // 全排序：
-        //   1. radix 按 src (= pma<<4|vertex) → 每 PMA 的边连续成段，段内 vertex 连续
-        //   2. 段内 bitonic 按 dst（≤256）→ 每 vertex 的插入边 dst 有序
-        // 排序后：
-        //   - per-vertex 插入计数 = 线性扫描（profile 免费）→ pre_expand 精确
-        //   - 分发 = 逐段处理（无 pool / 无锁：段内串行 + 逐批等 ACK）
-        //   - 段内 dst 有序 → 为 merge 插入铺路
-        radix_sort_src(wave_buffer, radix_tmp, wave_cnt);
-
-        int i = 0;
-        while (i < wave_cnt) {
-            int pma = wave_buffer[i * 3] / VERTEX_PER_PMA;
-            int j = i + 1;
-            while (j < wave_cnt && wave_buffer[j * 3] / VERTEX_PER_PMA == pma) j++;
-
-            // 段内按 dst 排序（≤256 才排；>256 跳过 → insert 二分插入兜底）
-            if (j - i <= SEG_BITONIC_MAX && j - i > 8) {
-                bitonic_segment_by_dst(wave_buffer, radix_tmp, i, j);
+        ap_wait();
+        // ===== 处理阶段: 分批 (chunk ≤ 8192) 处理完当前收集的全部边 =====
+        // 收波可能一次读入 > 8192 条 online 更新 — 内层循环多次处理 (chunk 保护),
+        // 直到 read_cursor 追上 write_cursor (当前收集的全部边处理完)。
+        PROFILE_EDGE_LOOP:
+        while (read_cursor < write_cursor)
+        {
+            int cmd_count_this_round = (write_cursor - read_cursor) > 8192 ? 8192 : (write_cursor - read_cursor);
+            for (int i = 0; i < cmd_count_this_round; i++)
+            {
+                int idx = read_cursor + i;
+                int src = task_buffer[idx * 3 + 0];
+                int dst = task_buffer[idx * 3 + 1];
+                int opcode = task_buffer[idx * 3 + 2];
+                wave_buffer[i * 3 + 0] = src;
+                wave_buffer[i * 3 + 1] = dst;
+                wave_buffer[i * 3 + 2] = opcode;
             }
-
-            // per-vertex 计数（段内 vertex 连续）
-            int vc[VERTEX_PER_PMA];
-            #pragma HLS ARRAY_PARTITION variable=vc complete
-            for (int v = 0; v < VERTEX_PER_PMA; v++) vc[v] = 0;
-            for (int k = i; k < j; k++) {
-                #pragma HLS PIPELINE II=1
-                vc[wave_buffer[k * 3] & 0xF]++;
-            }
-
-            // 预分配（per-vertex 精确计数）→ 等 redistribution 完成扩容
-            pre_expand_cmd_t cmd;
-            cmd.pma = pma;
-            for (int v = 0; v < VERTEX_PER_PMA; v++) cmd.count[v] = vc[v];
-            pre_expand_out.write(cmd);
-            ap_wait();  // barrier: cmd 发出后再读 ACK
-            while (true) {
-                ap_uint<32> pre_ack = pre_ack_in.read();
-                if ((int)pre_ack == pma) break;
-            }
-
-            // flush 段：16 条/批，逐批等 insert 完成（ACK）
-            int k = i;
-            while (k < j) {
-                int batch = j - k;
-                if (batch > MAX_CMD_NUM) batch = MAX_CMD_NUM;
-                for (int b = 0; b < batch; b++) {
-                    #pragma HLS PIPELINE II=1
-                    PMA_UPDATE_MESSAGE msg;
-                    msg.src = wave_buffer[(k + b) * 3];
-                    msg.dst = wave_buffer[(k + b) * 3 + 1];
-                    msg.opcode = (PMA_UPDATE_OPCODE)wave_buffer[(k + b) * 3 + 2];
-                    msg.last = (b == batch - 1) ? 1 : 0;
-                    cmd_out.write(msg);
+            read_cursor += cmd_count_this_round;
+            // 要求 src, dst 关键字字典序升序 (排序后同 PMA 连续成段, 段内 dst 升序)
+            sort_src_dst(wave_buffer, radix_tmp, cmd_count_this_round);
+            int current_pma = -1;
+            int current_vc[16];
+            #pragma HLS ARRAY_PARTITION variable=current_vc complete
+            int seperation_count = 0;
+            for (int i = 0 ; i < cmd_count_this_round; i++)
+            {
+                check_ack_back(pma_lock, pre_ack_in, ack_in, inflight_pma_count, worker_id);
+                int src = wave_buffer[i * 3 + 0];
+                int pma_idx = src >> 4;
+                if (pma_idx != current_pma)
+                {
+                    if (current_pma != -1)
+                    {
+                        seperations[seperation_count++] = i;
+                        pre_expand_cmd_t pre_cmd;
+                        pre_cmd.pma = current_pma;
+                        for (int v = 0; v < 16; v++) {
+                            #pragma HLS UNROLL
+                            pre_cmd.count[v] = current_vc[v];
+                        }
+                        pre_expand_out.write(pre_cmd);
+                        inflight_pma_count++;
+                        lock_pma(pma_lock, current_pma, worker_id);
+                    }
+                    current_pma = pma_idx;
+                    for (int v = 0; v < 16; v++) {
+                        #pragma HLS UNROLL
+                        current_vc[v] = 0;   // ★ 换 PMA: 清零 (否则旧 PMA 计数混入)
+                    }
                 }
-                k += batch;
-                ap_wait();  // barrier: batch 发出后再读 ACK
-                while (true) {
-                    ap_uint<32> val = ack_in.read();
-                    if ((int)val == pma) break;
+                current_vc[src % 16]++;      // ★ 先判断换 PMA 再累加 (新 PMA 首条边不混入旧计数)
+            }
+            if (current_pma != -1)
+            {
+                seperations[seperation_count++] = cmd_count_this_round;
+                pre_expand_cmd_t pre_cmd;
+                pre_cmd.pma = current_pma;
+                for (int v = 0; v < 16; v++) {
+                    #pragma HLS UNROLL
+                    pre_cmd.count[v] = current_vc[v];
+                }
+                pre_expand_out.write(pre_cmd);
+                inflight_pma_count++;
+                lock_pma(pma_lock, current_pma, worker_id);
+            }
+            int remaining = cmd_count_this_round;
+            seperation_cursors[0] = 0;
+            for (int i = 1 ; i < seperation_count; i++)
+            {
+                seperation_cursors[i] = seperations[i - 1];
+            }
+            while (remaining > 0)
+            {
+                check_ack_back(pma_lock, pre_ack_in, ack_in, inflight_pma_count, worker_id);
+                for (int i = 0; i < seperation_count; i++)
+                {
+                    int pma_idx = wave_buffer[seperation_cursors[i] * 3 + 0] >> 4;
+                    if (is_pma_locked(pma_lock, pma_idx, worker_id)) continue;
+                    if (seperation_cursors[i] >= seperations[i]) continue;
+                    int start = seperation_cursors[i];
+                    int end = (16 > seperations[i] - start) ? seperations[i] : (start + 16);
+                    for (int j = start; j < end; j++)
+                    {
+                        int src = wave_buffer[j * 3 + 0];
+                        int dst = wave_buffer[j * 3 + 1];
+                        int opcode = wave_buffer[j * 3 + 2];
+                        PMA_UPDATE_MESSAGE msg;
+                        msg.src = src; msg.dst = dst; msg.opcode = (PMA_UPDATE_OPCODE)opcode; msg.last = (j == end - 1);
+                        cmd_out.write(msg);
+                    }
+                    inflight_pma_count++;
+                    lock_pma(pma_lock, pma_idx, worker_id);
+                    remaining -= (end - start);
+                    seperation_cursors[i] = end;
                 }
             }
-            processed += j - i;
-            i = j;
         }
+        ap_wait();
+        // FLUSH barrier 已过: 复位, 下一轮收波继续收 FLUSH 后的 online
+        if (flush) flush = false;
 
-        // 终止：offline 与 online 都结束
-        if (offline_done && online_done) break;
+        // 收尾 ACK (最后一波的批可能仍在飞) — 否则 inflight 不降 → 死循环
+        check_ack_back(pma_lock, pre_ack_in, ack_in, inflight_pma_count, worker_id);
+        if (online_done && read_cursor >= write_cursor && inflight_pma_count == 0) break;
+        // 全部处理完但未结束: 空转等 online (下一轮顶部继续收波)
+        if (read_cursor >= write_cursor) ap_wait();
     }
-
-    // DEBUG: write processed count to HBM
-    task_buffer[edge_count * 3 + 3] = processed;
-
-    // Send STOP
+    while (inflight_pma_count > 0) {
+        check_ack_back(pma_lock, pre_ack_in, ack_in, inflight_pma_count, worker_id);
+        ap_wait();
+    }
+    // Send STOP（所有 insert 完成后最后执行）
     PMA_UPDATE_MESSAGE stop_msg;
     stop_msg.src = -1; stop_msg.dst = -1;
     stop_msg.opcode = PMA_UPDATE_STOP; stop_msg.last = 1;
@@ -1858,9 +1772,6 @@ extern "C"
         hls::stream<ap_uint<32>> dummy_ack_stream;
         #pragma HLS STREAM variable=dummy_ack_stream depth=16
 
-        hls::stream<fwd_header_t> hdr_fwd;
-        #pragma HLS STREAM variable=hdr_fwd depth=4
-
         // Pre-expand command/ACK streams: task_reader → redistribution
         hls::stream<pre_expand_cmd_t> pre_expand_stream;
         #pragma HLS STREAM variable=pre_expand_stream depth=8
@@ -1868,10 +1779,6 @@ extern "C"
         #pragma HLS STREAM variable=pre_ack_stream depth=8
 
         // Internal alloc command/response streams (ap_uint, merged by alloc_merger)
-        hls::stream<ap_uint<96>> gate_alloc_cmd;
-        #pragma HLS STREAM variable=gate_alloc_cmd depth=8
-        hls::stream<ap_uint<64>> gate_alloc_rsp;
-        #pragma HLS STREAM variable=gate_alloc_rsp depth=8
         hls::stream<ap_uint<96>> redist_alloc_cmd;
         #pragma HLS STREAM variable=redist_alloc_cmd depth=8
         hls::stream<ap_uint<64>> redist_alloc_rsp;
@@ -1879,20 +1786,16 @@ extern "C"
 
         #pragma HLS DATAFLOW
 
+        // bitmap init: 读 hbm_gate 的 bitmap 区 → alloc_access (启动时一次)
+        bitmap_init_reader(hbm_gate, bitmap_offset, bitmap_init);
+
         task_reader(task_buffer, edge_count, worker_id, dummy_ack_stream, cmd_from_reader, online_in,
                     pre_expand_stream, pre_ack_stream);
 
-        // pma_gate handles bitmap init internally (reads hbm_gate, sends to alloc_access)
-        // before entering its main command-processing loop.
-        // Forwards header to bs_worker via hdr_fwd to avoid redundant HBM reads.
-        pma_gate(hbm_gate, pma_raw_data_start, pma_vecinfo_start / 64,
-                 bitmap_offset,
-                 cmd_from_reader, cmd_batch_stream,
-                 gate_alloc_cmd, gate_alloc_rsp, bitmap_init, hdr_fwd);
-
-        bs_worker(hbm_bs, pma_raw_data_start,
-                  hdr_fwd,
-                  cmd_batch_stream, bs_out);
+        // 2026-08-04: pma_gate 移除 — bs_worker 直接读 VEC_INFO + header。
+        // PMA 的 INIT/扩容由 redistribution 的 pre_expand 预做。
+        bs_worker(hbm_bs, pma_raw_data_start, pma_vecinfo_start / 64,
+                  cmd_from_reader, bs_out);
 
         insert_phase(hbm_rw, pma_raw_data_start, pma_vecinfo_start / 64,
                      bs_out,
@@ -1904,8 +1807,7 @@ extern "C"
                              redist_alloc_cmd, redist_alloc_rsp,
                              pre_expand_stream, pre_ack_stream);
 
-        alloc_merger(gate_alloc_cmd, gate_alloc_rsp,
-                     redist_alloc_cmd, redist_alloc_rsp,
+        alloc_merger(redist_alloc_cmd, redist_alloc_rsp,
                      alloc_cmd_stream, alloc_rsp_stream);
 
         // No post-DATAFLOW bitmap write-back — host reconstructs bitmap from data

@@ -43,10 +43,15 @@ constexpr uint32_t SRC_VERTEX_ACTIVE = VERTEX_ACTIVE | 0x1;
 // 单趟 BFS 后, 源顶点的直接出邻居属性应为 preprocess(0x80000001) = 0x80000002
 constexpr uint32_t REACHED_PROP      = 0x80000002;
 
-// ReGraph little GS 的 dst 缓冲 (65536 vertices, 4096 个 512-bit word)
-constexpr size_t PROP_WORDS    = 4096;
-constexpr size_t PROP_BYTES    = PROP_WORDS * 64;
-constexpr int    MAX_GS_VERTEX = 65536;
+// ReGraph little GS 的 dst 缓冲 (每个顶点 4B prop, 每 512-bit word 16 顶点)。
+// 大小由 -DLITTLE_KERNEL_DST_BUFFER_SIZE 决定 (makefile 从 global_para.mk 传入),
+// 增大它即可支持更大的图 (代价: gather URAM = 32B × 顶点数)。
+#ifndef LITTLE_KERNEL_DST_BUFFER_SIZE
+#define LITTLE_KERNEL_DST_BUFFER_SIZE 65536
+#endif
+constexpr size_t DST_PROP_WORDS  = LITTLE_KERNEL_DST_BUFFER_SIZE >> 4;  // apply/wrapper 写回的 prop word 数
+constexpr size_t DST_PROP_BYTES  = DST_PROP_WORDS * 64;
+constexpr int    MAX_GS_VERTEX   = LITTLE_KERNEL_DST_BUFFER_SIZE;
 
 struct Operation
 {
@@ -254,7 +259,7 @@ int main(int argc, char** argv)
     }
     auto edge_reader_kernel = xrt::kernel(device, uuid, "edgeReader:{edgeReader_1}");
     auto gs_kernel = xrt::kernel(device, uuid, "littleKernelScatterGather:{littleKernelScatterGather_1}");
-    auto merger_kernel = xrt::kernel(device, uuid, "kernelLittleGSMerger:{kernelLittleGSMerger_1}");
+    // auto merger_kernel = xrt::kernel(device, uuid, "kernelLittleGSMerger:{kernelLittleGSMerger_1}");
     auto apply_kernel = xrt::kernel(device, uuid, "kernelApply:{kernelApply_1}");
     auto hbm_wrapper_kernel = xrt::kernel(device, uuid, "kernelHBMWrapper:{kernelHBMWrapper_1}");
 
@@ -265,9 +270,13 @@ int main(int argc, char** argv)
         ch_bufs.emplace_back(device, CHANNEL_TOTAL, read_worker_kernels[ch].group_id(1));
     }
     auto bo_edge_count = xrt::bo(device, 16, edge_reader_kernel.group_id(0));
-    auto bo_src_prop = xrt::bo(device, PROP_BYTES, hbm_wrapper_kernel.group_id(0));
-    auto bo_new_prop = xrt::bo(device, PROP_BYTES, hbm_wrapper_kernel.group_id(0));
-    auto bo_vertex_prop = xrt::bo(device, PROP_BYTES, apply_kernel.group_id(0));
+    // src_prop 由 wrapper 按 src 窗口读取 (每窗口 256 word)。
+    // GS scatter 会预取当前窗口+1 个窗口, 所以多留一个窗口避免越界。
+    size_t src_prop_words = ((num_vertices + 15) / 16 / 256 + 1) * 256;
+    // new_prop / vertex_prop 是 apply 的写回缓冲, 大小 = 分区 (dst buffer) 大小
+    auto bo_src_prop = xrt::bo(device, src_prop_words * 64, hbm_wrapper_kernel.group_id(0));
+    auto bo_new_prop = xrt::bo(device, DST_PROP_BYTES, hbm_wrapper_kernel.group_id(0));
+    auto bo_vertex_prop = xrt::bo(device, DST_PROP_BYTES, apply_kernel.group_id(0));
 
     std::vector<VEC_INFO*> vec_info_ptrs(CHANNEL_NUM);
     for (int ch = 0; ch < CHANNEL_NUM; ++ch)
@@ -281,17 +290,19 @@ int main(int argc, char** argv)
     build_base_graph_in_hbm(adjacency, ch_bufs, vec_info_ptrs);
     auto build_end = std::chrono::high_resolution_clock::now();
     double build_seconds = std::chrono::duration<double>(build_end - build_start).count();
+    std::cout << "[T] base graph built in HBM (" << (num_vertices + 15) / 16
+              << " PMAs) in " << build_seconds << " s" << std::endl;
 
     // ---- 6. 初始化顶点属性 (BFS: 仅 src_vertex 活跃) ----
-    auto init_props = [&](xrt::bo& bo) {
+    auto init_props = [&](xrt::bo& bo, int vertex_count) {
         uint32_t* props = bo.map<uint32_t*>();
-        std::fill_n(props, MAX_GS_VERTEX, MAX_PROP);
+        std::fill_n(props, vertex_count, MAX_PROP);
         props[src_vertex] = SRC_VERTEX_ACTIVE;
         bo.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     };
-    init_props(bo_src_prop);
-    init_props(bo_new_prop);
-    init_props(bo_vertex_prop);
+    init_props(bo_src_prop, src_prop_words * 16);
+    init_props(bo_new_prop, DST_PROP_WORDS * 16);
+    init_props(bo_vertex_prop, DST_PROP_WORDS * 16);
 
     // ---- 7. 设置内核参数 ----
     std::vector<xrt::run> run_read_workers;
@@ -322,29 +333,36 @@ int main(int argc, char** argv)
     run_hbm_wrapper.set_arg(2, 1u);  // num_dense_paritions
     run_hbm_wrapper.set_arg(3, 0u);  // num_sparse_paritions
 
-    auto run_merger = xrt::run(merger_kernel);
+    // auto run_merger = xrt::run(merger_kernel);
 
     // ---- 8. 启动 ----
-    // 读 worker 长驻, 由 edgeReader 的 STOP 结束; merger 永不退出 (ap_ctrl_none)。
+    // 读 worker 长驻, 由 edgeReader 的 STOP 结束;
+    // merger 是无限循环内核 (不退出), host 只 start 不 wait。
     for (auto& r : run_read_workers) r.start();
     run_hbm_wrapper.start();
     run_apply.start();
-    run_merger.start();
+    // run_merger.start();
     run_gs.start();
 
     auto chain_start = std::chrono::high_resolution_clock::now();
     run_edge_reader.start();
+    std::cout << "[T] edgeReader started" << std::endl;
 
     // ---- 9. 等待 ----
     run_edge_reader.wait();
     auto read_end = std::chrono::high_resolution_clock::now();
+    std::cout << "[T] edgeReader done" << std::endl;
 
     run_gs.wait();
+    std::cout << "[T] GS done" << std::endl;
     run_apply.wait();
+    std::cout << "[T] apply done" << std::endl;
     run_hbm_wrapper.wait();
+    std::cout << "[T] hbm wrapper done" << std::endl;
     auto compute_end = std::chrono::high_resolution_clock::now();
 
     for (auto& r : run_read_workers) r.wait();
+    std::cout << "[T] read workers done" << std::endl;
 
     double read_seconds = std::chrono::duration<double>(read_end - chain_start).count();
     double compute_seconds = std::chrono::duration<double>(compute_end - chain_start).count();
