@@ -474,7 +474,7 @@ void insert_phase(
         // #pragma HLS ARRAY_PARTITION variable=seg_valid_buf complete
 
         for (int si = 0; si < seg_cnt; si++) {
-            #pragma HLS PIPELINE II=SEG_WORDS_PER_SEG
+            #pragma HLS PIPELINE II=1
             int seg = seg_list[si];
             int base = (boff + HEADER_BYTES + total_hlp_words * 64 + seg * SEG_BYTES) / 64;
             seg_bases[si] = base;
@@ -511,7 +511,7 @@ void insert_phase(
 
         // --- Phase C: burst-write all modified segments + VC RMW ---
         for (int si = 0; si < seg_cnt; si++) {
-            #pragma HLS PIPELINE II=SEG_WORDS_PER_SEG
+            #pragma HLS PIPELINE II=1
             int base = seg_bases[si];
             int seg  = seg_list[si];
             for (int w = 0; w < SEG_WORDS_PER_SEG; w++) {
@@ -1573,7 +1573,6 @@ static void task_reader(
         COLLET_EDGE_LOOP:
         while (!online_done && !flush)
         {
-            #pragma HLS PIPELINE off
             PMA_UPDATE_MESSAGE msg = online_in.read();
             if (msg.opcode == PMA_UPDATE_STOP) {
                 online_done = true;
