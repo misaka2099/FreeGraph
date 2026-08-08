@@ -97,6 +97,10 @@ int main(int argc, char** argv)
         std::string arg = argv[i];
         if (arg == "--online") use_online_path = true;
     }
+#ifdef USE_STANDALONE_MODE
+    // 拆分版: 仅 online 路径 (task_reader 无 task_buffer), 强制 online
+    use_online_path = true;
+#endif
     std::cout << "Update path: " << (use_online_path ? "ONLINE (generator→router→worker)" : "DIRECT (host→task_buffer)") << std::endl;
     auto start_init = std::chrono::high_resolution_clock::now();
     
@@ -264,16 +268,29 @@ int main(int argc, char** argv)
     // }
     std::vector<xrt::kernel> pma_insert_edge_kernels;
     pma_insert_edge_kernels.reserve(CHANNEL_NUM);
+#ifdef USE_STANDALONE_MODE
+    // Split mode: 3 内核类型 per channel (task_reader / bs_insert / redistribution)
+    std::vector<xrt::kernel> task_reader_kernels;
+    std::vector<xrt::kernel> bs_insert_kernels;
+    std::vector<xrt::kernel> redistribution_kernels;
+    task_reader_kernels.reserve(CHANNEL_NUM);
+    bs_insert_kernels.reserve(CHANNEL_NUM);
+    redistribution_kernels.reserve(CHANNEL_NUM);
+    for (int i = 1; i <= CHANNEL_NUM; ++i) {
+        if (!try_add_kernel(task_reader_kernels, "task_reader_kernel:{task_reader_kernel_" + std::to_string(i) + "}")) break;
+        if (!try_add_kernel(bs_insert_kernels, "bs_insert_kernel:{bs_insert_kernel_" + std::to_string(i) + "}")) break;
+        if (!try_add_kernel(redistribution_kernels, "redistribution_kernel:{redistribution_kernel_" + std::to_string(i) + "}")) break;
+    }
+    // pma_insert_edge_kernels 别名 bs_insert (主 worker, 用于 HBM BO 的 group_id)
+    pma_insert_edge_kernels = bs_insert_kernels;
+#else
     for (int i = 1; i <= CHANNEL_NUM; ++i)
     {
-#ifdef USE_STANDALONE_MODE
-        if (!try_add_kernel(pma_insert_edge_kernels, "pma_insert_edge_standalone:{pma_insert_edge_standalone_" + std::to_string(i) + "}")) {
-#else
         if (!try_add_kernel(pma_insert_edge_kernels, "pma_insert_edge:{pma_insert_edge_" + std::to_string(i) + "}")) {
-#endif
             break;
         }
     }
+#endif
     auto check_kernel = xrt::kernel(device, uuid, "check_kernel");
     // alloc_access kernels (bitmap allocator)
     std::vector<xrt::kernel> alloc_access_kernels;
@@ -285,6 +302,28 @@ int main(int argc, char** argv)
         }
     }
     std::cout << "[DBG] L233: Kernels loaded successfully." << std::endl;
+#ifdef USE_STANDALONE_MODE
+    std::cout << "[DBG] L234: task_reader=" << task_reader_kernels.size()
+              << " bs_insert=" << bs_insert_kernels.size()
+              << " redistribution=" << redistribution_kernels.size()
+              << " read_worker=" << pma_read_worker_kernels.size()
+              << " alloc_access=" << alloc_access_kernels.size()
+              << " channels=" << CHANNEL_NUM << std::endl;
+    if (pma_read_worker_kernels.size() < static_cast<size_t>(CHANNEL_NUM) ||
+        task_reader_kernels.size() < static_cast<size_t>(CHANNEL_NUM) ||
+        bs_insert_kernels.size() < static_cast<size_t>(CHANNEL_NUM) ||
+        redistribution_kernels.size() < static_cast<size_t>(CHANNEL_NUM) ||
+        alloc_access_kernels.size() < static_cast<size_t>(CHANNEL_NUM))
+    {
+        std::cerr << "Kernel loading incomplete for read/insert/alloc CUs; aborting before launch." << std::endl;
+        std::cerr << "Loaded read workers: " << pma_read_worker_kernels.size()
+                  << ", task_reader: " << task_reader_kernels.size()
+                  << ", bs_insert: " << bs_insert_kernels.size()
+                  << ", redistribution: " << redistribution_kernels.size()
+                  << ", alloc access kernels: " << alloc_access_kernels.size() << std::endl;
+        return 1;
+    }
+#else
     std::cout << "[DBG] L234: insert_edge=" << pma_insert_edge_kernels.size()
               << " read_worker=" << pma_read_worker_kernels.size()
               << " alloc_access=" << alloc_access_kernels.size()
@@ -299,6 +338,7 @@ int main(int argc, char** argv)
                   << ", alloc access kernels: " << alloc_access_kernels.size() << std::endl;
         return 1;
     }
+#endif
     std::cout << "Launching kernels..." << std::endl;
     auto run_pma_read_router_kernel = xrt::run(pma_read_router_kernel);
     std::vector<xrt::run> run_pma_read_worker_kernels;
@@ -326,6 +366,15 @@ int main(int argc, char** argv)
     {
         run_pma_insert_edge_kernels.emplace_back(k);
     }
+#ifdef USE_STANDALONE_MODE
+    std::vector<xrt::run> run_task_reader_kernels;
+    std::vector<xrt::run> run_redistribution_kernels;
+    run_task_reader_kernels.reserve(task_reader_kernels.size());
+    run_redistribution_kernels.reserve(redistribution_kernels.size());
+    for (auto &k : task_reader_kernels) run_task_reader_kernels.emplace_back(k);
+    for (auto &k : redistribution_kernels) run_redistribution_kernels.emplace_back(k);
+    std::cout << "task_reader / redistribution kernels are launched..." << std::endl;
+#endif
     std::cout << "PMA insert edge kernels are launched..." << std::endl;
     std::vector<xrt::run> run_alloc_access_kernels;
     run_alloc_access_kernels.reserve(alloc_access_kernels.size());
@@ -350,8 +399,7 @@ int main(int argc, char** argv)
     for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
         auto& k = pma_insert_edge_kernels[ch];
         std::cout << "[DBG] L290: ch=" << ch
-                  << " gid0=" << k.group_id(0) << " gid1=" << k.group_id(1)
-                  << " gid2=" << k.group_id(2) << std::endl;
+                  << " gid0=" << k.group_id(0) << " gid1=" << k.group_id(1) << std::endl;
         ch_bufs.emplace_back(device, CHANNEL_TOTAL, k.group_id(0));
     }
 
@@ -414,6 +462,7 @@ int main(int argc, char** argv)
 
 #ifdef USE_STANDALONE_MODE
     // Edge buffer for redistribution (collect_edge_to_buffer / redistribute_edge_from_hbm)
+    // hbm_buffer_for_red 是 redistribution_kernel 的第 2 个 m_axi 端口 (group_id 1)
     constexpr size_t kEdgeBufWords = 4096;  // ≥ ceil(1024 * 63 / 16)
     constexpr size_t kEdgeBufBytes = kEdgeBufWords * 64;
     std::vector<xrt::bo> bo_edge_bufs;
@@ -421,23 +470,8 @@ int main(int argc, char** argv)
     for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
         bo_edge_bufs.emplace_back(device, kEdgeBufBytes,
                                    XRT_BO_FLAGS_DEV_ONLY,
-                                   pma_insert_edge_kernels[ch].group_id(4));
+                                   redistribution_kernels[ch].group_id(1));
     }
-
-    // Per-worker task buffers: {src, dst, opcode} * edge_buffer_len + sentinel
-    const size_t kTaskSlotSize = 3;  // 3 ints per edge
-    std::vector<xrt::bo> bo_task_bufs;
-    std::vector<int*> task_buf_ptrs;
-    bo_task_bufs.reserve(CHANNEL_NUM);
-    task_buf_ptrs.reserve(CHANNEL_NUM);
-    for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
-        bo_task_bufs.emplace_back(device, sizeof(int) * (edge_buffer_len + 1) * kTaskSlotSize,
-                                   pma_insert_edge_kernels[ch].group_id(5));
-        task_buf_ptrs.push_back(bo_task_bufs[ch].map<int*>());
-        std::fill_n(task_buf_ptrs[ch], (edge_buffer_len + 1) * kTaskSlotSize, 0);
-    }
-    // Per-worker edge counters for tracking fill position
-    std::vector<int> task_buf_cnt(CHANNEL_NUM, 0);
     (void)edge_buffer_len;
 #endif
 
@@ -464,23 +498,40 @@ int main(int argc, char** argv)
 
     // --- Set kernel arguments for m_axi ports ---
     for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
+#ifdef USE_STANDALONE_MODE
+        // bs_insert: hbm_bs, hbm_rw (同 channel 同 bank)
+        {
+            auto& run = run_pma_insert_edge_kernels[ch];
+            int a = 0;
+            run.set_arg(a++, ch_bufs[ch]);  // hbm_bs
+            run.set_arg(a++, ch_bufs[ch]);  // hbm_rw
+            run.set_arg(a++, pma_raw_data_start);
+            run.set_arg(a++, pma_vecinfo_start);
+        }
+        // task_reader: 纯流, 只有 worker_id 标量
+        {
+            auto& run = run_task_reader_kernels[ch];
+            run.set_arg(0, ch);             // worker_id
+        }
+        // redistribution: hbm_red, hbm_buffer_for_red + 标量
+        {
+            auto& run = run_redistribution_kernels[ch];
+            int a = 0;
+            run.set_arg(a++, ch_bufs[ch]);       // hbm_red
+            run.set_arg(a++, bo_edge_bufs[ch]);  // hbm_buffer_for_red
+            run.set_arg(a++, pma_raw_data_start);
+            run.set_arg(a++, pma_vecinfo_start);
+            run.set_arg(a++, pma_bm_start);      // bitmap_offset
+            // pre_expand_in/task_in/pre_ack_out/redist_ack_out/alloc_cmd/rsp/bitmap_init: axis, no host set
+        }
+        std::cout << "[DBG] L373: split kernels args set for " << CHANNEL_NUM << " channels" << std::endl;
+#else
         auto& run = run_pma_insert_edge_kernels[ch];
         int a = 0;
         run.set_arg(a++, ch_bufs[ch]);  // hbm_gate
         run.set_arg(a++, ch_bufs[ch]);  // hbm_bs
         run.set_arg(a++, ch_bufs[ch]);  // hbm_rw
         run.set_arg(a++, ch_bufs[ch]);  // hbm_red
-#ifdef USE_STANDALONE_MODE
-        run.set_arg(a++, bo_edge_bufs[ch]);  // hbm_buffer_for_red
-        run.set_arg(a++, bo_task_bufs[ch]);  // task_buffer
-        run.set_arg(a++, pma_raw_data_start);
-        run.set_arg(a++, pma_vecinfo_start);
-        run.set_arg(a++, 0);                 // edge_count (arg 8): 占位, 每批在 run_update_batch 重设
-        run.set_arg(a++, ch);                // worker_id (kernel scalar, arg 9)
-        run.set_arg(a++, pma_bm_start);      // bitmap_offset (kernel scalar, arg 10)
-        // alloc_cmd_stream, alloc_rsp_stream, bitmap_init, online_in: axis, no host set
-        std::cout << "[DBG] L373: standalone insert_edge kernel args set (6 ports + 5 scalars) for " << CHANNEL_NUM << " channels" << std::endl;
-#else
         std::cout << "[DBG] L373: insert_edge kernel args set (4 ports + 2 offsets) for " << CHANNEL_NUM << " channels" << std::endl;
         run.set_arg(a++, pma_raw_data_start);
         run.set_arg(a++, pma_vecinfo_start);
@@ -800,133 +851,63 @@ int main(int argc, char** argv)
     std::cout << "Expected max vertex after update: " << (max_vertex_idx + 1) << std::endl;
 
 #ifdef USE_STANDALONE_MODE
-    // --- Standalone: two update paths ---
-    //   DIRECT:  host partitions edges into per-worker task buffers
-    //   ONLINE:  host fills generator buffers; edges go via generator→router→worker
+    // --- Standalone (split): ONLINE path only ---
+    //   边走 generator→router_stream→task_reader.online_in, 无 task_buffer/DIRECT。
     auto load_edge_batch = [&](const std::vector<Operation>& batch_ops) -> int {
-        if (!use_online_path) {
-            // ---- DIRECT path: fill per-worker task buffers ----
-            for (int ch = 0; ch < CHANNEL_NUM; ++ch) task_buf_cnt[ch] = 0;
-
-            for (const auto &op : batch_ops) {
-                int pma = op.src / VERTEX_PER_PMA;
-                int ch = pma % CHANNEL_NUM;
-                if (task_buf_cnt[ch] >= (int)edge_buffer_len) {
-                    std::cerr << "Task buffer overflow on channel " << ch << std::endl;
-                    return -1;
-                }
-                int* buf = task_buf_ptrs[ch];
-                int pos = task_buf_cnt[ch] * kTaskSlotSize;
-                buf[pos + 0] = op.src;
-                buf[pos + 1] = op.dst;
-                buf[pos + 2] = op.opcode;
-                task_buf_cnt[ch]++;
-            }
-
-            for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
-                int* buf = task_buf_ptrs[ch];
-                int pos = task_buf_cnt[ch] * kTaskSlotSize;
-                buf[pos + 0] = -1;  // sentinel
-                buf[pos + 1] = 0;
-                buf[pos + 2] = 0;
-                bo_task_bufs[ch].sync(XCL_BO_SYNC_BO_TO_DEVICE);
-            }
-
-            int total = 0;
-            for (int ch = 0; ch < CHANNEL_NUM; ++ch) total += task_buf_cnt[ch];
-            std::cout << "[standalone] edge distribution: ";
-            for (int ch = 0; ch < CHANNEL_NUM; ++ch)
-                std::cout << "ch" << ch << "=" << task_buf_cnt[ch] << " ";
-            std::cout << "total=" << total << std::endl;
-            return total;
-        } else {
-            // ---- ONLINE path: fill generator buffers ----
-            int count = std::min((int)batch_ops.size(), (int)edge_buffer_len);
-            for (int i = 0; i < count; i++) {
-                src_ptr[i] = batch_ops[i].src;
-                dst_ptr[i] = batch_ops[i].dst;
-                opcode_ptr[i] = batch_ops[i].opcode;
-            }
-            // Zero task_buf_cnt for all channels (edges come from online path)
-            for (int ch = 0; ch < CHANNEL_NUM; ++ch) task_buf_cnt[ch] = 0;
-            std::cout << "[standalone] online edges: " << count << std::endl;
-            return count;
+        // ---- ONLINE path only: fill generator buffers ----
+        int count = std::min((int)batch_ops.size(), (int)edge_buffer_len);
+        for (int i = 0; i < count; i++) {
+            src_ptr[i] = batch_ops[i].src;
+            dst_ptr[i] = batch_ops[i].dst;
+            opcode_ptr[i] = batch_ops[i].opcode;
         }
+        std::cout << "[standalone] online edges: " << count << std::endl;
+        return count;
     };
 
-    // --- Standalone: start generator+router+workers+alloc_access, wait for completion ---
+    // --- Standalone (split): start generator+router+3 类型内核+alloc_access, wait for completion ---
     auto run_update_batch = [&](int gen_edge_count, const std::string& label, bool last) -> double {
         auto phase_start = std::chrono::high_resolution_clock::now();
 
-        // Set edge_count for each worker and start them
-        for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
-            int a = 0;
-            auto& run = run_pma_insert_edge_kernels[ch];
-            run.set_arg(a++, ch_bufs[ch]);         // hbm_gate
-            run.set_arg(a++, ch_bufs[ch]);         // hbm_bs
-            run.set_arg(a++, ch_bufs[ch]);         // hbm_rw
-            run.set_arg(a++, ch_bufs[ch]);         // hbm_red
-            run.set_arg(a++, bo_edge_bufs[ch]);    // hbm_buffer_for_red
-            run.set_arg(a++, bo_task_bufs[ch]);    // task_buffer
-            run.set_arg(a++, pma_raw_data_start);
-            run.set_arg(a++, pma_vecinfo_start);
-            // edge_count: DIRECT mode needs >=1 so sentinel is read on empty channels;
-            // ONLINE mode keeps 0 (kernel waits for online_in updates)
-            int ec = (gen_edge_count > 0) ? task_buf_cnt[ch] : std::max(task_buf_cnt[ch], 1);
-            run.set_arg(a++, ec);
-            run.set_arg(a++, ch);                  // worker_id (kernel scalar, arg 9)
-            run.set_arg(a++, pma_bm_start);        // bitmap_offset (kernel scalar, arg 10)
-        }
+        // 参数已在初始化阶段 set (worker_id/offsets/bitmap_offset 每批不变), 无需重设。
 
         // Start generator + router stream for online updates.
         // 每批都启动: 中间批次 (last=0) generator 发 FLUSH_CACHE (router 广播 + ACK),
         // 最后批次 (last=1) 发 STOP (router 转发 + ACK) — 两者都被 ACK, 不会卡死。
-        // DIRECT 模式 gen_edge_count=0: generator 只发 FLUSH/STOP, 边走 task_buffer。
-        bool use_online = true;
         xrt::run run_generator(update_message_generator_kernel);
         xrt::run run_router_stream(update_message_router_stream_kernel);
-        if (use_online) {
-            bo_src.sync(XCL_BO_SYNC_BO_TO_DEVICE);
-            bo_dst.sync(XCL_BO_SYNC_BO_TO_DEVICE);
-            bo_opcode.sync(XCL_BO_SYNC_BO_TO_DEVICE);
-            run_generator.set_arg(0, gen_edge_count);
-            run_generator.set_arg(1, bo_src);
-            run_generator.set_arg(2, bo_dst);
-            run_generator.set_arg(3, bo_opcode);
-            run_generator.set_arg(4, static_cast<int>(last));
-            run_generator.start();
-            run_router_stream.start();
-        }
+        bo_src.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        bo_dst.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        bo_opcode.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        run_generator.set_arg(0, gen_edge_count);
+        run_generator.set_arg(1, bo_src);
+        run_generator.set_arg(2, bo_dst);
+        run_generator.set_arg(3, bo_opcode);
+        run_generator.set_arg(4, static_cast<int>(last));
+        run_generator.start();
+        run_router_stream.start();
 
-        // Start alloc_access kernels, then insert_edge workers
+        // Start alloc_access kernels, then task_reader + bs_insert + redistribution
         for (auto &r : run_alloc_access_kernels) { r.start(); }
+        for (auto &r : run_task_reader_kernels) { r.start(); }
         for (auto &r : run_pma_insert_edge_kernels) { r.start(); }
+        for (auto &r : run_redistribution_kernels) { r.start(); }
 
-        if (use_online) {
-            // Wait for generator (finishes after sending STOP + receiving ACK from router)
-            run_generator.wait();
-            // Wait for router stream (exits after forwarding STOP to all workers + ACK)
-            run_router_stream.wait();
-        }
-        // Wait for insert_edge workers (drain pool after online STOP or task_buffer sentinel)
+        // Wait for generator (finishes after sending STOP + receiving ACK from router)
+        run_generator.wait();
+        // Wait for router stream (exits after forwarding STOP to all workers + ACK)
+        run_router_stream.wait();
+        // Wait for workers (STOP 链: task_reader → bs_insert → redistribution 依次收尾)
+        for (auto &r : run_task_reader_kernels) { r.wait(); }
         for (auto &r : run_pma_insert_edge_kernels) { r.wait(); }
-        // Wait for alloc_access (receives STOP from insert_edge)
+        for (auto &r : run_redistribution_kernels) { r.wait(); }
+        // Wait for alloc_access (receives STOP from redistribution)
         for (auto &r : run_alloc_access_kernels) { r.wait(); }
-
-        // DEBUG: read back processed count from each worker
-        for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
-            bo_task_bufs[ch].sync(XCL_BO_SYNC_BO_FROM_DEVICE);
-            int dbg = task_buf_ptrs[ch][task_buf_cnt[ch] * 3 + 3];
-            std::cout << "[DBG] ch" << ch << " kernel_processed=" << dbg
-                      << " host_sent=" << task_buf_cnt[ch] << std::endl;
-        }
 
         auto phase_end = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> elapsed = phase_end - phase_start;
-        int total = 0;
-        for (int ch = 0; ch < CHANNEL_NUM; ++ch) total += task_buf_cnt[ch];
-        std::cout << label << " edges=" << total
-                  << ", time=" << elapsed.count() << " s (standalone)" << std::endl;
+        std::cout << label << " edges=" << gen_edge_count
+                  << ", time=" << elapsed.count() << " s (split standalone)" << std::endl;
         return elapsed.count();
     };
 #else

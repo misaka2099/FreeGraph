@@ -317,3 +317,27 @@ struct insert_summary_t {
     ap_uint<16> inserted_vertex_mask; // which vertices had insert operations
     bool any_modification;
 };
+
+// Header / segment word & byte counts (shared across bs_insert & redistribution kernels)
+#define HEADER_WORDS ((int)(sizeof(PMA_HEADER) / 64))
+#define SEG_WORDS_PER_SEG (SEGMENT_SIZE * (int)sizeof(int) / 64)
+#define HEADER_BYTES (HEADER_WORDS * 64)
+#define SEG_BYTES (SEG_WORDS_PER_SEG * 64)
+
+// Pre-expand command: task_reader → redistribution (per-PMA growth request).
+// Sent BEFORE a PMA's edge segment is flushed; redistribution grows the PMA
+// (INIT allocate / ENLARGE) so inserts fit without runtime ENLARGE.
+struct pre_expand_cmd_t {
+    int pma;                     // PMA index (global)
+    int count[VERTEX_PER_PMA];   // edges per local vertex for this PMA this wave
+};
+
+// Rebalance task: bs_insert → redistribution (overflowed segment / ACK / STOP).
+// Carries forwarded header to avoid redundant VEC_INFO/header HBM reads.
+// payload: seg (>=0) overflow segment, -1 = STOP, -2 = ACK marker.
+struct rebalance_task_t {
+    int pma;                     // PMA index
+    int payload;                 // segment index (>=0), -1=STOP, -2=ACK marker
+    int start_byte;              // forwarded: PMA absolute HBM byte offset
+    ap_uint<512> range_word;     // forwarded: header[0] — vertex ranges + total_segs
+};

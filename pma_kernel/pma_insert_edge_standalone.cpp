@@ -219,25 +219,6 @@ void seg_insert(
 // redistribution may still need ENLARGE allocations afterwards. FREE (opcode=2)
 // is fire-and-forget (no response); only ALLOC (opcode=1) gets a response.
 
-// ---- bitmap init (2026-08-04: pma_gate removed, init moved here) ----
-// Reads the allocation bitmap from hbm_gate and streams it to alloc_access
-// (which counts ALLOC_BITMAP_WORDS packets). Runs once at DATAFLOW start.
-static void bitmap_init_reader(
-    ap_uint<512>* hbm,
-    int bitmap_offset,
-    hls::stream<ap_axiu<ALLOC_BITMAP_STORAGE_WORD_BITS,0,0,0>>& bitmap_init)
-{
-    int bm_word_off = bitmap_offset / 64;
-    for (int i = 0; i < ALLOC_BITMAP_WORDS; i++) {
-        #pragma HLS PIPELINE II=1
-        ap_axiu<ALLOC_BITMAP_STORAGE_WORD_BITS,0,0,0> w;
-        w.data = hbm[bm_word_off + i];
-        w.last = 0;
-        w.keep = -1;
-        bitmap_init.write(w);
-    }
-}
-
 // 2026-08-04: pma_gate removed — only redistribution side remains.
 // STOP marker (opcode=0) from redistribution terminates the merger.
 static void alloc_merger(
