@@ -60,24 +60,19 @@ BFS_PMA_XO_FILES := $(addprefix $(PMA_KERNEL_DIR)/, update_message_generator.xo 
 BFS_ALL_XO_FILES = $(MEM_XO_FILES) $(BFS_PMA_XO_FILES)
 BFS_XCLBIN := bfs_$(TARGET).xclbin
 
-# ---- Standalone mode: no generator, no router ----
-STANDALONE_PMA_XO_FILES := $(addprefix $(PMA_KERNEL_DIR)/, pma_insert_edge_standalone.xo update_message_generator.xo update_message_router_stream.xo pma_read_router_kernel.xo pma_read_worker_kernel.xo pma_read_merger_kernel.xo check_kernel.xo)
-STANDALONE_ALL_XO := $(MEM_XO_FILES) $(STANDALONE_PMA_XO_FILES)
-STANDALONE_XCLBIN := $(TARGET)_standalone.xclbin
-standalone: subdirs_standalone $(STANDALONE_XCLBIN)
-subdirs_standalone:
+# ---- Split mode: pma_insert_edge_standalone 拆成 3 内核 (task_reader / bs_insert / redistribution), online-only ----
+SPLIT_PMA_XO_FILES := $(addprefix $(PMA_KERNEL_DIR)/, task_reader_kernel.xo bs_insert_kernel.xo redistribution_kernel.xo update_message_generator.xo update_message_router_stream.xo pma_read_router_kernel.xo pma_read_worker_kernel.xo pma_read_merger_kernel.xo check_kernel.xo)
+SPLIT_ALL_XO := $(MEM_XO_FILES) $(SPLIT_PMA_XO_FILES)
+SPLIT_XCLBIN := $(TARGET)_split.xclbin
+split: subdirs_split $(SPLIT_XCLBIN)
+subdirs_split:
 	$(MAKE) -C memkernel all TARGET=$(TARGET)
-	$(MAKE) -C pma_kernel pma_insert_edge_standalone.xo TARGET=$(TARGET)
-	$(MAKE) -C pma_kernel update_message_generator.xo TARGET=$(TARGET)
-	$(MAKE) -C pma_kernel update_message_router_stream.xo TARGET=$(TARGET)
-	$(MAKE) -C pma_kernel pma_read_router_kernel.xo TARGET=$(TARGET)
-	$(MAKE) -C pma_kernel pma_read_worker_kernel.xo TARGET=$(TARGET)
-	$(MAKE) -C pma_kernel pma_read_merger_kernel.xo TARGET=$(TARGET)
-	$(MAKE) -C pma_kernel check_kernel.xo TARGET=$(TARGET)
-$(STANDALONE_XCLBIN): $(STANDALONE_ALL_XO)
-	@echo "---- Linking standalone system to create $(STANDALONE_XCLBIN) ----"
-	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --kernel_frequency=150 --save-temps --config system_router_hbm.cfg -o $@ $^
-	@echo "---- Standalone link done: $@ ----"
+	$(MAKE) -C pma_kernel task_reader_kernel.xo bs_insert_kernel.xo redistribution_kernel.xo TARGET=$(TARGET)
+	$(MAKE) -C pma_kernel update_message_generator.xo update_message_router_stream.xo pma_read_router_kernel.xo pma_read_worker_kernel.xo pma_read_merger_kernel.xo check_kernel.xo TARGET=$(TARGET)
+$(SPLIT_XCLBIN): $(SPLIT_ALL_XO)
+	@echo "---- Linking split system to create $(SPLIT_XCLBIN) ----"
+	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --kernel_frequency=150 --save-temps --config system_split.cfg -o $@ $^
+	@echo "---- Split link done: $@ ----"
 bfs: subdirs_bfs $(BFS_XCLBIN)
 subdirs_bfs:
 	$(MAKE) -C memkernel all TARGET=$(TARGET)
