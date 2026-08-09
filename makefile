@@ -1,7 +1,7 @@
 VPP ?= v++
 include ./ReGraph/global_para.mk
 PLATFORM ?= /xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm
-INCLUDES := -I/home/sail/lyf/pma_demo/stream/include
+INCLUDES := -I$(abspath include)
 TARGET ?= sw_emu
 # Gate 路由策略 (data_type.h decide_merge_path): 0=全走 bs, 1=全走 merge, 2=新边数>16 走 merge
 GATE_POLICY ?= 2
