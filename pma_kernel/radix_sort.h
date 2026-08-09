@@ -94,11 +94,29 @@ static void radix_pass_8bit(int* src_buf, int* dst_buf, int n, int shift) {
 }
 
 static void sort_src_dst(int* buf_a, int* buf_b, int n) {
-    for (int pass = 0; pass < 8; pass++) {
+    // ---- 子层启用 (提前终止): 高位字节全 0 的 pass 是恒等操作, 直接跳过 ----
+    // 实际 pass 数 = ceil(bits(max_key)/8), 即只排有意义的低字节, 高字节全 0
+    // 的 pass 不跑。对中小图 (src < 2^16 / 2^12) 省 2-4 个 pass (~2n+256 每个)。
+    // 四舍五入到偶数 pass 保持 ping-pong 结果落回 buf_a (调用方约定)。
+    ap_uint<64> max_key = 0;
+    for (int i = 0; i < n; i++) {
+        #pragma HLS PIPELINE II=1
+        ap_uint<64> key = ((ap_uint<64>)(ap_uint<32>)buf_a[i * 3] << 32) | (ap_uint<32>)buf_a[i * 3 + 1];
+        if (key > max_key) max_key = key;
+    }
+    int passes = 0;
+    for (int shift = 0; shift < 64; shift += 8) {
+        #pragma HLS UNROLL
+        if (((max_key >> shift) & 0xFF) != 0) passes = shift / 8 + 1;
+    }
+    if ((passes & 1) != 0) passes++;          // 偶数 pass → 结果在 buf_a
+    if (passes > 8) passes = 8;               // 防御: max_key 64-bit, 最多 8 pass
+
+    for (int pass = 0; pass < passes; pass++) {
         if ((pass & 1) == 0) radix_pass_8bit(buf_a, buf_b, n, pass * 8);
         else                 radix_pass_8bit(buf_b, buf_a, n, pass * 8);
     }
-    // pass 7 (odd) writes buf_a → result in buf_a
+    // 最后 pass 为奇数索引 → 写 buf_a → 结果在 buf_a
 }
 
 // ---- In-segment bitonic sort by dst (for merge-insert groundwork) ----
