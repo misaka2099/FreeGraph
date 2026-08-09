@@ -258,65 +258,85 @@ static void merge_phase(
             if (segs <= 0) continue;
             int seg_start_word = (byte_off + HEADER_BYTES + total_hlp * 64 + vs * SEG_BYTES) / 64;
             int seg_end_word   = (byte_off + HEADER_BYTES + total_hlp * 64 + ve * SEG_BYTES) / 64;
-            int seg_words = segs * SEG_WORDS_PER_SEG;
-
-            // ---- 读该 vertex 的 segments 到 onchip_buffer ----
-            for (int w = 0; w < seg_words; w++) {
-                #pragma HLS PIPELINE II=1
-                onchip_buffer[w] = hbm_pma[seg_start_word + w];
-            }
 
             // ---- 流式归并: existing 从 onchip_buffer 逐个读, new 从 new_edges, 结果写 hbm_buffer ----
-            // 只缓冲 new_edges[≤8192], 不整段缓冲 existing → 无 unbounded 片上数组。
-            // hbm_buffer 是整条 HBM bank, 归并结果直接落这里, redistribute 再写回原地。
+            // chunk 保护: 顶点 segment 数可 > MAX_ONCHIP_SEG(1024), 按 1024 段一块读入归并。
+            // 块内归并只消费 <= 块末 existing 边的 new_edges; 块耗尽即跳到下一块 (new_edges 保留)。
+            // 空块跳过 (不消费 new_edges, 避免把新边塞进无容量的空段)。
+            // 全部块处理完后的尾部 new_edges 补发 (必 > 所有 existing 边, 保持有序)。
+            // 归并结果总边数 total 全局累加, redistribute_edge_from_hbm 按整顶点段范围 base+extra
+            // 分块写回 (其内部已按 MAX_ONCHIP_SEG 分块), 容量由 pre-expand 保证。
             int total = 0;
-            int seg_idx = -1;      // 当前 segment (从 -1 开始, 首次自增到 0)
-            int seg_rem = 0;       // 当前 segment 剩余有效边
-            int slot = 0;          // 当前 slot
-            int e_cur = 0;         // 当前读出的 existing 边
-            bool have_e = false;   // e_cur 是否有效
-            int n = 0;             // new_edges 游标
+            int n = 0;             // new_edges 游标 (跨块全局)
             int cur_w = -1;        // 当前写入的 hbm_buffer word
 
-            while (true) {
-                // 需要时加载下一个 existing 边
-                if (!have_e) {
-                    if (seg_rem > 0) {
-                        int wi = seg_idx * SEG_WORDS_PER_SEG + (slot >> 4);
-                        int si = slot & 0xF;
-                        e_cur = (int)onchip_buffer[wi].range(si * 32 + 31, si * 32);
-                        slot++; seg_rem--;
-                        have_e = true;
-                    } else {
-                        seg_idx++;
-                        while (seg_idx < segs) {
-                            int vc = (int)onchip_buffer[seg_idx * SEG_WORDS_PER_SEG + 3].range(511, 480);
-                            if (vc > EDGE_SLOTS_PER_SEG) vc = EDGE_SLOTS_PER_SEG;
-                            if (vc > 0) {
-                                seg_rem = vc; slot = 0;
-                                e_cur = (int)onchip_buffer[seg_idx * SEG_WORDS_PER_SEG].range(31, 0);
-                                slot = 1; seg_rem--;
-                                have_e = true;
-                                break;
-                            }
+            const int CHUNK_SEGS = MAX_ONCHIP_SEG;
+            for (int chunk_start = 0; chunk_start < segs; chunk_start += CHUNK_SEGS) {
+                int chunk_segs = segs - chunk_start;
+                if (chunk_segs > CHUNK_SEGS) chunk_segs = CHUNK_SEGS;
+                int chunk_words = chunk_segs * SEG_WORDS_PER_SEG;
+
+                // 读该块 segments 到 onchip_buffer
+                for (int w = 0; w < chunk_words; w++) {
+                    #pragma HLS PIPELINE II=1
+                    onchip_buffer[w] = hbm_pma[seg_start_word + chunk_start * SEG_WORDS_PER_SEG + w];
+                }
+
+                // 块内归并: 双指针, existing 边耗尽即退出块 (new_edges 留到后续块/尾部)
+                int seg_idx = -1;      // 当前块内 segment (从 -1 开始, 首次自增到 0)
+                int seg_rem = 0;       // 当前 segment 剩余有效边
+                int slot = 0;          // 当前 slot
+                int e_cur = 0;         // 当前读出的 existing 边
+                bool have_e = false;   // e_cur 是否有效
+
+                while (true) {
+                    // 需要时加载下一个 existing 边
+                    if (!have_e) {
+                        if (seg_rem > 0) {
+                            int wi = seg_idx * SEG_WORDS_PER_SEG + (slot >> 4);
+                            int si = slot & 0xF;
+                            e_cur = (int)onchip_buffer[wi].range(si * 32 + 31, si * 32);
+                            slot++; seg_rem--;
+                            have_e = true;
+                        } else {
                             seg_idx++;
+                            while (seg_idx < chunk_segs) {
+                                int vc = (int)onchip_buffer[seg_idx * SEG_WORDS_PER_SEG + 3].range(511, 480);
+                                if (vc > EDGE_SLOTS_PER_SEG) vc = EDGE_SLOTS_PER_SEG;
+                                if (vc > 0) {
+                                    seg_rem = vc; slot = 0;
+                                    e_cur = (int)onchip_buffer[seg_idx * SEG_WORDS_PER_SEG].range(31, 0);
+                                    slot = 1; seg_rem--;
+                                    have_e = true;
+                                    break;
+                                }
+                                seg_idx++;
+                            }
                         }
                     }
+                    // 本块 existing 边耗尽 → 下一块 (new_edges 不能在此消费, 可能属于后续块)
+                    if (!have_e) break;
+
+                    // 选较小的
+                    int pick;
+                    if (n >= nidx) { pick = e_cur; have_e = false; }
+                    else if (new_edges[n] < e_cur) { pick = new_edges[n++]; }
+                    else { pick = e_cur; have_e = false; }
+
+                    // 写 hbm_buffer (16/word 打包; word 首次写时清零)
+                    int w = total >> 4, ss = total & 0xF;
+                    if (w != cur_w) { cur_w = w; hbm_buffer[w] = 0; }
+                    hbm_buffer[w].range(ss * 32 + 31, ss * 32) = (ap_uint<32>)pick;
+                    total++;
                 }
-                // 两个源都耗尽 → 结束
-                if (!have_e && n >= nidx) break;
+            }
 
-                // 选较小的
-                int pick;
-                if (!have_e) { pick = new_edges[n++]; }
-                else if (n >= nidx) { pick = e_cur; have_e = false; }
-                else if (e_cur <= new_edges[n]) { pick = e_cur; have_e = false; }
-                else { pick = new_edges[n++]; }
-
-                // 写 hbm_buffer (16/word 打包; word 首次写时清零)
+            // 尾部: 所有块处理完后剩余的 new_edges (必 > 所有 existing 边, 直接补在末尾)
+            while (n < nidx) {
+                #pragma HLS PIPELINE II=1
                 int w = total >> 4, ss = total & 0xF;
                 if (w != cur_w) { cur_w = w; hbm_buffer[w] = 0; }
-                hbm_buffer[w].range(ss * 32 + 31, ss * 32) = (ap_uint<32>)pick;
+                hbm_buffer[w].range(ss * 32 + 31, ss * 32) = (ap_uint<32>)new_edges[n++];
                 total++;
             }
 
