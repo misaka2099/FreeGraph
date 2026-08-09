@@ -276,9 +276,16 @@ int main(int argc, char** argv)
     task_reader_kernels.reserve(CHANNEL_NUM);
     bs_insert_kernels.reserve(CHANNEL_NUM);
     redistribution_kernels.reserve(CHANNEL_NUM);
+#if defined(USE_MERGE_BS_PATH)
+    std::vector<xrt::kernel> merge_pipeline_kernels;
+    merge_pipeline_kernels.reserve(CHANNEL_NUM);
+#endif
     for (int i = 1; i <= CHANNEL_NUM; ++i) {
         if (!try_add_kernel(task_reader_kernels, "task_reader_kernel:{task_reader_kernel_" + std::to_string(i) + "}")) break;
-#ifdef USE_MERGE_PATH
+#if defined(USE_MERGE_BS_PATH)
+        if (!try_add_kernel(bs_insert_kernels, "bs_insert_kernel:{bs_insert_kernel_" + std::to_string(i) + "}")) break;
+        if (!try_add_kernel(merge_pipeline_kernels, "merge_pipeline:{merge_pipeline_" + std::to_string(i) + "}")) break;
+#elif defined(USE_MERGE_PATH)
         if (!try_add_kernel(bs_insert_kernels, "merge_pipeline:{merge_pipeline_" + std::to_string(i) + "}")) break;
 #else
         if (!try_add_kernel(bs_insert_kernels, "bs_insert_kernel:{bs_insert_kernel_" + std::to_string(i) + "}")) break;
@@ -317,14 +324,22 @@ int main(int argc, char** argv)
         task_reader_kernels.size() < static_cast<size_t>(CHANNEL_NUM) ||
         bs_insert_kernels.size() < static_cast<size_t>(CHANNEL_NUM) ||
         redistribution_kernels.size() < static_cast<size_t>(CHANNEL_NUM) ||
-        alloc_access_kernels.size() < static_cast<size_t>(CHANNEL_NUM))
+        alloc_access_kernels.size() < static_cast<size_t>(CHANNEL_NUM)
+#if defined(USE_MERGE_BS_PATH)
+        || merge_pipeline_kernels.size() < static_cast<size_t>(CHANNEL_NUM)
+#endif
+        )
     {
         std::cerr << "Kernel loading incomplete for read/insert/alloc CUs; aborting before launch." << std::endl;
         std::cerr << "Loaded read workers: " << pma_read_worker_kernels.size()
                   << ", task_reader: " << task_reader_kernels.size()
                   << ", bs_insert: " << bs_insert_kernels.size()
                   << ", redistribution: " << redistribution_kernels.size()
-                  << ", alloc access kernels: " << alloc_access_kernels.size() << std::endl;
+                  << ", alloc access kernels: " << alloc_access_kernels.size()
+#if defined(USE_MERGE_BS_PATH)
+                  << ", merge_pipeline: " << merge_pipeline_kernels.size()
+#endif
+                  << std::endl;
         return 1;
     }
 #else
@@ -377,6 +392,11 @@ int main(int argc, char** argv)
     run_redistribution_kernels.reserve(redistribution_kernels.size());
     for (auto &k : task_reader_kernels) run_task_reader_kernels.emplace_back(k);
     for (auto &k : redistribution_kernels) run_redistribution_kernels.emplace_back(k);
+#if defined(USE_MERGE_BS_PATH)
+    std::vector<xrt::run> run_merge_pipeline_kernels;
+    run_merge_pipeline_kernels.reserve(merge_pipeline_kernels.size());
+    for (auto &k : merge_pipeline_kernels) run_merge_pipeline_kernels.emplace_back(k);
+#endif
     std::cout << "task_reader / redistribution kernels are launched..." << std::endl;
 #endif
     std::cout << "PMA insert edge kernels are launched..." << std::endl;
@@ -476,14 +496,20 @@ int main(int argc, char** argv)
                                    XRT_BO_FLAGS_DEV_ONLY,
                                    redistribution_kernels[ch].group_id(1));
     }
-#ifdef USE_MERGE_PATH
+#if defined(USE_MERGE_PATH) || defined(USE_MERGE_BS_PATH)
     // merge_pipeline 的归并缓冲 (hbm_buffer, 独立备用 bank HBM[10/11/12])
     std::vector<xrt::bo> bo_merge_bufs;
     bo_merge_bufs.reserve(CHANNEL_NUM);
     for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
+#if defined(USE_MERGE_BS_PATH)
+        bo_merge_bufs.emplace_back(device, kEdgeBufBytes,
+                                   XRT_BO_FLAGS_DEV_ONLY,
+                                   merge_pipeline_kernels[ch].group_id(1));
+#else
         bo_merge_bufs.emplace_back(device, kEdgeBufBytes,
                                    XRT_BO_FLAGS_DEV_ONLY,
                                    bs_insert_kernels[ch].group_id(1));
+#endif
     }
 #endif
     (void)edge_buffer_len;
@@ -513,6 +539,35 @@ int main(int argc, char** argv)
     // --- Set kernel arguments for m_axi ports ---
     for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
 #ifdef USE_STANDALONE_MODE
+#if defined(USE_MERGE_BS_PATH)
+        // bs_insert: hbm_bs, hbm_rw (同 channel bank)
+        {
+            auto& run = run_pma_insert_edge_kernels[ch];
+            int a = 0;
+            run.set_arg(a++, ch_bufs[ch]);  // hbm_bs
+            run.set_arg(a++, ch_bufs[ch]);  // hbm_rw
+            run.set_arg(a++, pma_raw_data_start);
+            run.set_arg(a++, pma_vecinfo_start);
+        }
+        // merge_pipeline: hbm_pma, hbm_buffer (独立备用 bank)
+        {
+            auto& run = run_merge_pipeline_kernels[ch];
+            int a = 0;
+            run.set_arg(a++, ch_bufs[ch]);       // hbm_pma
+            run.set_arg(a++, bo_merge_bufs[ch]); // hbm_buffer
+            run.set_arg(a++, pma_raw_data_start);
+            run.set_arg(a++, pma_vecinfo_start);
+        }
+        // task_reader: worker_id + gate m_axi (读 VEC_INFO/header/VC 供决策)
+        {
+            auto& run = run_task_reader_kernels[ch];
+            int a = 0;
+            run.set_arg(a++, ch);             // worker_id
+            run.set_arg(a++, ch_bufs[ch]);    // hbm_gate (同 channel bank)
+            run.set_arg(a++, pma_raw_data_start);
+            run.set_arg(a++, pma_vecinfo_start);
+        }
+#else
         // 插入内核: bs_insert (hbm_bs/hbm_rw) 或 merge_pipeline (hbm_pma/hbm_buffer)
         {
             auto& run = run_pma_insert_edge_kernels[ch];
@@ -531,6 +586,7 @@ int main(int argc, char** argv)
             auto& run = run_task_reader_kernels[ch];
             run.set_arg(0, ch);             // worker_id
         }
+#endif
         // redistribution: hbm_red, hbm_buffer_for_red + 标量
         {
             auto& run = run_redistribution_kernels[ch];
@@ -905,19 +961,25 @@ int main(int argc, char** argv)
         run_generator.start();
         run_router_stream.start();
 
-        // Start alloc_access kernels, then task_reader + bs_insert + redistribution
+        // Start alloc_access kernels, then task_reader + bs_insert (+merge) + redistribution
         for (auto &r : run_alloc_access_kernels) { r.start(); }
         for (auto &r : run_task_reader_kernels) { r.start(); }
         for (auto &r : run_pma_insert_edge_kernels) { r.start(); }
+#if defined(USE_MERGE_BS_PATH)
+        for (auto &r : run_merge_pipeline_kernels) { r.start(); }
+#endif
         for (auto &r : run_redistribution_kernels) { r.start(); }
 
         // Wait for generator (finishes after sending STOP + receiving ACK from router)
         run_generator.wait();
         // Wait for router stream (exits after forwarding STOP to all workers + ACK)
         run_router_stream.wait();
-        // Wait for workers (STOP 链: task_reader → bs_insert → redistribution 依次收尾)
+        // Wait for workers (STOP 链: task_reader → bs_insert/merge_pipeline → redistribution 依次收尾)
         for (auto &r : run_task_reader_kernels) { r.wait(); }
         for (auto &r : run_pma_insert_edge_kernels) { r.wait(); }
+#if defined(USE_MERGE_BS_PATH)
+        for (auto &r : run_merge_pipeline_kernels) { r.wait(); }
+#endif
         for (auto &r : run_redistribution_kernels) { r.wait(); }
         // Wait for alloc_access (receives STOP from redistribution)
         for (auto &r : run_alloc_access_kernels) { r.wait(); }

@@ -341,3 +341,27 @@ struct rebalance_task_t {
     int start_byte;              // forwarded: PMA absolute HBM byte offset
     ap_uint<512> range_word;     // forwarded: header[0] — vertex ranges + total_segs
 };
+
+// ---- Gate 路由策略 (task_reader 按 PMA 决策: 走 merge 还是走 bs) ----
+// 编译期用 -DGATE_POLICY=N 或改下面默认值切换。决策只影响发送粒度:
+//   merge = 整 PMA 一次 issue (last=1 在 PMA 末边)
+//   bs    = 16 边一批 issue (last=1 在每批末边), 一批处理后跳下一个 PMA
+#define GATE_POLICY_BS_ONLY    0
+#define GATE_POLICY_MERGE_ONLY 1
+#define GATE_POLICY_COUNT_GT16 2
+#ifndef GATE_POLICY
+#define GATE_POLICY GATE_POLICY_COUNT_GT16
+#endif
+
+// user-define 决策函数: 输入该 PMA 本次 wave 的新边数。
+// 扩展点: 可在 task_reader 内用 gate m_axi (hbm_gate) 读 VEC_INFO/header/VC,
+// 把顶点现边数也传入, 实现更精细的启发式 (见 task_reader gate_read_pma_vertex_counts)。
+// 返回 true = 走 merge, false = 走 bs。
+static inline bool decide_merge_path(int pma_idx, int pma_wave_edges) {
+    switch (GATE_POLICY) {
+        case GATE_POLICY_BS_ONLY:     return false;
+        case GATE_POLICY_MERGE_ONLY:  return true;
+        case GATE_POLICY_COUNT_GT16:  return pma_wave_edges > 16;
+        default:                      return false;
+    }
+}

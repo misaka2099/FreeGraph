@@ -3,6 +3,8 @@ include ./ReGraph/global_para.mk
 PLATFORM ?= /xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm
 INCLUDES := -I/home/sail/lyf/pma_demo/stream/include
 TARGET ?= sw_emu
+# Gate 路由策略 (data_type.h decide_merge_path): 0=全走 bs, 1=全走 merge, 2=新边数>16 走 merge
+GATE_POLICY ?= 2
 MEMKERNEL_DIR := ./memkernel
 PMA_KERNEL_DIR := ./pma_kernel
 REGRAPH_KERNEL_DIR := ./ReGraph/xokernels
@@ -87,6 +89,25 @@ $(MERGE_XCLBIN): $(MERGE_ALL_XO)
 	@echo "---- Linking merge system to create $(MERGE_XCLBIN) ----"
 	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --kernel_frequency=150 --save-temps --config system_merge.cfg -o $@ $^
 	@echo "---- Merge link done: $@ ----"
+
+# ---- Merge+BS 整合系统: task_reader gate 路由 (decide_merge_path), bs+merge 双路径 ----
+# 三个测试策略用 GATE_POLICY 编译开关 (0=全 bs, 1=全 merge, 2=新边数>16 走 merge, 默认)。
+# 旧 system_merge.cfg / system_split.cfg 已被整合系统取代: task_reader 现在双 edge 流,
+# 单流 cfg 不再可用。
+MERGE_BS_PMA_XO_FILES := $(addprefix $(PMA_KERNEL_DIR)/, task_reader_kernel.xo bs_insert_kernel.xo merge_pipeline.xo redistribution_kernel.xo update_message_generator.xo update_message_router_stream.xo pma_read_router_kernel.xo pma_read_worker_kernel.xo pma_read_merger_kernel.xo check_kernel.xo)
+MERGE_BS_ALL_XO := $(MEM_XO_FILES) $(MERGE_BS_PMA_XO_FILES)
+MERGE_BS_XCLBIN := $(TARGET)_merge_bs.xclbin
+merge_bs: subdirs_merge_bs $(MERGE_BS_XCLBIN)
+subdirs_merge_bs:
+	$(MAKE) -C memkernel all TARGET=$(TARGET)
+	$(MAKE) -C pma_kernel task_reader_kernel.xo bs_insert_kernel.xo merge_pipeline.xo redistribution_kernel.xo TARGET=$(TARGET) GATE_POLICY=$(GATE_POLICY)
+	$(MAKE) -C pma_kernel update_message_generator.xo update_message_router_stream.xo pma_read_router_kernel.xo pma_read_worker_kernel.xo pma_read_merger_kernel.xo check_kernel.xo TARGET=$(TARGET)
+$(MERGE_BS_XCLBIN): $(MERGE_BS_ALL_XO)
+	@echo "---- Linking merge+bs system to create $(MERGE_BS_XCLBIN) ----"
+	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --kernel_frequency=150 --save-temps --config system_merge_bs.cfg -o $@ $^
+	@echo "---- Merge+bs link done: $@ ----"
+host_merge_bs: host.cpp
+	g++ -std=c++17 -DUSE_STANDALONE_MODE -DUSE_MERGE_BS_PATH $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
 bfs: subdirs_bfs $(BFS_XCLBIN)
 subdirs_bfs:
 	$(MAKE) -C memkernel all TARGET=$(TARGET)

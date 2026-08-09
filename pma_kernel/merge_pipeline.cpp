@@ -169,14 +169,15 @@ void redistribute_edge_from_hbm(
 // 读 task_reader 发来的整 PMA 批 (last=1 在 PMA 末边), 对每个被影响的 vertex:
 //   读它的 segment 已有边 (有序) + 该 run 的新边 (有序) → 双指针归并 → 按 47/段写回
 //   (复用 redistribute_edge_from_hbm 更新 VC/FE) → header.edge_count 累加。
-// 每 run 处理完立即 ack (与 task_reader 每 run +1 记账配对)。STOP 时与 redistribution 握手退出。
+// 每 PMA 处理完立即 ack (与 task_reader 每 PMA +1 记账配对)。
+// 整合系统: merge 不再与 redistribution 交互 (pre-expand 保证容量, 无 overflow 任务),
+// 也无 task_out/redist_ack_in 流。STOP 收到后直接 ack(-1) 退出; redistribution 的
+// STOP 由 bs_insert 路径负责。
 static void merge_phase(
     ap_uint<512>* hbm_pma,
     ap_uint<512>* hbm_buffer,
     int data_off, int vi_wo,
     hls::stream<PMA_UPDATE_MESSAGE>& edge_in,
-    hls::stream<rebalance_task_t>& task_out,
-    hls::stream<ap_uint<32>>& redist_ack_in,
     hls::stream<ap_uint<32>>& ack_out)
 {
     // 片上缓冲 (URAM)
@@ -184,15 +185,6 @@ static void merge_phase(
     #pragma HLS bind_storage variable=onchip_buffer type=RAM_2P impl=URAM
     ap_uint<512> edge_buffer[MAX_ONCHIP_SEG_WORDS];
     #pragma HLS bind_storage variable=edge_buffer type=RAM_2P impl=URAM
-    // HLS 流读写兜底 (用户要求): if(false) 永不执行, 但保证每个流端口有引用
-    if (false) {
-        edge_in.read();
-        ack_out.write((ap_uint<32>)0);
-        redist_ack_in.read();
-        rebalance_task_t dummy;
-        dummy.pma = 0; dummy.payload = 0; dummy.start_byte = 0; dummy.range_word = 0;
-        task_out.write(dummy);
-    }
 
     while (true) {
         // ---- 读一个 PMA 的整批边 (last=1 在 PMA 末边, task_reader 整 PMA 发送) ----
@@ -367,19 +359,9 @@ static void merge_phase(
         ack_out.write((ap_uint<32>)pma);
     }
 
-    // ---- STOP: 与 redistribution 握手退出 ----
-    rebalance_task_t stop_task;
-    stop_task.pma = 0;
-    stop_task.payload = -1;     // STOP
-    stop_task.start_byte = 0;
-    stop_task.range_word = 0;
-    task_out.write(stop_task);
-
-    // 等 redistribution 的 redist_ack(-1)
-    while (redist_ack_in.empty()) ap_wait();
-    ap_uint<32> ra = redist_ack_in.read();
-    (void)ra;
-
+    // ---- STOP: 直接 ack(-1) 退出 ----
+    // 整合系统里 merge 不参与 redistribution 的 STOP 链 (那由 bs_insert 负责)。
+    // ack(-1) 对 task_reader 只是协议收尾 (check_ack_back 跳过 -1)。
     ack_out.write((ap_uint<32>)-1);
 }
 
@@ -393,8 +375,6 @@ extern "C"
         int pma_raw_data_start,
         int pma_vecinfo_start,
         hls::stream<PMA_UPDATE_MESSAGE>& edge_in,
-        hls::stream<rebalance_task_t>& task_out,
-        hls::stream<ap_uint<32>>& redist_ack_in,
         hls::stream<ap_uint<32>>& ack_out)
     {
         #pragma HLS INTERFACE m_axi port=hbm_pma offset=slave bundle=gmem0 max_read_burst_length=256 max_write_burst_length=256
@@ -406,11 +386,9 @@ extern "C"
         #pragma HLS INTERFACE s_axilite port=pma_vecinfo_start bundle=control
         #pragma HLS INTERFACE s_axilite port=return bundle=control
         #pragma HLS INTERFACE axis port=edge_in
-        #pragma HLS INTERFACE axis port=task_out
-        #pragma HLS INTERFACE axis port=redist_ack_in
         #pragma HLS INTERFACE axis port=ack_out
 
         merge_phase(hbm_pma, hbm_buffer, pma_raw_data_start, pma_vecinfo_start / 64,
-                    edge_in, task_out, redist_ack_in, ack_out);
+                    edge_in, ack_out);
     }
 }
