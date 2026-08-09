@@ -23,3 +23,13 @@ memkernel/emulation_debug.log
 *_batch_timing.csv
 pma_kernel/v++_*.log
 pma_kernel/xcd.log
+xilinx_*.wdb
+xilinx_*.wcfg
+xilinx_*.protoinst
+xilinx_*.wdb.*
+*.simulate.log
+*xsc_report.log
+/xrt.run_summary
+/profile_kernels.csv
+/timeline_kernels.csv
+/summary.csv
