@@ -33,3 +33,4 @@ xilinx_*.wdb.*
 /profile_kernels.csv
 /timeline_kernels.csv
 /summary.csv
+xilinx_*_simulate.log
