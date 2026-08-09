@@ -192,7 +192,7 @@ static void task_reader(
                     if (is_pma_locked(pma_lock, pma_idx, worker_id)) continue;
                     if (seperation_cursors[i] >= seperations[i]) continue;
                     int start = seperation_cursors[i];
-                    int end = (16 > seperations[i] - start) ? seperations[i] : (start + 16);
+                    int end = seperations[i];   // merge 按 PMA 粒度: 整 PMA 一次发完 (last=1 在 PMA 末边)
                     for (int j = start; j < end; j++)
                     {
                         int src = wave_buffer[j * 3 + 0];

@@ -73,6 +73,20 @@ $(SPLIT_XCLBIN): $(SPLIT_ALL_XO)
 	@echo "---- Linking split system to create $(SPLIT_XCLBIN) ----"
 	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --kernel_frequency=150 --save-temps --config system_split.cfg -o $@ $^
 	@echo "---- Split link done: $@ ----"
+
+# ---- Merge mode: 插入流程用 merge 归并替换 bs (task_reader / merge_pipeline / redistribution) ----
+MERGE_PMA_XO_FILES := $(addprefix $(PMA_KERNEL_DIR)/, task_reader_kernel.xo merge_pipeline.xo redistribution_kernel.xo update_message_generator.xo update_message_router_stream.xo pma_read_router_kernel.xo pma_read_worker_kernel.xo pma_read_merger_kernel.xo check_kernel.xo)
+MERGE_ALL_XO := $(MEM_XO_FILES) $(MERGE_PMA_XO_FILES)
+MERGE_XCLBIN := $(TARGET)_merge.xclbin
+merge: subdirs_merge $(MERGE_XCLBIN)
+subdirs_merge:
+	$(MAKE) -C memkernel all TARGET=$(TARGET)
+	$(MAKE) -C pma_kernel task_reader_kernel.xo merge_pipeline.xo redistribution_kernel.xo TARGET=$(TARGET)
+	$(MAKE) -C pma_kernel update_message_generator.xo update_message_router_stream.xo pma_read_router_kernel.xo pma_read_worker_kernel.xo pma_read_merger_kernel.xo check_kernel.xo TARGET=$(TARGET)
+$(MERGE_XCLBIN): $(MERGE_ALL_XO)
+	@echo "---- Linking merge system to create $(MERGE_XCLBIN) ----"
+	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --kernel_frequency=150 --save-temps --config system_merge.cfg -o $@ $^
+	@echo "---- Merge link done: $@ ----"
 bfs: subdirs_bfs $(BFS_XCLBIN)
 subdirs_bfs:
 	$(MAKE) -C memkernel all TARGET=$(TARGET)
@@ -106,6 +120,8 @@ host: host.cpp
 	g++ -std=c++17 $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
 host_standalone: host.cpp
 	g++ -std=c++17 -DUSE_STANDALONE_MODE $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
+host_merge: host.cpp
+	g++ -std=c++17 -DUSE_STANDALONE_MODE -DUSE_MERGE_PATH $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
 real_host: real_host.cpp
 	g++ -std=c++17 $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
 test_host: test_host.cpp

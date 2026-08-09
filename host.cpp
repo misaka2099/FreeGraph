@@ -278,7 +278,11 @@ int main(int argc, char** argv)
     redistribution_kernels.reserve(CHANNEL_NUM);
     for (int i = 1; i <= CHANNEL_NUM; ++i) {
         if (!try_add_kernel(task_reader_kernels, "task_reader_kernel:{task_reader_kernel_" + std::to_string(i) + "}")) break;
+#ifdef USE_MERGE_PATH
+        if (!try_add_kernel(bs_insert_kernels, "merge_pipeline:{merge_pipeline_" + std::to_string(i) + "}")) break;
+#else
         if (!try_add_kernel(bs_insert_kernels, "bs_insert_kernel:{bs_insert_kernel_" + std::to_string(i) + "}")) break;
+#endif
         if (!try_add_kernel(redistribution_kernels, "redistribution_kernel:{redistribution_kernel_" + std::to_string(i) + "}")) break;
     }
     // pma_insert_edge_kernels 别名 bs_insert (主 worker, 用于 HBM BO 的 group_id)
@@ -472,6 +476,16 @@ int main(int argc, char** argv)
                                    XRT_BO_FLAGS_DEV_ONLY,
                                    redistribution_kernels[ch].group_id(1));
     }
+#ifdef USE_MERGE_PATH
+    // merge_pipeline 的归并缓冲 (hbm_buffer, 独立备用 bank HBM[10/11/12])
+    std::vector<xrt::bo> bo_merge_bufs;
+    bo_merge_bufs.reserve(CHANNEL_NUM);
+    for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
+        bo_merge_bufs.emplace_back(device, kEdgeBufBytes,
+                                   XRT_BO_FLAGS_DEV_ONLY,
+                                   bs_insert_kernels[ch].group_id(1));
+    }
+#endif
     (void)edge_buffer_len;
 #endif
 
@@ -499,12 +513,16 @@ int main(int argc, char** argv)
     // --- Set kernel arguments for m_axi ports ---
     for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
 #ifdef USE_STANDALONE_MODE
-        // bs_insert: hbm_bs, hbm_rw (同 channel 同 bank)
+        // 插入内核: bs_insert (hbm_bs/hbm_rw) 或 merge_pipeline (hbm_pma/hbm_buffer)
         {
             auto& run = run_pma_insert_edge_kernels[ch];
             int a = 0;
-            run.set_arg(a++, ch_bufs[ch]);  // hbm_bs
-            run.set_arg(a++, ch_bufs[ch]);  // hbm_rw
+            run.set_arg(a++, ch_bufs[ch]);  // hbm_pma (merge) / hbm_bs (bs)
+#ifdef USE_MERGE_PATH
+            run.set_arg(a++, bo_merge_bufs[ch]);  // hbm_buffer (merge 归并缓冲, 独立 bank)
+#else
+            run.set_arg(a++, ch_bufs[ch]);  // hbm_rw (bs)
+#endif
             run.set_arg(a++, pma_raw_data_start);
             run.set_arg(a++, pma_vecinfo_start);
         }
