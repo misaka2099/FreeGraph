@@ -1,36 +1,21 @@
-merge_chunk_corpus.txt
+# 白名单式 .gitignore: 先忽略全部, 再按类型放行源码/makefile/cfg。
+# 目录用 !*/ 放行 (否则 git 不进入被忽略目录, 里面的白名单文件也不会被匹配)。
+# 无前导斜杠的 pattern 递归匹配任意目录层级。
 
-# ---- build artifacts ----
-_x/
-.run/
-*.xo
-*.xo.compile_summary
-*.xclbin
-*.xclbin.info
-*.xclbin.link_summary
-/emulation_debug.log
-/v++_*.log
-/xcd.log
-/build_*.log
-/run_p*_*.log
-/mismatch_*.txt
-/host_merge_bs
-/host_merge
-/core
-memkernel/v++_*.log
-memkernel/xcd.log
-memkernel/emulation_debug.log
-*_batch_timing.csv
-pma_kernel/v++_*.log
-pma_kernel/xcd.log
-xilinx_*.wdb
-xilinx_*.wcfg
-xilinx_*.protoinst
-xilinx_*.wdb.*
-*.simulate.log
-*xsc_report.log
-/xrt.run_summary
-/profile_kernels.csv
-/timeline_kernels.csv
-/summary.csv
-xilinx_*_simulate.log
+# ---- 忽略全部 ----
+*
+
+# ---- 放行目录 (让 git 可以递归下探) ----
+!*/
+
+# ---- 白名单: 只跟踪这些文件类型 (递归) ----
+!*.cpp
+!*.hpp
+!*.c
+!*.h
+!makefile
+!*.cfg
+
+# ---- 子项目 / 内部目录整体忽略 ----
+ReGraph/
+.claude/
