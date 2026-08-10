@@ -600,8 +600,16 @@ static void pma_pre_expand(
                 while (p < need) p <<= 1;
                 new_cnt = (need <= 1) ? 1 : p;     // 至少 1 段, 2 的幂
             } else if (old_edges + count[v] > old_cnt * 47) {
-                new_cnt = old_cnt * 2;                      // 需扩容: segment 数 2 倍翻倍
+                // 需扩容: 至少翻倍, 重复翻倍直到 (ve-vs)*47 >= old+count。
+                // 原实现只翻倍一次 — 单个 wave 对某 vertex 的插入量超过其整个
+                // 容量时扩容不足 (倾斜 dst 全打到一个热顶点就会发生), merge
+                // 没有 overflow 兜底路径会写出 vc>47 的段 (bs_vs_merge 实验
+                // 发现, 2026-08-11)。与 INIT 分支的 2 的幂语义保持一致。
+                new_cnt = old_cnt * 2;
                 need_expand = true;
+                while (new_cnt * 47 < old_edges + count[v]) {
+                    new_cnt *= 2;
+                }
             }
             cum += new_cnt;
             new_range_word.range(v * 32 + 31, v * 32) = (ap_uint<32>)cum;
