@@ -32,7 +32,7 @@ static const ap_uint<512> EMPTY_SEG_ROM[4] = {
 
 // ---- VEC_INFO access ----
 
-static VEC_INFO vi_read(ap_uint<512>* hbm, int vi_word_off, int pma_idx)
+static VEC_INFO vi_read(ap_uint<512>* hbm, long long vi_word_off, int pma_idx)
 {
     int wi = pma_idx / 8, si = pma_idx % 8;
     ap_uint<512> w = hbm[vi_word_off + wi];
@@ -41,7 +41,7 @@ static VEC_INFO vi_read(ap_uint<512>* hbm, int vi_word_off, int pma_idx)
     return vi;
 }
 
-static void vi_write(ap_uint<512>* hbm, int vi_word_off, int pma_idx, VEC_INFO vi)
+static void vi_write(ap_uint<512>* hbm, long long vi_word_off, int pma_idx, VEC_INFO vi)
 {
     int wi = pma_idx / 8, si = pma_idx % 8;
     ap_uint<512> w = hbm[vi_word_off + wi];
@@ -51,9 +51,9 @@ static void vi_write(ap_uint<512>* hbm, int vi_word_off, int pma_idx, VEC_INFO v
 
 // Read a valid_count entry (1:1 per segment, 16 entries per 512-bit word)
 // directly from HBM (used by find_redistribution_range and redistribution_phase).
-static inline int hbm_vc_read(ap_uint<512>* hbm, int vc_hbm_base, int seg)
+static inline int hbm_vc_read(ap_uint<512>* hbm, long long vc_hbm_base, int seg)
 {
-    int vc_word_off = vc_hbm_base + seg / VC_SOA_ENTRIES_PER_WORD;
+    long long vc_word_off = vc_hbm_base + seg / VC_SOA_ENTRIES_PER_WORD;
     int vc_slot     = seg % VC_SOA_ENTRIES_PER_WORD;
     ap_uint<512> vc_word = hbm[vc_word_off];
     return (int)vc_word.range(vc_slot * 32 + 31, vc_slot * 32);
@@ -98,10 +98,10 @@ static void alloc_send(
 // (which counts ALLOC_BITMAP_WORDS packets). Runs once before the main loop.
 static void bitmap_init_reader(
     ap_uint<512>* hbm,
-    int bitmap_offset,
+    long long bitmap_offset,
     hls::stream<ap_axiu<ALLOC_BITMAP_STORAGE_WORD_BITS,0,0,0>>& bitmap_init)
 {
-    int bm_word_off = bitmap_offset / 64;
+    long long bm_word_off = bitmap_offset / 64;
     for (int i = 0; i < ALLOC_BITMAP_WORDS; i++) {
         #pragma HLS PIPELINE II=1
         ap_axiu<ALLOC_BITMAP_STORAGE_WORD_BITS,0,0,0> w;
@@ -120,7 +120,7 @@ static void bitmap_init_reader(
 // Output: left, right = segment range [left, right), total = sum of valid_counts.
 void find_redistribution_range(
     ap_uint<512>* hbm,
-    int vc_hbm_base,
+    long long vc_hbm_base,
     int vertex_start, int vertex_end,
     int overflow_seg,
     int &left, int &right, int &total)
@@ -164,13 +164,13 @@ void find_redistribution_range(
 //   edge_buf      — init → pack valid edges → burst-write to hbm_buffer
 void collect_edge_to_buffer(
     ap_uint<512>* hbm, ap_uint<512>* hbm_buffer,
-    int start_word, int end_word, int &total_edges,
+    long long start_word, long long end_word, int &total_edges,
     ap_uint<512> onchip_buffer[MAX_ONCHIP_SEG_WORDS],
     ap_uint<512> edge_buf[MAX_ONCHIP_SEG_WORDS]
 )
 {
     total_edges = 0;
-    int total_words = end_word - start_word;
+    long long total_words = end_word - start_word;
 
     // Process words in chunks that fit in onchip_buffer
     for (int chunk_off = 0; chunk_off < total_words; chunk_off += MAX_ONCHIP_SEG_WORDS) {
@@ -246,16 +246,16 @@ void collect_edge_to_buffer(
 // inline for each chunk.
 void redistribute_edge_from_hbm(
     ap_uint<512>* hbm, ap_uint<512>* hbm_buffer,
-    int start_word, int end_word, int total_edges,
+    long long start_word, long long end_word, int total_edges,
     int edge_offset,             // starting edge index in hbm_buffer
     int group_left,              // absolute segment index of group start
-    int vc_hbm_base,             // valid_count area HBM base (word offset)
-    int fe_hbm_base,             // first_edge area HBM base (word offset)
+    long long vc_hbm_base,       // valid_count area HBM base (word offset)
+    long long fe_hbm_base,       // first_edge area HBM base (word offset)
     ap_uint<512> onchip_buffer[MAX_ONCHIP_SEG_WORDS],
     ap_uint<512> edge_buf[MAX_ONCHIP_SEG_WORDS]
 )
 {
-    int total_words = end_word - start_word;
+    long long total_words = end_word - start_word;
     int total_segs  = total_words / SEG_WORDS_PER_SEG;
 
     // Distribution: base edges per segment, first 'extra' segments get +1
@@ -299,26 +299,38 @@ void redistribute_edge_from_hbm(
         }
 
         // ==== Phase 3: pack edges into onchip_buffer with base+extra distribution ====
+        // 原实现每迭代 edge_buf 读 + onchip_buffer 部分写 (RMW) → 两个 URAM 争读口, II=2。
+        // 本版拆两段: 内层 k 循环只读 edge_buf 写寄存器 (无内存写竞争, II=1);
+        // 段写循环整字写 onchip_buffer (无 RMW, II=1)。空槽保持全 1 = UNUSED_ICON。
+        // 每段最多 EDGE_SLOTS_PER_SEG(63) 条边 → 占满 4 字 (字 3 槽 15 = valid_count)。
         int pos = 0;
         for (int s = 0; s < chunk_segs; s++) {
             int fill = base + ((chunk_start + s) < extra ? 1 : 0);
+            ap_uint<512> packed[4];
+            #pragma HLS ARRAY_PARTITION variable=packed complete
+            packed[0] = ~ap_uint<512>(0);
+            packed[1] = ~ap_uint<512>(0);
+            packed[2] = ~ap_uint<512>(0);
+            packed[3] = ~ap_uint<512>(0);
             for (int k = 0; k < fill; k++) {
                 #pragma HLS PIPELINE II=1
                 int global_pos = edge_offset + edge_start + pos;
                 int src_word = (global_pos >> 4) - hbm_edge_wo;
                 int src_slot = global_pos & 0xF;
                 int edge = (int)edge_buf[src_word].range(src_slot * 32 + 31, src_slot * 32);
-                int dst_wi = s * SEG_WORDS_PER_SEG + (k >> 4);
-                int dst_si = k & 0xF;
-                onchip_buffer[dst_wi].range(dst_si * 32 + 31, dst_si * 32) = (ap_uint<32>)edge;
+                packed[k >> 4].range((k & 0xF) * 32 + 31, (k & 0xF) * 32) = (ap_uint<32>)edge;
                 pos++;
             }
-            // Set valid_count for this output segment
-            onchip_buffer[s * SEG_WORDS_PER_SEG + 3].range(511, 480) = (ap_uint<32>)fill;
+            // valid_count 槽 = 字 3 槽 15 (fill ≤ 63 → 边最多占槽 0..62, 不冲突)
+            packed[3].range(511, 480) = (ap_uint<32>)fill;
+            for (int w = 0; w < 4; w++) {
+                #pragma HLS PIPELINE II=1
+                onchip_buffer[s * SEG_WORDS_PER_SEG + w] = packed[w];
+            }
         }
 
         // ==== Phase 4: burst-write onchip_buffer → hbm ====
-        int hbm_seg_wo = start_word + chunk_start * SEG_WORDS_PER_SEG;
+        long long hbm_seg_wo = start_word + (long long)chunk_start * SEG_WORDS_PER_SEG;
         for (int i = 0; i < chunk_words; i++) {
             #pragma HLS PIPELINE II=1
             hbm[hbm_seg_wo + i] = onchip_buffer[i];
@@ -393,9 +405,9 @@ void redistribute_edge_from_hbm(
 static void pma_redist_enlarge(
     ap_uint<512>* hbm,
     ap_uint<512>* hbm_buffer,
-    int data_off, int vi_wo,
+    long long data_off, long long vi_wo,
     int pma_idx,
-    int start_byte,               // absolute start byte of the CURRENT PMA
+    long long start_byte,         // absolute start byte of the CURRENT PMA
     ap_uint<512> range_word,      // current header[0] (vertex ranges + total_segs)
     int owner_vertex,
     int vertex_segs,
@@ -403,7 +415,7 @@ static void pma_redist_enlarge(
     hls::stream<ap_axiu<64,0,0,0>>& alloc_rsp,
     ap_uint<512> onchip_buffer[MAX_ONCHIP_SEG_WORDS],
     ap_uint<512> edge_buffer[MAX_ONCHIP_SEG_WORDS],
-    int &new_start_byte,          // out: absolute start byte of the new PMA
+    long long &new_start_byte,    // out: absolute start byte of the new PMA
     ap_uint<512> &new_range_word) // out: new header[0]
 {
     int delta = (vertex_segs <= 4) ? 3 * vertex_segs : vertex_segs;
@@ -416,13 +428,13 @@ static void pma_redist_enlarge(
     int npwords   = HEADER_WORDS + nhlp + ntseg * SEG_WORDS_PER_SEG;
     int npbytes   = npwords * 64;
 
-    int pma_boff  = start_byte - data_off;
-    int hbase     = pma_boff / 64;
+    long long pma_boff  = start_byte - data_off;
+    long long hbase     = pma_boff / 64;
     ap_uint<512> edge_count_word = hbm[hbase + 1];
 
     // Old PMA segment range
     int old_hlp      = hlp_total_words(old_tseg);
-    int old_seg_base = (pma_boff + HEADER_BYTES + old_hlp * 64) / 64;
+    long long old_seg_base = (pma_boff + HEADER_BYTES + (long long)old_hlp * 64) / 64;
 
     // ---- Step 1: collect all edges from old PMA → hbm_buffer ----
     int collected_edges = 0;
@@ -438,7 +450,7 @@ static void pma_redist_enlarge(
     acmd.range(95, 64) = 1;                       // opcode=ALLOC
     ap_uint<64> arsp = alloc_send_rsp(acmd, alloc_cmd, alloc_rsp);
     int nstart = (int)arsp.range(31, 0);
-    int nabs_base = nstart / 64;
+    long long nabs_base = nstart / 64;
 
     // ---- Step 3: new range_word — owner vertex grows by delta, later ranges shift ----
     new_range_word = range_word;
@@ -462,8 +474,8 @@ static void pma_redist_enlarge(
     }
 
     // ---- Step 5: init SoA helper areas (FE=UNUSED_ICON, VC=0) ----
-    int fe_hbm_base = nabs_base + HEADER_WORDS;
-    int vc_hbm_base = fe_hbm_base + nfe_words;
+    long long fe_hbm_base = nabs_base + HEADER_WORDS;
+    long long vc_hbm_base = fe_hbm_base + nfe_words;
     for (int w = 0; w < nfe_words; w++) {
         #pragma HLS PIPELINE II=1
         hbm[fe_hbm_base + w] = EMPTY_FE_WORD;
@@ -474,7 +486,7 @@ static void pma_redist_enlarge(
     }
 
     // ---- Step 6: per-vertex redistribute from hbm_buffer → new PMA ----
-    int nseg_base   = nabs_base + HEADER_WORDS + nhlp;
+    long long nseg_base   = nabs_base + HEADER_WORDS + nhlp;
     int edge_cursor = 0;
 
     for (int v = 0; v < VERTEX_PER_PMA; v++) {
@@ -485,20 +497,20 @@ static void pma_redist_enlarge(
 
         if (old_ec == 0) {
             // SoA helper already EMPTY from step 5; just write clean segments.
-            int empty_base = nseg_base + nvs * SEG_WORDS_PER_SEG;
+            long long empty_base = nseg_base + (long long)nvs * SEG_WORDS_PER_SEG;
+            // 内层流水: 每迭代 1 次 HBM 写 (原每迭代 4 次写 → II=4)
             for (int i = 0; i < ncnt; i++) {
-                #pragma HLS PIPELINE II=1
                 int off = i * SEG_WORDS_PER_SEG;
-                hbm[empty_base + off + 0] = EMPTY_SEG_ROM[0];
-                hbm[empty_base + off + 1] = EMPTY_SEG_ROM[1];
-                hbm[empty_base + off + 2] = EMPTY_SEG_ROM[2];
-                hbm[empty_base + off + 3] = EMPTY_SEG_ROM[3];
+                for (int w = 0; w < SEG_WORDS_PER_SEG; w++) {
+                    #pragma HLS PIPELINE II=1
+                    hbm[empty_base + off + w] = EMPTY_SEG_ROM[w];
+                }
             }
             continue;
         }
 
-        int seg_start_word = nseg_base + nvs * SEG_WORDS_PER_SEG;
-        int seg_end_word   = seg_start_word + ncnt * SEG_WORDS_PER_SEG;
+        long long seg_start_word = nseg_base + (long long)nvs * SEG_WORDS_PER_SEG;
+        long long seg_end_word   = seg_start_word + (long long)ncnt * SEG_WORDS_PER_SEG;
 
         redistribute_edge_from_hbm(
             hbm, hbm_buffer,
@@ -542,7 +554,7 @@ static void pma_redist_enlarge(
 //                      is FREEd.
 static void pma_pre_expand(
     ap_uint<512>* hbm, ap_uint<512>* hbm_buffer,
-    int data_off, int vi_wo, int pma_idx, int count[VERTEX_PER_PMA],
+    long long data_off, long long vi_wo, int pma_idx, int count[VERTEX_PER_PMA],
     hls::stream<ap_axiu<96,0,0,0>>& alloc_cmd,
     hls::stream<ap_axiu<64,0,0,0>>& alloc_rsp,
     ap_uint<512> onchip_buffer[MAX_ONCHIP_SEG_WORDS],
@@ -554,11 +566,11 @@ static void pma_pre_expand(
     int old_tseg = VERTEX_PER_PMA;                   // INIT: 16 segs (1 per vertex)
     ap_uint<512> old_range_word = 0;
     ap_uint<512> old_ec_word = 0;
-    int pma_boff = 0;
+    long long pma_boff = 0;
     if (!is_init) {
         int start = (int)vi.range(31, 0);
         pma_boff = start - data_off;
-        int hbase = pma_boff / 64;
+        long long hbase = pma_boff / 64;
         old_range_word = hbm[hbase];
         old_ec_word    = hbm[hbase + 1];
         old_tseg = (int)old_range_word.range(15 * 32 + 31, 15 * 32);
@@ -633,7 +645,7 @@ static void pma_pre_expand(
     acmd.range(95, 64) = 1;                          // opcode=ALLOC
     ap_uint<64> arsp = alloc_send_rsp(acmd, alloc_cmd, alloc_rsp);
     int nstart = (int)arsp.range(31, 0);
-    int nabs_base = nstart / 64;
+    long long nabs_base = nstart / 64;
 
     // ---- Step 3: write new header (edge counts unchanged) ----
     {
@@ -650,8 +662,8 @@ static void pma_pre_expand(
     }
 
     // ---- Step 4: init SoA helper areas (FE=UNUSED_ICON, VC=0) ----
-    int fe_hbm_base = nabs_base + HEADER_WORDS;
-    int vc_hbm_base = fe_hbm_base + nfe_words;
+    long long fe_hbm_base = nabs_base + HEADER_WORDS;
+    long long vc_hbm_base = fe_hbm_base + nfe_words;
     for (int w = 0; w < nfe_words; w++) {
         #pragma HLS PIPELINE II=1
         hbm[fe_hbm_base + w] = EMPTY_FE_WORD;
@@ -661,21 +673,21 @@ static void pma_pre_expand(
         hbm[vc_hbm_base + w] = EMPTY_VC_WORD;
     }
 
-    int nseg_base = nabs_base + HEADER_WORDS + nhlp;
+    long long nseg_base = nabs_base + HEADER_WORDS + nhlp;
 
     if (is_init) {
         // ---- INIT: no old data — just write empty segments ----
+        // 内层流水: 每迭代 1 次 HBM 写 (原每迭代 4 次写 → II=4)
         for (int s = 0; s < ntseg; s++) {
-            #pragma HLS PIPELINE II=1
             int off = s * SEG_WORDS_PER_SEG;
-            hbm[nseg_base + off + 0] = EMPTY_SEG_ROM[0];
-            hbm[nseg_base + off + 1] = EMPTY_SEG_ROM[1];
-            hbm[nseg_base + off + 2] = EMPTY_SEG_ROM[2];
-            hbm[nseg_base + off + 3] = EMPTY_SEG_ROM[3];
+            for (int w = 0; w < SEG_WORDS_PER_SEG; w++) {
+                #pragma HLS PIPELINE II=1
+                hbm[nseg_base + off + w] = EMPTY_SEG_ROM[w];
+            }
         }
     } else {
         // ---- ENLARGE: collect old edges → redistribute to new layout ----
-        int old_seg_base = (pma_boff + HEADER_BYTES + old_hlp * 64) / 64;
+        long long old_seg_base = (pma_boff + HEADER_BYTES + (long long)old_hlp * 64) / 64;
         int collected_edges = 0;
         collect_edge_to_buffer(hbm, hbm_buffer,
             old_seg_base, old_seg_base + old_tseg * SEG_WORDS_PER_SEG,
@@ -689,20 +701,20 @@ static void pma_pre_expand(
             int ncnt = nve - nvs;
 
             if (old_ec == 0) {
-                int empty_base = nseg_base + nvs * SEG_WORDS_PER_SEG;
+                long long empty_base = nseg_base + (long long)nvs * SEG_WORDS_PER_SEG;
+                // 内层流水: 每迭代 1 次 HBM 写 (原每迭代 4 次写 → II=4)
                 for (int i = 0; i < ncnt; i++) {
-                    #pragma HLS PIPELINE II=1
                     int off = i * SEG_WORDS_PER_SEG;
-                    hbm[empty_base + off + 0] = EMPTY_SEG_ROM[0];
-                    hbm[empty_base + off + 1] = EMPTY_SEG_ROM[1];
-                    hbm[empty_base + off + 2] = EMPTY_SEG_ROM[2];
-                    hbm[empty_base + off + 3] = EMPTY_SEG_ROM[3];
+                    for (int w = 0; w < SEG_WORDS_PER_SEG; w++) {
+                        #pragma HLS PIPELINE II=1
+                        hbm[empty_base + off + w] = EMPTY_SEG_ROM[w];
+                    }
                 }
                 continue;
             }
 
-            int seg_start_word = nseg_base + nvs * SEG_WORDS_PER_SEG;
-            int seg_end_word   = seg_start_word + ncnt * SEG_WORDS_PER_SEG;
+            long long seg_start_word = nseg_base + (long long)nvs * SEG_WORDS_PER_SEG;
+            long long seg_end_word   = seg_start_word + (long long)ncnt * SEG_WORDS_PER_SEG;
 
             redistribute_edge_from_hbm(hbm, hbm_buffer,
                 seg_start_word, seg_end_word, old_ec, edge_cursor,
@@ -747,7 +759,7 @@ static void pma_pre_expand(
 void redistribution_phase(
     ap_uint<512>* hbm,
     ap_uint<512>* hbm_edge_buffer,
-    int data_off, int vi_wo,
+    long long data_off, long long vi_wo,
     hls::stream<rebalance_task_t>& task_fifo,
     hls::stream<ap_uint<32>>& redist_ack_out,
     hls::stream<pre_expand_cmd_t>& pre_expand_in,
@@ -811,7 +823,7 @@ void redistribution_phase(
         }
 
         // Remap tasks that predate an ENLARGE of the same PMA
-        int task_start_byte = task.start_byte;
+        long long task_start_byte = task.start_byte;
         ap_uint<512> task_range_word = task.range_word;
         int task_seg = payload;
         if (remap_delta > 0 && pm == remap_pma && task_start_byte == remap_old_start) {
@@ -823,13 +835,13 @@ void redistribution_phase(
         }
 
         // Use the (possibly remapped) forwarded header — no VEC_INFO/header HBM reads
-        int pma_boff = task_start_byte - data_off;
-        int hbase = pma_boff / 64;
+        long long pma_boff = task_start_byte - data_off;
+        long long hbase = pma_boff / 64;
         int total_segs = (int)task_range_word.range(15 * 32 + 31, 15 * 32);
         if (total_segs == 0) continue;
         int fe_words = fe_words_for(total_segs);
-        int fe_hbm_base = hbase + HEADER_WORDS;
-        int vc_hbm_base = fe_hbm_base + fe_words;
+        long long fe_hbm_base = hbase + HEADER_WORDS;
+        long long vc_hbm_base = fe_hbm_base + fe_words;
         int total_hlp    = fe_words + vc_words_for(total_segs);
 
         // Vertex ranges from forwarded header
@@ -863,7 +875,7 @@ void redistribution_phase(
 
         if (vertex_total > density_capacity(vertex_segs)) {
             // ENLARGE: whole vertex over capacity → grow the PMA
-            int new_start = 0;
+            long long new_start = 0;
             ap_uint<512> new_range = 0;
             pma_redist_enlarge(hbm, hbm_edge_buffer, data_off, vi_wo, pm,
                                task_start_byte, task_range_word,
@@ -891,7 +903,7 @@ void redistribution_phase(
             // --- Redistribute group [left, right) via collect + redistribute ---
             int group_size     = right - left;
             int segment_words  = group_size * SEG_WORDS_PER_SEG;
-            int segment_base   = (pma_boff + HEADER_BYTES + total_hlp * 64 + left * SEG_BYTES) / 64;
+            long long segment_base   = (pma_boff + HEADER_BYTES + (long long)total_hlp * 64 + (long long)left * SEG_BYTES) / 64;
 
             // 1) Collect valid edges from segments [left, right) → hbm_edge_buffer
             int collected_edges = 0;
@@ -916,9 +928,9 @@ extern "C"
     void redistribution_kernel(
         ap_uint<512>* hbm_red,
         ap_uint<512>* hbm_buffer_for_red,
-        int pma_raw_data_start,
-        int pma_vecinfo_start,
-        int bitmap_offset,
+        long long pma_raw_data_start,
+        long long pma_vecinfo_start,
+        long long bitmap_offset,
         hls::stream<pre_expand_cmd_t>& pre_expand_in,
         hls::stream<rebalance_task_t>& task_in,
         hls::stream<ap_uint<32>>& pre_ack_out,

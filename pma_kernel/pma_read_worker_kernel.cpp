@@ -12,16 +12,16 @@ static const int READ_WORKERS = CHANNEL_NUM;
 
 typedef ap_axiu<64, 8, 0, 0> READ_PKT_STREAM;
 
-static void hbm_read_words_simple(ap_uint<512>* hbm, int byte_off, int words, ap_uint<512>* buf)
+static void hbm_read_words_simple(ap_uint<512>* hbm, long long byte_off, int words, ap_uint<512>* buf)
 {
-    int base = byte_off / 64;
+    long long base = byte_off / 64;
     for (int w = 0; w < words; w++) {
         #pragma HLS PIPELINE II=1
         buf[w] = hbm[base + w];
     }
 }
 
-static VEC_INFO vi_read_simple(ap_uint<512>* hbm, int vi_wo, int pma_idx)
+static VEC_INFO vi_read_simple(ap_uint<512>* hbm, long long vi_wo, int pma_idx)
 {
     int wi = pma_idx / 8, si = pma_idx % 8;
     ap_uint<512> w = hbm[vi_wo + wi];
@@ -32,7 +32,7 @@ static VEC_INFO vi_read_simple(ap_uint<512>* hbm, int vi_wo, int pma_idx)
 
 static void read_header(
     ap_uint<512>* hbm,
-    int header_byte_off,
+    long long header_byte_off,
     PMA_HEADER &pma_header
 ) {
     #pragma HLS INLINE
@@ -50,7 +50,7 @@ static void read_header(
 static void read_seg(
     ap_uint<512>* hbm,
     int segment_buffer[SEGMENT_SIZE],
-    int seg_byte_off
+    long long seg_byte_off
 ) {
     #pragma HLS INLINE
     ap_uint<512> buffer[SEG_WORDS_PER_SEG];
@@ -87,8 +87,8 @@ extern "C" {
 void pma_read_worker_kernel(
     int worker_id,
     ap_uint<512>* hbm_ptr,
-    int pma_raw_data_start,
-    int pma_vecinfo_start,
+    long long pma_raw_data_start,
+    long long pma_vecinfo_start,
     hls::stream<READ_COMMAND_STREAM> &cmd_stream,
     hls::stream<READ_PKT_STREAM> &pkt_to_merger
 ) {
@@ -105,7 +105,7 @@ void pma_read_worker_kernel(
     #pragma HLS STREAM variable=pkt_to_merger depth=128
 
     const ap_uint<8> KEEP64 = 0xFF;
-    int vi_wo = pma_vecinfo_start / 64;
+    long long vi_wo = pma_vecinfo_start / 64;
 
     while (true) {
         READ_COMMAND_STREAM cmd = cmd_stream.read();
@@ -132,8 +132,8 @@ void pma_read_worker_kernel(
             }
 
             PMA_HEADER pma_header;
-            int header_start = (int)vec_info.range(31, 0);
-            int header_byte_off = header_start - pma_raw_data_start;
+            long long header_start = (long long)vec_info.range(31, 0);
+            long long header_byte_off = header_start - pma_raw_data_start;
             read_header(hbm_ptr, header_byte_off, pma_header);
 
             int local_src = src % VERTEX_PER_PMA;
@@ -141,11 +141,11 @@ void pma_read_worker_kernel(
             int seg_end = pma_header.vertex_range[local_src];
             int total_segs = pma_header.vertex_range[VERTEX_PER_PMA - 1];
             int hlp_words = hlp_total_words(total_segs);
-            int pma_data_base = header_start + (int)sizeof(PMA_HEADER) + hlp_words * 64;
+            long long pma_data_base = header_start + (long long)sizeof(PMA_HEADER) + (long long)hlp_words * 64;
             int segment_buffer[SEGMENT_SIZE];
 
             for (int s = seg_start; s < seg_end; s++) {
-                int seg_byte_off = pma_data_base + s * SEG_BYTES - pma_raw_data_start;
+                long long seg_byte_off = pma_data_base + (long long)s * SEG_BYTES - pma_raw_data_start;
                 read_seg(hbm_ptr, segment_buffer, seg_byte_off);
                 int cnt = segment_buffer[VALID_COUNT_IDX];
                 for (int j = 0; j < cnt; j++) {
@@ -188,13 +188,13 @@ void pma_read_worker_kernel(
                 if (vec_info == 0) break;
 
                 PMA_HEADER pma_header;
-                int header_start = (int)vec_info.range(31, 0);
-                int header_byte_off = header_start - pma_raw_data_start;
+                long long header_start = (long long)vec_info.range(31, 0);
+                long long header_byte_off = header_start - pma_raw_data_start;
                 read_header(hbm_ptr, header_byte_off, pma_header);
 
                 int total_segs = pma_header.vertex_range[VERTEX_PER_PMA - 1];
                 int hlp_words = hlp_total_words(total_segs);
-                int pma_data_base = header_start + (int)sizeof(PMA_HEADER) + hlp_words * 64;
+                long long pma_data_base = header_start + (long long)sizeof(PMA_HEADER) + (long long)hlp_words * 64;
                 int segment_buffer[SEGMENT_SIZE];
 
                 for (int local_v = 0; local_v < VERTEX_PER_PMA; local_v++) {
@@ -203,7 +203,7 @@ void pma_read_worker_kernel(
                     int s_start = (local_v == 0) ? 0 : pma_header.vertex_range[local_v - 1];
                     int s_end = pma_header.vertex_range[local_v];
                     for (int s = s_start; s < s_end; s++) {
-                        int seg_byte_off = pma_data_base + s * SEG_BYTES - pma_raw_data_start;
+                        long long seg_byte_off = pma_data_base + (long long)s * SEG_BYTES - pma_raw_data_start;
                         read_seg(hbm_ptr, segment_buffer, seg_byte_off);
                         int cnt = segment_buffer[VALID_COUNT_IDX];
                         for (int j = 0; j < cnt; j++) {
@@ -244,8 +244,8 @@ void pma_read_worker_kernel(
                 }
 
                 PMA_HEADER pma_header;
-                int header_start = (int)vec_info.range(31, 0);
-                int header_byte_off = header_start - pma_raw_data_start;
+                long long header_start = (long long)vec_info.range(31, 0);
+                long long header_byte_off = header_start - pma_raw_data_start;
                 read_header(hbm_ptr, header_byte_off, pma_header);
 
                 int local_start = (pma_idx == pma_start) ? (start_v % VERTEX_PER_PMA) : 0;

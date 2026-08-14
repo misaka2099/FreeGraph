@@ -7,7 +7,7 @@
 // typedef  ap_uint<8> BYTE_STREAM;
 typedef ap_axiu<8,0,0,0> VERTEX_ACK;
 typedef ap_axiu<8,0,0,0> WHOLE_ACK;
-#define CHANNEL_CAPACITY (250*1024*1024)
+#define CHANNEL_CAPACITY (500*1024*1024)  // 每个 m_axi 端口映射 2 个 HBM 通道 (2×250MB)
 // #define CHANNEL_CAPACITY (64*1024*1024)
 #ifndef PMA_PARALLEL_CHANNEL_NUM
 #define PMA_PARALLEL_CHANNEL_NUM 3
@@ -300,7 +300,7 @@ struct cmd_batch_full_t {
 // Forwarded header from pma_gate avoids redundant HBM reads in insert_phase
 struct bs_batch_t {
     int pma_idx;
-    int start_byte;              // forwarded: PMA absolute HBM byte offset
+    long long start_byte;        // forwarded: PMA absolute HBM byte offset (64-bit)
     ap_uint<512> range_word;     // forwarded: header[0] — vertex ranges + total_segs
     ap_uint<512> edge_count_word;// forwarded: header[1] — per-vertex edge counts
     int target_seg[16];          // absolute segment index for each op
@@ -338,7 +338,7 @@ struct pre_expand_cmd_t {
 struct rebalance_task_t {
     int pma;                     // PMA index
     int payload;                 // segment index (>=0), -1=STOP, -2=ACK marker
-    int start_byte;              // forwarded: PMA absolute HBM byte offset
+    long long start_byte;        // forwarded: PMA absolute HBM byte offset (64-bit)
     ap_uint<512> range_word;     // forwarded: header[0] — vertex ranges + total_segs
 };
 

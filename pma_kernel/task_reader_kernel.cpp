@@ -39,37 +39,59 @@ static inline bool is_pma_locked(const uint8_t* pma_lock, int pma_idx, int worke
 
 // 非阻塞收 ACK: pre_ack_in (redistribution 预扩完成) + ack_in (bs_insert 批完成)
 // 收到即解锁对应 PMA — 锁 = "该 PMA 有一个在飞操作 (预扩或数据批)"。
-// 两个流都必须轮询: 只收 pre_ack 而忽略批 ACK 会导致批完成后锁永不解 → 死锁。
+// 三个流都必须轮询: 只收 pre_ack 而忽略批 ACK 会导致批完成后锁永不解 → 死锁。
 // 防御: ack == -1 (STOP 收尾标记) 跳过 — 否则 unlock_pma 越界写。
+// 注意: 必须用 read_nb() (非阻塞) — 阻塞 empty()+read() 在流水循环里会被 HLS
+// 建模为等待 producer 的握手。必须 #pragma HLS INLINE: 否则函数作为独立模块被
+// 调用, 3 个流访问被建模为 interval=9 的黑盒, 外层逐边循环 II 被拉到 15。
+// 解锁错峰: ack 先存进 3 个待解锁槽 (pend_*), 每迭代至多执行 1 次 pma_lock 的
+// RMW (读-改-写) — 否则 3 个 unlock + 1 个 lock 的 BRAM 端口序列把逐边循环 II
+// 拉到 12 (每个 RMW = load 2 拍 + store 1 拍)。错峰后每迭代 ≤1 次 RMW, II 应降
+// 到 3~5。解锁延迟 ≤3 迭代 — 对 dispatch 轮询 (每轮扫全部 seperation) 无感,
+// 协议语义不变 (解锁最终一致)。
 void check_ack_back(
     uint8_t* pma_lock,
     hls::stream<ap_uint<32>>& pre_ack_in,
     hls::stream<ap_uint<32>>& ack_in_bs,
     hls::stream<ap_uint<32>>& ack_in_merge,
     int& inflight_pma_count,
-    int worker_id
+    int worker_id,
+    int& pend_pre,
+    int& pend_bs,
+    int& pend_merge
 )
 {
-    if (!pre_ack_in.empty()) {
-        ap_uint<32> ack = pre_ack_in.read();
-        if (ack != -1) {
-            unlock_pma(pma_lock, (int)ack, worker_id);
-            inflight_pma_count--;
+    #pragma HLS INLINE
+    // 3 个 read_nb 用独立变量 (避免 WAR 串行化), nbread 并行发出
+    ap_uint<32> ack_pre, ack_bs, ack_merge;
+    if (pend_pre < 0) {
+        if (pre_ack_in.read_nb(ack_pre)) {
+            if (ack_pre != -1) pend_pre = (int)ack_pre;   // STOP(-1) 直接丢弃
         }
     }
-    if (!ack_in_bs.empty()) {
-        ap_uint<32> ack = ack_in_bs.read();
-        if (ack != -1) {
-            unlock_pma(pma_lock, (int)ack, worker_id);
-            inflight_pma_count--;
+    if (pend_bs < 0) {
+        if (ack_in_bs.read_nb(ack_bs)) {
+            if (ack_bs != -1) pend_bs = (int)ack_bs;
         }
     }
-    if (!ack_in_merge.empty()) {
-        ap_uint<32> ack = ack_in_merge.read();
-        if (ack != -1) {
-            unlock_pma(pma_lock, (int)ack, worker_id);
-            inflight_pma_count--;
+    if (pend_merge < 0) {
+        if (ack_in_merge.read_nb(ack_merge)) {
+            if (ack_merge != -1) pend_merge = (int)ack_merge;
         }
+    }
+    // 每迭代至多 1 次 pma_lock RMW (解锁 + 计数)
+    if (pend_pre >= 0) {
+        unlock_pma(pma_lock, pend_pre, worker_id);
+        inflight_pma_count--;
+        pend_pre = -1;
+    } else if (pend_bs >= 0) {
+        unlock_pma(pma_lock, pend_bs, worker_id);
+        inflight_pma_count--;
+        pend_bs = -1;
+    } else if (pend_merge >= 0) {
+        unlock_pma(pma_lock, pend_merge, worker_id);
+        inflight_pma_count--;
+        pend_merge = -1;
     }
 }
 
@@ -158,6 +180,8 @@ static void task_reader(
     bool online_done = false;
     bool flush = false;
     int inflight_pma_count = 0;
+    // 待解锁 ack 槽 (check_ack_back 错峰解锁用, -1 = 空)
+    int pend_pre = -1, pend_bs = -1, pend_merge = -1;
     while (true)
     {
         // ===== 收集阶段: online 收进 wave_buffer, 收满 8192 / FLUSH / STOP 即退出 =====
@@ -193,7 +217,7 @@ static void task_reader(
             int seperation_count = 0;
             for (int i = 0 ; i < wave_count; i++)
             {
-                check_ack_back(pma_lock, pre_ack_in, ack_in_bs, ack_in_merge, inflight_pma_count, worker_id);
+                check_ack_back(pma_lock, pre_ack_in, ack_in_bs, ack_in_merge, inflight_pma_count, worker_id, pend_pre, pend_bs, pend_merge);
                 int src = wave_buffer[i * 3 + 0];
                 int pma_idx = src >> 4;
                 if (pma_idx != current_pma)
@@ -261,7 +285,7 @@ static void task_reader(
             }
             while (remaining > 0)
             {
-                check_ack_back(pma_lock, pre_ack_in, ack_in_bs, ack_in_merge, inflight_pma_count, worker_id);
+                check_ack_back(pma_lock, pre_ack_in, ack_in_bs, ack_in_merge, inflight_pma_count, worker_id, pend_pre, pend_bs, pend_merge);
                 for (int i = 0; i < seperation_count; i++)
                 {
                     int pma_idx = wave_buffer[seperation_cursors[i] * 3 + 0] >> 4;
@@ -293,13 +317,13 @@ static void task_reader(
         if (flush) flush = false;
 
         // 收尾 ACK (最后一波的批可能仍在飞) — 否则 inflight 不降 → 死循环
-        check_ack_back(pma_lock, pre_ack_in, ack_in_bs, ack_in_merge, inflight_pma_count, worker_id);
+        check_ack_back(pma_lock, pre_ack_in, ack_in_bs, ack_in_merge, inflight_pma_count, worker_id, pend_pre, pend_bs, pend_merge);
         if (online_done && inflight_pma_count == 0) break;
         // 全部处理完但未结束: 空转等 online (下一轮顶部继续收波)
         if (wave_count == 0) ap_wait();
     }
     while (inflight_pma_count > 0) {
-        check_ack_back(pma_lock, pre_ack_in, ack_in_bs, ack_in_merge, inflight_pma_count, worker_id);
+        check_ack_back(pma_lock, pre_ack_in, ack_in_bs, ack_in_merge, inflight_pma_count, worker_id, pend_pre, pend_bs, pend_merge);
         ap_wait();
     }
     // Send STOP（所有批完成后最后执行）— 两条路径都要收, 各自收尾退出。

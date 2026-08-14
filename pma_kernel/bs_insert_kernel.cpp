@@ -37,7 +37,9 @@ void seg_insert(
     int valid = (int)seg_in[3].range(511, 480);
 
     // Extract existing edges into edge_buf
+    // 全分区: 二分读 + shift 写在寄存器上, 避免 BRAM 单口读写竞争 (原 II=2)
     int edge_buf[EDGE_SLOTS_PER_SEG];
+    #pragma HLS ARRAY_PARTITION variable=edge_buf complete
     for (int k = 0; k < EDGE_SLOTS_PER_SEG; k++) {
         #pragma HLS UNROLL
         int wi = k / 16, slot = k % 16;
@@ -55,16 +57,19 @@ void seg_insert(
         if (valid >= EDGE_SLOTS_PER_SEG) break;
 
         // Binary search for insertion position
-        int lo = 0, hi = valid;
+        // 无符号半开区间 [0, valid): (lo+hi)>>1 直接移位, 避免带符号 (lo+hi)/2 的
+        // 符号修正链 (add→bitselect→sub→lshr→zext→select ≈ 2.5ns 关键路径)。
+        // edge_buf 中 UNUSED_ICON(-1) 无符号比较 = 0xFFFFFFFF → 视为 +∞, 语义保持。
+        unsigned lo = 0, hi = (unsigned)valid;
         while (lo < hi) {
             #pragma HLS PIPELINE II=1
-            int mid = (lo + hi) / 2;
-            if (edge_buf[mid] < dst)
+            unsigned mid = (lo + hi) >> 1;
+            if ((unsigned)edge_buf[mid] < (unsigned)dst)
                 lo = mid + 1;
             else
                 hi = mid;
         }
-        int pos = lo;
+        int pos = (int)lo;
 
         // Shift elements right to make room
         for (int k = valid; k > pos; k--) {
@@ -139,16 +144,65 @@ void bs_worker(
         // FE area base (word offset): 1 entry per segment, 16 entries per 512-bit word
         int fe_hbm_base = hbase + HEADER_WORDS;
 
-        // Process edges — direct HBM binary search on the per-segment first_edge
-        // entries: result IS the exact segment (no fine search needed)
+        // 片上 FE 缓存 (per-batch): 二分搜索先在 HBM 上 burst 预取该 vertex 的 FE 区
+        // 到 fe_cache, 再片上二分。原实现直接 HBM 二分 — 每步 77 周期读延迟不可重叠,
+        // 每条边 ~log2(segs)×77 周期。片上二分每步 2 拍, 快 ~20 倍。
+        // 批内边按 src 排序 → 同 vertex 连续, unique vertex 数通常 1~2。
+        // 缓存上限 FE_CACHE_ENTRIES 段/vertex (4096 = 256 字 = 16KB BRAM);
+        // 超限 vertex fallback 原 HBM 二分 (保正确性, 超大 vertex 罕见)。
+        const int FE_CACHE_ENTRIES = 4096;
+        const int FE_CACHE_WORDS = FE_CACHE_ENTRIES / FE_SOA_ENTRIES_PER_WORD;
+        ap_uint<512> fe_cache[16][FE_CACHE_WORDS];
+        #pragma HLS bind_storage variable=fe_cache type=RAM_2P impl=BRAM
+        int unique_v[16];
+        #pragma HLS ARRAY_PARTITION variable=unique_v complete
+        int unique_cnt = 0;
+
+        // ---- 收集批内 unique vertex (仅 INSERT 边; 超限 vertex 不进缓存 → fallback HBM) ----
+        for (int i = 0; i < cnt; i++) {
+            #pragma HLS PIPELINE II=1
+            int ls = edges[i].src & 0xF;
+            int op = (int)edges[i].opcode;
+            if (op != PMA_UPDATE_INSERT_EDGE) continue;
+            int vs_t = (ls == 0) ? 0 : vr[ls - 1];
+            if (vr[ls] - vs_t > FE_CACHE_ENTRIES) continue;   // 超限 → HBM 二分
+            bool found = false;
+            for (int u = 0; u < unique_cnt; u++) {
+                #pragma HLS UNROLL
+                if (unique_v[u] == ls) found = true;
+            }
+            if (!found && unique_cnt < 16) {
+                unique_v[unique_cnt] = ls;
+                unique_cnt++;
+            }
+        }
+
+        // ---- 预取每个 unique vertex 的 FE 区 (burst 读, 内层流水 II=1) ----
+        for (int u = 0; u < unique_cnt; u++) {
+            int ls = unique_v[u];
+            int vs = (ls == 0) ? 0 : vr[ls - 1];
+            int ve = vr[ls];
+            int vertex_segs = ve - vs;
+            if (vertex_segs > FE_CACHE_ENTRIES) continue;   // 超限 → fallback HBM 二分
+            int fe_words = (vertex_segs + FE_SOA_ENTRIES_PER_WORD - 1) / FE_SOA_ENTRIES_PER_WORD;
+            int fe_base = fe_hbm_base + vs / FE_SOA_ENTRIES_PER_WORD;
+            for (int w = 0; w < fe_words; w++) {
+                #pragma HLS PIPELINE II=1
+                fe_cache[u][w] = hbm[fe_base + w];
+            }
+        }
+
+        // Process edges — binary search on the per-segment first_edge entries:
+        // result IS the exact segment (no fine search needed)
         bs_batch_t res;
         res.pma_idx = pma; res.op_mask = 0; res.count = cnt;
         res.start_byte = start_byte;
         res.range_word = range_word;
         res.edge_count_word = edge_count_word;
 
+        // 注意: 外层不流水 (内层二分是可变 trip 循环, 流水外层会拉大 II)。
+        // 每条边串行: 定位缓存槽 (UNROLL 并行比较) + 片上二分 (~log2 步 × 2 拍)。
         for (int i = 0; i < MAX_CMD_NUM; i++) {
-            #pragma HLS PIPELINE II=1
             if (i < cnt) {
                 PMA_UPDATE_MESSAGE e = edges[i];
                 res.dst[i] = e.dst;
@@ -158,22 +212,48 @@ void bs_worker(
                     int ls = e.src & 0xF;
                     int vs = (ls == 0) ? 0 : vr[ls - 1];
                     int ve = vr[ls];
-                    // Direct HBM binary search for FE entry (1 entry per segment,
-                    // 16 entries per 512-bit word). Result is the relative segment
-                    // offset within this vertex → absolute = vs + seg_rel.
-                    int lo = 0, hi = ve - vs - 1;
+                    int vertex_segs = ve - vs;
+                    // 定位该 vertex 的缓存槽
+                    int slot_u = -1;
+                    for (int u = 0; u < unique_cnt; u++) {
+                        #pragma HLS UNROLL
+                        if (unique_v[u] == ls) slot_u = u;
+                    }
+                    // 无符号半开区间 [0, vertex_segs): (lo+hi)>>1 直接移位, 避免带符号
+                    // 除法链 (关键路径 ~2.5ns)。vertex_segs=0 → hi=0 → 循环不进入。
+                    // seg_rel 语义: 找到相等段 → mid; 未找到 → 最后一个 < dst 的段 (lo-1)。
+                    unsigned lo = 0, hi = (unsigned)vertex_segs;
                     int seg_rel = -1;
-                    while (lo <= hi) {
-                        #pragma HLS PIPELINE off
-                        int mid = (lo + hi) / 2;
-                        int fe_idx = vs + mid;
-                        int fe_word_off = fe_hbm_base + fe_idx / FE_SOA_ENTRIES_PER_WORD;
-                        int fe_slot = fe_idx % FE_SOA_ENTRIES_PER_WORD;
-                        ap_uint<512> fe_word = hbm[fe_word_off];
-                        int fe_val = (int)fe_word.range(fe_slot * 32 + 31, fe_slot * 32);
-                        if (fe_val == e.dst) { seg_rel = mid; break; }
-                        else if (fe_val < e.dst) { lo = mid + 1; seg_rel = mid; }
-                        else { hi = mid - 1; }
+                    int vs_word_base = vs >> 4;   // 缓存字基址 (循环不变量)
+                    if (slot_u >= 0) {
+                        // 片上二分 (缓存字 = 绝对字 (vs>>4) 起的相对偏移, 槽 = 绝对 entry % 16)
+                        while (lo < hi) {
+                            #pragma HLS PIPELINE II=2
+                            unsigned mid = (lo + hi) >> 1;
+                            int fe_idx = vs + (int)mid;
+                            int fe_val = (int)fe_cache[slot_u][(fe_idx >> 4) - vs_word_base]
+                                                          .range((fe_idx & 0xF) * 32 + 31, (fe_idx & 0xF) * 32);
+                            if (fe_val == e.dst) { seg_rel = (int)mid; break; }
+                            else if (fe_val < e.dst) { lo = mid + 1; }
+                            else { hi = mid; }
+                        }
+                        // 未找到: 插入段 = 最后一个 < dst 的段; 全 FE > dst → 0
+                        if (seg_rel == -1 && lo > 0) seg_rel = (int)lo - 1;
+                    } else {
+                        // fallback: HBM 二分 (vertex_segs > FE_CACHE_ENTRIES, 罕见)
+                        while (lo < hi) {
+                            #pragma HLS PIPELINE off
+                            unsigned mid = (lo + hi) >> 1;
+                            int fe_idx = vs + (int)mid;
+                            int fe_word_off = fe_hbm_base + fe_idx / FE_SOA_ENTRIES_PER_WORD;
+                            int fe_slot = fe_idx % FE_SOA_ENTRIES_PER_WORD;
+                            ap_uint<512> fe_word = hbm[fe_word_off];
+                            int fe_val = (int)fe_word.range(fe_slot * 32 + 31, fe_slot * 32);
+                            if (fe_val == e.dst) { seg_rel = (int)mid; break; }
+                            else if (fe_val < e.dst) { lo = mid + 1; }
+                            else { hi = mid; }
+                        }
+                        if (seg_rel == -1 && lo > 0) seg_rel = (int)lo - 1;
                     }
                     if (seg_rel == -1) seg_rel = 0;
                     res.target_seg[i] = vs + seg_rel;
@@ -265,12 +345,13 @@ void insert_phase(
         int seg_valid_buf[16];
 
         for (int si = 0; si < seg_cnt; si++) {
-            #pragma HLS PIPELINE II=1
             int seg = seg_list[si];
             int base = (boff + HEADER_BYTES + total_hlp_words * 64 + seg * SEG_BYTES) / 64;
             seg_bases[si] = base;
+            // 内层流水 II=1: 每段 4 字连续读 → 推断成 4-beat burst。外层串行逐段。
+            // (原外层 PIPELINE + 内层 UNROLL 会因 4 次并行 HBM 访问端口受限, II 上不去)
             for (int w = 0; w < SEG_WORDS_PER_SEG; w++) {
-                #pragma HLS UNROLL
+                #pragma HLS PIPELINE II=1
                 seg_buf[si][w] = hbm[base + w];
             }
         }
@@ -299,21 +380,55 @@ void insert_phase(
                        seg_buf[si], seg_valid_buf[si], seg_overflow[si]);
         }
 
-        // --- Phase C: burst-write all modified segments + VC RMW ---
+        // --- Phase C1: burst-write all modified segments (pure write, no RMW) ---
         for (int si = 0; si < seg_cnt; si++) {
-            #pragma HLS PIPELINE II=1
             int base = seg_bases[si];
-            int seg  = seg_list[si];
             for (int w = 0; w < SEG_WORDS_PER_SEG; w++) {
-                #pragma HLS UNROLL
+                #pragma HLS PIPELINE II=1
                 hbm[base + w] = seg_buf[si][w];
             }
-            // RMW this segment's valid_count entry in the SoA VC area (1:1 per segment)
-            int vc_word_idx = seg / VC_SOA_ENTRIES_PER_WORD;
-            int vc_slot     = seg % VC_SOA_ENTRIES_PER_WORD;
-            ap_uint<512> vc_word = hbm[vc_hbm_base + vc_word_idx];
-            vc_word.range(vc_slot * 32 + 31, vc_slot * 32) = (ap_uint<32>)seg_valid_buf[si];
-            hbm[vc_hbm_base + vc_word_idx] = vc_word;
+        }
+
+        // --- Phase C2: VC RMW — 去重 VC word, 一次读 → 片上 patch → 一次写 ---
+        // 每个 VC word 装 16 段的 valid_count (word idx = seg/16)。逐段直接在 HBM 上 RMW
+        // (读-改-写) 会因地址数据相关 (可能 alias) 让 HLS 保守串行化, II 高达 3017。
+        // 改为: 先建去重后的 word 列表 (<=16), 三段各自独立 — 读 (II=1) → 片上 patch
+        // (unroll) → 写 (II=1), 消除跨迭代 RMW 依赖。
+        int vc_uniq[16];
+        #pragma HLS ARRAY_PARTITION variable=vc_uniq complete
+        int vc_seg_grp[16];
+        #pragma HLS ARRAY_PARTITION variable=vc_seg_grp complete
+        int vc_uniq_cnt = 0;
+        for (int si = 0; si < seg_cnt; si++) {
+            #pragma HLS UNROLL
+            int wix = seg_list[si] / VC_SOA_ENTRIES_PER_WORD;
+            int grp = -1;
+            for (int k = 0; k < 16; k++) {
+                #pragma HLS UNROLL
+                if (k < vc_uniq_cnt && vc_uniq[k] == wix) grp = k;
+            }
+            if (grp == -1) {
+                vc_uniq[vc_uniq_cnt] = wix;
+                grp = vc_uniq_cnt;
+                vc_uniq_cnt++;
+            }
+            vc_seg_grp[si] = grp;
+        }
+        ap_uint<512> vc_new_word[16];
+        #pragma HLS ARRAY_PARTITION variable=vc_new_word complete
+        for (int k = 0; k < vc_uniq_cnt; k++) {
+            #pragma HLS PIPELINE II=1
+            vc_new_word[k] = hbm[vc_hbm_base + vc_uniq[k]];   // 每个被触 word 只读一次
+        }
+        for (int si = 0; si < seg_cnt; si++) {
+            #pragma HLS UNROLL
+            int grp  = vc_seg_grp[si];
+            int slot = seg_list[si] % VC_SOA_ENTRIES_PER_WORD;
+            vc_new_word[grp].range(slot * 32 + 31, slot * 32) = (ap_uint<32>)seg_valid_buf[si];
+        }
+        for (int k = 0; k < vc_uniq_cnt; k++) {
+            #pragma HLS PIPELINE II=1
+            hbm[vc_hbm_base + vc_uniq[k]] = vc_new_word[k];   // 每个被触 word 只写一次
         }
 
         // Update edge_count + write back header

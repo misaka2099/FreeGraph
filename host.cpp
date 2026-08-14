@@ -410,13 +410,13 @@ int main(int argc, char** argv)
 
     auto start_buffer = std::chrono::high_resolution_clock::now();
     // === m_axi HBM layout per channel ===
-    constexpr size_t PMA_DATA_SIZE   = 220 * 1024 * 1024;  // must match kernel's PMA_DATA_SIZE
-    constexpr size_t VECINFO_SIZE    =  10 * 1024 * 1024;
-    constexpr size_t BM_SIZE         =   6 * 1024 * 1024;
+    constexpr size_t PMA_DATA_SIZE   = 440 * 1024 * 1024;  // 每 m_axi 端口 2 个 HBM 通道 (2×220MB)
+    constexpr size_t VECINFO_SIZE    =  20 * 1024 * 1024;
+    constexpr size_t BM_SIZE         =  12 * 1024 * 1024;
     constexpr size_t CHANNEL_TOTAL   = PMA_DATA_SIZE + VECINFO_SIZE + BM_SIZE;
-    int pma_raw_data_start = 0;
-    int pma_vecinfo_start  = PMA_DATA_SIZE;
-    int pma_bm_start       = PMA_DATA_SIZE + VECINFO_SIZE;
+    long long pma_raw_data_start = 0;
+    long long pma_vecinfo_start  = PMA_DATA_SIZE;
+    long long pma_bm_start       = PMA_DATA_SIZE + VECINFO_SIZE;
 
     // --- One BO per channel — all 3 m_axi ports share the same bank ---
     std::vector<xrt::bo> ch_bufs; ch_bufs.reserve(CHANNEL_NUM);
@@ -762,7 +762,7 @@ int main(int argc, char** argv)
         // }
         // for(auto& neighbors : adj_neg) std::sort(neighbors.begin(), neighbors.end());
 
-        int current_addr_offset[CHANNEL_NUM];
+        long long current_addr_offset[CHANNEL_NUM];
         for (int i = 0; i < CHANNEL_NUM; ++i)
         {
             current_addr_offset[i] = 0;
@@ -773,7 +773,7 @@ int main(int argc, char** argv)
         for (int pma_idx = 0; pma_idx < total_pma_num; ++pma_idx)
         {
             BYTE* current_base_addr = hbm_base_addresses[pma_idx % CHANNEL_NUM];
-            int* current_offset = &current_addr_offset[pma_idx % CHANNEL_NUM];
+            long long* current_offset = &current_addr_offset[pma_idx % CHANNEL_NUM];
             int channel = pma_idx % CHANNEL_NUM;
             // POS Direction
             {
@@ -841,7 +841,7 @@ int main(int argc, char** argv)
                 memcpy(current_base_addr + *current_offset + sizeof(PMA_HEADER), pos_data.data(), pos_data.size() * sizeof(int));
 
                 // pos_vec_info_ptr[pma_idx] = (ap_uint<64>(total_len) << 32) | *current_offset;
-                vec_info_ptrs[channel][pma_idx] = (ap_uint<64>(total_len) << 32) | *current_offset;
+                vec_info_ptrs[channel][pma_idx] = (ap_uint<64>(total_len) << 32) | (ap_uint<32>)*current_offset;
                 
                 *current_offset += aligned_len;
                 // Align to 64 bytes
@@ -889,9 +889,9 @@ int main(int argc, char** argv)
         for (int ch = 0; ch < CHANNEL_NUM; ++ch)
         {
         std::cout << "[DBG] L640: PMA init complete, max offset per ch: " << current_addr_offset[0] << ", " << (CHANNEL_NUM>1?current_addr_offset[1]:0) << std::endl;
-            int total_blocks = (current_addr_offset[ch] + INIT_VEC_LEN_IN_BYTE - 1) / INIT_VEC_LEN_IN_BYTE;
-            int full_bytes = total_blocks / 8;
-            int rem_bits = total_blocks % 8;
+            long long total_blocks = (current_addr_offset[ch] + INIT_VEC_LEN_IN_BYTE - 1) / INIT_VEC_LEN_IN_BYTE;
+            long long full_bytes = total_blocks / 8;
+            int rem_bits = (int)(total_blocks % 8);
             memset(bitmap_ptrs[ch], 0xFF, full_bytes);
             if (rem_bits > 0)
                 bitmap_ptrs[ch][full_bytes] = (BYTE)((1 << rem_bits) - 1);

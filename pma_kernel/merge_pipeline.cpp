@@ -25,7 +25,7 @@ static const ap_uint<512> EMPTY_SEG_ROM[4] = {
 static const int MAX_PMA_EDGES = 8192;
 
 // ---- VEC_INFO access ----
-static VEC_INFO vi_read(ap_uint<512>* hbm, int vi_word_off, int pma_idx)
+static VEC_INFO vi_read(ap_uint<512>* hbm, long long vi_word_off, int pma_idx)
 {
     int wi = pma_idx / 8, si = pma_idx % 8;
     ap_uint<512> w = hbm[vi_word_off + wi];
@@ -41,16 +41,16 @@ static VEC_INFO vi_read(ap_uint<512>* hbm, int vi_word_off, int pma_idx)
 // SoA helper entries are updated inline for each chunk.
 void redistribute_edge_from_hbm(
     ap_uint<512>* hbm, ap_uint<512>* hbm_buffer,
-    int start_word, int end_word, int total_edges,
+    long long start_word, long long end_word, int total_edges,
     int edge_offset,             // starting edge index in hbm_buffer
     int group_left,              // absolute segment index of group start
-    int vc_hbm_base,             // valid_count area HBM base (word offset)
-    int fe_hbm_base,             // first_edge area HBM base (word offset)
+    long long vc_hbm_base,       // valid_count area HBM base (word offset)
+    long long fe_hbm_base,       // first_edge area HBM base (word offset)
     ap_uint<512> onchip_buffer[MAX_ONCHIP_SEG_WORDS],
     ap_uint<512> edge_buf[MAX_ONCHIP_SEG_WORDS]
 )
 {
-    int total_words = end_word - start_word;
+    long long total_words = end_word - start_word;
     int total_segs  = total_words / SEG_WORDS_PER_SEG;
 
     // Distribution: base edges per segment, first 'extra' segments get +1
@@ -87,25 +87,38 @@ void redistribute_edge_from_hbm(
         }
 
         // Phase 3: pack edges into onchip_buffer with base+extra distribution
+        // 原实现每迭代 edge_buf 读 + onchip_buffer 部分写 (RMW) → 两个 URAM 争读口, II=2。
+        // 本版拆两段: 内层 k 循环只读 edge_buf 写寄存器 (无内存写竞争, II=1);
+        // 段写循环整字写 onchip_buffer (无 RMW, II=1)。空槽保持全 1 = UNUSED_ICON。
+        // 每段最多 EDGE_SLOTS_PER_SEG(63) 条边 → 占满 4 字 (字 3 槽 15 = valid_count)。
         int pos = 0;
         for (int s = 0; s < chunk_segs; s++) {
             int fill = base + ((chunk_start + s) < extra ? 1 : 0);
+            ap_uint<512> packed[4];
+            #pragma HLS ARRAY_PARTITION variable=packed complete
+            packed[0] = ~ap_uint<512>(0);
+            packed[1] = ~ap_uint<512>(0);
+            packed[2] = ~ap_uint<512>(0);
+            packed[3] = ~ap_uint<512>(0);
             for (int k = 0; k < fill; k++) {
                 #pragma HLS PIPELINE II=1
                 int global_pos = edge_offset + edge_start + pos;
                 int src_word = (global_pos >> 4) - hbm_edge_wo;
                 int src_slot = global_pos & 0xF;
                 int edge = (int)edge_buf[src_word].range(src_slot * 32 + 31, src_slot * 32);
-                int dst_wi = s * SEG_WORDS_PER_SEG + (k >> 4);
-                int dst_si = k & 0xF;
-                onchip_buffer[dst_wi].range(dst_si * 32 + 31, dst_si * 32) = (ap_uint<32>)edge;
+                packed[k >> 4].range((k & 0xF) * 32 + 31, (k & 0xF) * 32) = (ap_uint<32>)edge;
                 pos++;
             }
-            onchip_buffer[s * SEG_WORDS_PER_SEG + 3].range(511, 480) = (ap_uint<32>)fill;
+            // valid_count 槽 = 字 3 槽 15 (fill ≤ 63 → 边最多占槽 0..62, 不冲突)
+            packed[3].range(511, 480) = (ap_uint<32>)fill;
+            for (int w = 0; w < 4; w++) {
+                #pragma HLS PIPELINE II=1
+                onchip_buffer[s * SEG_WORDS_PER_SEG + w] = packed[w];
+            }
         }
 
         // Phase 4: burst-write onchip_buffer → hbm
-        int hbm_seg_wo = start_word + chunk_start * SEG_WORDS_PER_SEG;
+        long long hbm_seg_wo = start_word + (long long)chunk_start * SEG_WORDS_PER_SEG;
         for (int i = 0; i < chunk_words; i++) {
             #pragma HLS PIPELINE II=1
             hbm[hbm_seg_wo + i] = onchip_buffer[i];
@@ -176,7 +189,7 @@ void redistribute_edge_from_hbm(
 static void merge_phase(
     ap_uint<512>* hbm_pma,
     ap_uint<512>* hbm_buffer,
-    int data_off, int vi_wo,
+    long long data_off, long long vi_wo,
     hls::stream<PMA_UPDATE_MESSAGE>& edge_in,
     hls::stream<ap_uint<32>>& ack_out)
 {
@@ -202,9 +215,9 @@ static void merge_phase(
 
         // ---- 读 VEC_INFO + header ----
         VEC_INFO vi = vi_read(hbm_pma, vi_wo, pma);
-        int start_byte = (int)vi.range(31, 0);
-        int byte_off = start_byte - data_off;
-        int hbase = byte_off / 64;
+        long long start_byte = (long long)vi.range(31, 0);
+        long long byte_off = start_byte - data_off;
+        long long hbase = byte_off / 64;
         ap_uint<512> range_word = hbm_pma[hbase];
         ap_uint<512> edge_count_word = hbm_pma[hbase + 1];
 
@@ -216,8 +229,8 @@ static void merge_phase(
         }
         int total_segs = (int)range_word.range(15 * 32 + 31, 15 * 32);
         int fe_words = fe_words_for(total_segs);
-        int fe_hbm_base = hbase + HEADER_WORDS;
-        int vc_hbm_base = fe_hbm_base + fe_words;
+        long long fe_hbm_base = hbase + HEADER_WORDS;
+        long long vc_hbm_base = fe_hbm_base + fe_words;
         int total_hlp = fe_words + vc_words_for(total_segs);
 
         // ---- 按 vertex 统计该 run 的新边数 ----
@@ -248,8 +261,10 @@ static void merge_phase(
             int ve = vr[v];
             int segs = ve - vs;
             if (segs <= 0) continue;
-            int seg_start_word = (byte_off + HEADER_BYTES + total_hlp * 64 + vs * SEG_BYTES) / 64;
-            int seg_end_word   = (byte_off + HEADER_BYTES + total_hlp * 64 + ve * SEG_BYTES) / 64;
+            long long seg_start_word = (byte_off + HEADER_BYTES + (long long)total_hlp * 64
+                                        + (long long)vs * SEG_BYTES) / 64;
+            long long seg_end_word   = (byte_off + HEADER_BYTES + (long long)total_hlp * 64
+                                        + (long long)ve * SEG_BYTES) / 64;
 
             // ---- 流式归并: existing 从 onchip_buffer 逐个读, new 从 new_edges, 结果写 hbm_buffer ----
             // chunk 保护: 顶点 segment 数可 > MAX_ONCHIP_SEG(1024), 按 1024 段一块读入归并。
@@ -260,9 +275,23 @@ static void merge_phase(
             // 分块写回 (其内部已按 MAX_ONCHIP_SEG 分块), 容量由 pre-expand 保证。
             int total = 0;
             int n = 0;             // new_edges 游标 (跨块全局)
-            int cur_w = -1;        // 当前写入的 hbm_buffer word
+            // 片上输出: 归并结果攒进 edge_buffer, 攒满一块 (MAX_ONCHIP_SEG_WORDS 字)
+            // → 连续 burst 写 hbm_buffer。原实现逐边 hbm_buffer[w].range(...) 部分写触发
+            // HLS read-modify-write (每条边 2 笔 HBM 事务, clustered 10000 边 ~20000 笔 —
+            // 慢的根因); 本版整字累积 + burst 写, IO 降到每块 1 次连续突发。
+            int out_block_base = 0;    // 已写到 hbm_buffer 的字数 (当前块基址)
+            int out_word_idx = 0;      // edge_buffer 中已攒的整字数
+            ap_uint<512> out_word = 0; // 正在攒的 512-bit 输出字 (16 条边)
+            int out_slot = 0;          // 0..15
 
-            const int CHUNK_SEGS = MAX_ONCHIP_SEG;
+            // 解包缓存: 块内 existing 边 (每段 ≤ EDGE_SLOTS_PER_SEG 条, flat 16 槽/字)。
+            // 归并读 existing_packed + 写 edge_buffer 是两个不同 URAM, 端口不争。
+            // 容量: chunk 内 existing ≤ CHUNK_SEGS×63 + new ≤ 8192 必须 ≤ edge_buffer
+            // 容量 (4096 字 × 16 = 65536 槽) — 否则归并循环内要 flush (嵌套循环破坏 II)。
+            // 896×63 + 8192 = 64640 ≤ 65536 ✓
+            const int CHUNK_SEGS = 896;
+            ap_uint<512> existing_packed[(CHUNK_SEGS * EDGE_SLOTS_PER_SEG + 15) / 16];
+            #pragma HLS bind_storage variable=existing_packed type=RAM_2P impl=URAM
             for (int chunk_start = 0; chunk_start < segs; chunk_start += CHUNK_SEGS) {
                 int chunk_segs = segs - chunk_start;
                 if (chunk_segs > CHUNK_SEGS) chunk_segs = CHUNK_SEGS;
@@ -274,62 +303,83 @@ static void merge_phase(
                     onchip_buffer[w] = hbm_pma[seg_start_word + chunk_start * SEG_WORDS_PER_SEG + w];
                 }
 
-                // 块内归并: 双指针, existing 边耗尽即退出块 (new_edges 留到后续块/尾部)
-                int seg_idx = -1;      // 当前块内 segment (从 -1 开始, 首次自增到 0)
-                int seg_rem = 0;       // 当前 segment 剩余有效边
-                int slot = 0;          // 当前 slot
-                int e_cur = 0;         // 当前读出的 existing 边
-                bool have_e = false;   // e_cur 是否有效
-
-                while (true) {
-                    // 需要时加载下一个 existing 边
-                    if (!have_e) {
-                        if (seg_rem > 0) {
-                            int wi = seg_idx * SEG_WORDS_PER_SEG + (slot >> 4);
-                            int si = slot & 0xF;
-                            e_cur = (int)onchip_buffer[wi].range(si * 32 + 31, si * 32);
-                            slot++; seg_rem--;
-                            have_e = true;
-                        } else {
-                            seg_idx++;
-                            while (seg_idx < chunk_segs) {
-                                int vc = (int)onchip_buffer[seg_idx * SEG_WORDS_PER_SEG + 3].range(511, 480);
-                                if (vc > EDGE_SLOTS_PER_SEG) vc = EDGE_SLOTS_PER_SEG;
-                                if (vc > 0) {
-                                    seg_rem = vc; slot = 0;
-                                    e_cur = (int)onchip_buffer[seg_idx * SEG_WORDS_PER_SEG].range(31, 0);
-                                    slot = 1; seg_rem--;
-                                    have_e = true;
-                                    break;
-                                }
-                                seg_idx++;
-                            }
-                        }
+                // ---- 解包 existing 边 → existing_packed (段序 flat) ----
+                // PMA 段按边值划分, 段内/段间都有序 → 解包后整块边序列有序。
+                // 双层循环内层流水: 外层逐段, 内层逐边 (每边 1 拍)。
+                int existing_cnt = 0;
+                for (int s = 0; s < chunk_segs; s++) {
+                    int vc = (int)onchip_buffer[s * SEG_WORDS_PER_SEG + 3].range(511, 480);
+                    if (vc > EDGE_SLOTS_PER_SEG) vc = EDGE_SLOTS_PER_SEG;
+                    for (int k = 0; k < vc; k++) {
+                        #pragma HLS PIPELINE II=1
+                        int wi = s * SEG_WORDS_PER_SEG + (k >> 4);
+                        int si = k & 0xF;
+                        int edge = (int)onchip_buffer[wi].range(si * 32 + 31, si * 32);
+                        existing_packed[existing_cnt >> 4].range((existing_cnt & 0xF) * 32 + 31, (existing_cnt & 0xF) * 32) = (ap_uint<32>)edge;
+                        existing_cnt++;
                     }
-                    // 本块 existing 边耗尽 → 下一块 (new_edges 不能在此消费, 可能属于后续块)
-                    if (!have_e) break;
+                }
 
-                    // 选较小的
+                // ---- 归并: existing (有序) + new_edges (有序) 双指针 → out_word/edge_buffer ----
+                // 单层循环 (无嵌套, 无状态机), 每迭代输出 1 条边。
+                // 输出容量: 块内 existing ≤ CHUNK_SEGS×63 + new ≤ 8192 → ≤ 64640 <
+                // edge_buffer 容量 (4096 字 × 16 = 65536 槽) → 归并循环内不需要 flush,
+                // flush 在每块结束后统一做 (循环外, 不破坏流水 II)。
+                int e_idx = 0;
+                while (e_idx < existing_cnt) {
+                    #pragma HLS PIPELINE II=1
+                    int e_cur = (int)existing_packed[e_idx >> 4].range((e_idx & 0xF) * 32 + 31, (e_idx & 0xF) * 32);
                     int pick;
-                    if (n >= nidx) { pick = e_cur; have_e = false; }
+                    if (n >= nidx) { pick = e_cur; e_idx++; }
                     else if (new_edges[n] < e_cur) { pick = new_edges[n++]; }
-                    else { pick = e_cur; have_e = false; }
-
-                    // 写 hbm_buffer (16/word 打包; word 首次写时清零)
-                    int w = total >> 4, ss = total & 0xF;
-                    if (w != cur_w) { cur_w = w; hbm_buffer[w] = 0; }
-                    hbm_buffer[w].range(ss * 32 + 31, ss * 32) = (ap_uint<32>)pick;
+                    else { pick = e_cur; e_idx++; }
+                    // 写输出: 攒 16 条 → edge_buffer (写口), 无嵌套 flush
+                    out_word.range(out_slot * 32 + 31, out_slot * 32) = (ap_uint<32>)pick;
+                    out_slot++;
+                    if (out_slot == 16) {
+                        edge_buffer[out_word_idx] = out_word;
+                        out_word_idx++;
+                        out_word = 0;
+                        out_slot = 0;
+                    }
                     total++;
                 }
+
+                // 块结束: flush edge_buffer 完整字 → hbm_buffer (循环外, 保 II=1)
+                if (out_word_idx > 0) {
+                    for (int bw = 0; bw < out_word_idx; bw++) {
+                        #pragma HLS PIPELINE II=1
+                        hbm_buffer[out_block_base + bw] = edge_buffer[bw];
+                    }
+                    out_block_base += out_word_idx;
+                    out_word_idx = 0;
+                }
             }
+
+            // 归并循环结束: 部分字 (out_word/out_slot) 保留给尾部循环继续填 — 保证归并
+            // 输出与尾部输出在同一字上连续; 否则部分字的空槽会作为垃圾边被 redistribute
+            // 读回。完整字已在每块结束后 flush 到 hbm_buffer, 这里 out_word_idx 必为 0。
 
             // 尾部: 所有块处理完后剩余的 new_edges (必 > 所有 existing 边, 直接补在末尾)
             while (n < nidx) {
                 #pragma HLS PIPELINE II=1
-                int w = total >> 4, ss = total & 0xF;
-                if (w != cur_w) { cur_w = w; hbm_buffer[w] = 0; }
-                hbm_buffer[w].range(ss * 32 + 31, ss * 32) = (ap_uint<32>)new_edges[n++];
+                out_word.range(out_slot * 32 + 31, out_slot * 32) = (ap_uint<32>)new_edges[n++];
+                out_slot++;
+                if (out_slot == 16) {
+                    edge_buffer[out_word_idx] = out_word;
+                    out_word_idx++;
+                    out_word = 0;
+                    out_slot = 0;
+                }
                 total++;
+            }
+            // 尾部 flush: 不足一块的剩余输出 (redistribute 按 edge_words 读回)
+            if (out_slot > 0) { edge_buffer[out_word_idx] = out_word; out_word_idx++; }
+            if (out_word_idx > 0) {
+                for (int bw = 0; bw < out_word_idx; bw++) {
+                    #pragma HLS PIPELINE II=1
+                    hbm_buffer[out_block_base + bw] = edge_buffer[bw];
+                }
             }
 
             // ---- 写回 segments (base+extra 分布, 更新 VC/FE) ----
@@ -372,8 +422,8 @@ extern "C"
     void merge_pipeline(
         ap_uint<512>* hbm_pma,
         ap_uint<512>* hbm_buffer,
-        int pma_raw_data_start,
-        int pma_vecinfo_start,
+        long long pma_raw_data_start,
+        long long pma_vecinfo_start,
         hls::stream<PMA_UPDATE_MESSAGE>& edge_in,
         hls::stream<ap_uint<32>>& ack_out)
     {
