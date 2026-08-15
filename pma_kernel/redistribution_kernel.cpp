@@ -545,21 +545,43 @@ static void pma_redist_enlarge(
 }
 
 // ---- Pre-expanded growth (profile-driven, runs BEFORE the edge batch) ----
-// Grows the PMA so a batch of `count` insertions fits without runtime ENLARGE.
+// 拆分为 begin/finish 两段 (alloc 流水化): begin 只读 VI + 算新布局 + 发 alloc
+// 请求 (非阻塞), finish 在 alloc rsp 到达后做搬移。主循环可让多个 PMA 的 alloc
+// 请求同时 in-flight, 把 alloc 延迟藏在搬移背后 (Σ 延迟 → max)。
 //   vi == 0  (INIT):   allocate a fresh PMA with 1 + ceil(count[v]/47) segments
 //                      per vertex. No collect (no old data exists), no FREE.
 //   vi != 0  (ENLARGE): move the whole PMA; every vertex gains
 //                      ceil(count[v]/47) segments (per-vertex precise), edges
 //                      re-distributed by redistribute_edge_from_hbm. Old space
 //                      is FREEd.
-static void pma_pre_expand(
-    ap_uint<512>* hbm, ap_uint<512>* hbm_buffer,
-    long long data_off, long long vi_wo, int pma_idx, int count[VERTEX_PER_PMA],
+// 正确性: begin 与 finish 之间 PMA 被 task_reader 锁住, 旧数据 (VEC_INFO/header/
+// segments) 不会变化; alloc_rsp 与 begin 的 fire 严格同序一一对应。
+struct pre_expand_ctx_t {
+    int pma;
+    bool is_init;
+    int new_total_segs;       // 新布局总段数
+    int new_fe_words;         // 新 FE helper 字数
+    int new_vc_words;         // 新 VC helper 字数
+    int new_helper_words;     // FE + VC 总字数
+    int new_pma_words;        // 新 PMA 总字数
+    int old_total_segs;       // 旧总段数 (ENLARGE FREE 用)
+    int old_helper_words;     // 旧 helper 字数 (ENLARGE FREE 用)
+    long long pma_byte_offset;  // 旧 PMA 字节偏移 (ENLARGE FREE 用)
+    ap_uint<512> new_range_word;
+    ap_uint<512> old_ec_word;   // 旧 header.edge_count (ENLARGE 搬移用)
+};
+
+// begin: 读 VI + 旧布局 → 算新布局 → fire alloc (不等 rsp)。
+// 返回 true = 已发 alloc, 需在 rsp 到后调 pre_expand_finish;
+// 返回 false = 无需扩容, 调用方直接发 pre_ack。
+static bool pre_expand_begin(
+    ap_uint<512>* hbm,
+    long long data_off, long long vi_wo,
+    pre_expand_cmd_t cmd,
     hls::stream<ap_axiu<96,0,0,0>>& alloc_cmd,
-    hls::stream<ap_axiu<64,0,0,0>>& alloc_rsp,
-    ap_uint<512> onchip_buffer[MAX_ONCHIP_SEG_WORDS],
-    ap_uint<512> edge_buffer[MAX_ONCHIP_SEG_WORDS])
+    pre_expand_ctx_t& ctx)
 {
+    int pma_idx = cmd.pma;
     VEC_INFO vi = vi_read(hbm, vi_wo, pma_idx);
     bool is_init = (vi == 0);
 
@@ -586,8 +608,8 @@ static void pma_pre_expand(
     // ---- Step 1: per-vertex grow decision + new vertex_range (cumulative) ----
     // 按 vertex 粒度判断: 现有边数 + 本次插入数 > 现有容量 (旧 segment × 47)
     // → 该 vertex 需要扩容 (segment 数 2 倍翻倍)。
-    // 所有 vertex 都不需要扩容 → 直接返回 (调用处照常发 ACK, 跳过 alloc/collect/
-    // redistribute/FREE 整套开销)。INIT 必须 alloc (新 PMA 无空间)。
+    // 所有 vertex 都不需要扩容 → 直接返回 false (调用处照常发 ACK, 跳过 alloc/
+    // collect/redistribute/FREE 整套开销)。INIT 必须 alloc (新 PMA 无空间)。
     ap_uint<512> new_range_word = 0;
     bool need_expand = is_init;
     {
@@ -607,11 +629,11 @@ static void pma_pre_expand(
                 // 新 PMA: segment 数基于该 vertex 的插入边数 (vc 计数)。
                 // 1 段容量 47 — count ≤ 47 保持 1 段 (不浪费); 超过则
                 // ceil(count/47) 向上取 2 的幂 (与扩容翻倍语义一致)。
-                int need = (count[v] + 46) / 47;   // ceil(count/47): 最小段数 (count=0 → 0)
+                int need = (cmd.count[v] + 46) / 47;   // ceil(count/47): 最小段数 (count=0 → 0)
                 int p = 1;
                 while (p < need) p <<= 1;
                 new_cnt = (need <= 1) ? 1 : p;     // 至少 1 段, 2 的幂
-            } else if (old_edges + count[v] > old_cnt * 47) {
+            } else if (old_edges + cmd.count[v] > old_cnt * 47) {
                 // 需扩容: 至少翻倍, 重复翻倍直到 (ve-vs)*47 >= old+count。
                 // 原实现只翻倍一次 — 单个 wave 对某 vertex 的插入量超过其整个
                 // 容量时扩容不足 (倾斜 dst 全打到一个热顶点就会发生), merge
@@ -619,7 +641,7 @@ static void pma_pre_expand(
                 // 发现, 2026-08-11)。与 INIT 分支的 2 的幂语义保持一致。
                 new_cnt = old_cnt * 2;
                 need_expand = true;
-                while (new_cnt * 47 < old_edges + count[v]) {
+                while (new_cnt * 47 < old_edges + cmd.count[v]) {
                     new_cnt *= 2;
                 }
             }
@@ -629,8 +651,8 @@ static void pma_pre_expand(
         ntseg = cum;
     }
     if (!need_expand) {
-        // 无需扩容: 直接返回 (redistribution_phase 调用处仍发 pre_ack)
-        return;
+        // 无需扩容: 返回 false, 调用方直接发 pre_ack
+        return false;
     }
     nfe_words = fe_words_for(ntseg);
     nvc_words = vc_words_for(ntseg);
@@ -638,12 +660,57 @@ static void pma_pre_expand(
     npwords = HEADER_WORDS + nhlp + ntseg * SEG_WORDS_PER_SEG;
     npbytes = npwords * 64;
 
-    // ---- Step 2: allocate new space ----
+    // ---- fire alloc (不等 rsp) ----
     ap_uint<96> acmd = 0;
     acmd.range(31, 0)  = 0;
     acmd.range(63, 32) = (ap_uint<32>)npbytes;
     acmd.range(95, 64) = 1;                          // opcode=ALLOC
-    ap_uint<64> arsp = alloc_send_rsp(acmd, alloc_cmd, alloc_rsp);
+    alloc_send(acmd, alloc_cmd);
+
+    // 存 begin→finish 的中间状态
+    ctx.pma = pma_idx;
+    ctx.is_init = is_init;
+    ctx.new_total_segs = ntseg;
+    ctx.new_fe_words = nfe_words;
+    ctx.new_vc_words = nvc_words;
+    ctx.new_helper_words = nhlp;
+    ctx.new_pma_words = npwords;
+    ctx.old_total_segs = old_tseg;
+    ctx.old_helper_words = old_hlp;
+    ctx.pma_byte_offset = pma_boff;
+    ctx.new_range_word = new_range_word;
+    ctx.old_ec_word = old_ec_word;
+    return true;
+}
+
+// finish: alloc rsp 已就绪时调用 (主循环已 poll 非空, read 不会阻塞)。
+// 完成 Step 2-5: 读 rsp → 写新 header → init helper → 搬段 (INIT 写空段 /
+// ENLARGE collect+redistribute) → FREE 旧空间 → 更新 VEC_INFO。
+static void pre_expand_finish(
+    ap_uint<512>* hbm, ap_uint<512>* hbm_buffer,
+    long long data_off, long long vi_wo,
+    hls::stream<ap_axiu<96,0,0,0>>& alloc_cmd,
+    hls::stream<ap_axiu<64,0,0,0>>& alloc_rsp,
+    ap_uint<512> onchip_buffer[MAX_ONCHIP_SEG_WORDS],
+    ap_uint<512> edge_buffer[MAX_ONCHIP_SEG_WORDS],
+    const pre_expand_ctx_t& ctx)
+{
+    int pma_idx = ctx.pma;
+    bool is_init = ctx.is_init;
+    int ntseg = ctx.new_total_segs;
+    int nfe_words = ctx.new_fe_words;
+    int nvc_words = ctx.new_vc_words;
+    int nhlp = ctx.new_helper_words;
+    int npwords = ctx.new_pma_words;
+    int old_tseg = ctx.old_total_segs;
+    int old_hlp = ctx.old_helper_words;
+    long long pma_boff = ctx.pma_byte_offset;
+    ap_uint<512> old_ec_word = ctx.old_ec_word;
+    ap_uint<512> new_range_word = ctx.new_range_word;
+    int npbytes = npwords * 64;
+
+    // ---- Step 2: read alloc response (主循环已 poll 非空, 不阻塞) ----
+    ap_uint<64> arsp = alloc_rsp.read().data;
     int nstart = (int)arsp.range(31, 0);
     long long nabs_base = nstart / 64;
 
@@ -768,7 +835,7 @@ void redistribution_phase(
     hls::stream<ap_axiu<64,0,0,0>>& alloc_rsp_stream)
 {
     // Single shared instance of the chunked helpers for all callers
-    // (pma_pre_expand, pma_redist_enlarge, rebalance path)
+    // (pre_expand_finish, pma_redist_enlarge, rebalance path)
     #pragma HLS allocation function instances=collect_edge_to_buffer limit=1
     #pragma HLS allocation function instances=redistribute_edge_from_hbm limit=1
 
@@ -789,18 +856,48 @@ void redistribution_phase(
     int remap_new_start = 0;     // new absolute start byte
     ap_uint<512> remap_range_word = 0;
 
+    // alloc 流水化: 在飞 pre_expand ctx 队列 (begin 已 fire alloc, 等 rsp 后 finish)。
+    // 深度须 ≥ 期望同时在飞的 alloc 数 (受 pre_expand_in FIFO 深度约束)。
+    #define PRE_EXPAND_CTX_DEPTH 16
+    pre_expand_ctx_t ctx_fifo[PRE_EXPAND_CTX_DEPTH];
+    #pragma HLS bind_storage variable=ctx_fifo type=RAM_2P impl=BRAM
+    int ctx_head = 0;
+    int ctx_tail = 0;
+    int ctx_count = 0;
+
     while (true) {
+        // ---- pre_expand: alloc 流水化 (begin fire + finish 搬移) ----
         // Pre-expansion commands have priority: task_reader is blocked waiting
         // for the ACK, so they must be serviced before rebalance tasks.
-        if (!pre_expand_in.empty()) {
+        // (a) 有新 cmd 且 ctx 队列有空位 → begin + fire alloc (不阻塞), 入队。
+        //     多个 PMA 的 alloc 同时 in-flight → alloc 延迟彼此重叠。
+        if (ctx_count < PRE_EXPAND_CTX_DEPTH && !pre_expand_in.empty()) {
             pre_expand_cmd_t cmd = pre_expand_in.read();
-            pma_pre_expand(hbm, hbm_edge_buffer, data_off, vi_wo,
-                           cmd.pma, cmd.count,
-                           alloc_cmd_stream, alloc_rsp_stream,
-                           onchip_buffer, edge_buffer);
-            pre_ack_out.write((ap_uint<32>)cmd.pma);
+            pre_expand_ctx_t begin_ctx;
+            if (pre_expand_begin(hbm, data_off, vi_wo, cmd, alloc_cmd_stream, begin_ctx)) {
+                ctx_fifo[ctx_tail] = begin_ctx;
+                ctx_tail = (ctx_tail + 1) % PRE_EXPAND_CTX_DEPTH;
+                ctx_count++;
+            } else {
+                pre_ack_out.write((ap_uint<32>)cmd.pma);   // 无需扩容, 立即解锁
+            }
             continue;
         }
+        // (b) 队头 alloc rsp 已到 → finish (搬移) + 解锁。rsp 与 ctx 同序,
+        //     队头即最早 fire 的 alloc。
+        if (ctx_count > 0 && !alloc_rsp_stream.empty()) {
+            pre_expand_finish(hbm, hbm_edge_buffer, data_off, vi_wo,
+                              alloc_cmd_stream, alloc_rsp_stream,
+                              onchip_buffer, edge_buffer,
+                              ctx_fifo[ctx_head]);
+            pre_ack_out.write((ap_uint<32>)ctx_fifo[ctx_head].pma);
+            ctx_head = (ctx_head + 1) % PRE_EXPAND_CTX_DEPTH;
+            ctx_count--;
+            continue;
+        }
+        // 有在飞 pre_expand (等 rsp) 时不碰 rebalance — rebalance 的 alloc 会
+        // 打乱 alloc_rsp 与 ctx 队列的顺序对应。pre_expand 优先 (task_reader 阻塞)。
+        if (ctx_count > 0) { ap_wait(); continue; }
         if (task_fifo.empty()) { ap_wait(); continue; }
         rebalance_task_t task = task_fifo.read();
         int payload = task.payload;

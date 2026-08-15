@@ -228,7 +228,7 @@ void bs_worker(
                     if (slot_u >= 0) {
                         // 片上二分 (缓存字 = 绝对字 (vs>>4) 起的相对偏移, 槽 = 绝对 entry % 16)
                         while (lo < hi) {
-                            #pragma HLS PIPELINE II=2
+                            #pragma HLS PIPELINE II=1
                             unsigned mid = (lo + hi) >> 1;
                             int fe_idx = vs + (int)mid;
                             int fe_val = (int)fe_cache[slot_u][(fe_idx >> 4) - vs_word_base]

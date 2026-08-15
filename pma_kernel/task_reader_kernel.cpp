@@ -16,6 +16,8 @@
 // ---- PMA 锁 (位图): 按 local_pma = pma_idx / CHANNEL_NUM 压缩, 1 bit/PM ----
 // task_reader 只处理 pma % CHANNEL_NUM == worker_id 的 PMA (router 已按 channel 分发),
 // 所以锁表索引用"本 worker 的第几个 PMA" (local_pma), 8 个 PMA 占 1 字节。
+// 大小 65536: 支持 PMA 索引 < 65536 (顶点数 < 2^20 = 1048576)。
+#define PMA_LOCK_SIZE 65536
 void lock_pma(uint8_t* pma_lock, int pma_idx, int worker_id) {
     int local_pma = pma_idx / CHANNEL_NUM;
     int lock_pma_word = local_pma / 8;
@@ -37,62 +39,98 @@ static inline bool is_pma_locked(const uint8_t* pma_lock, int pma_idx, int worke
     return ((pma_lock[lock_pma_word] >> lock_pma_bit) & 1) != 0;
 }
 
-// 非阻塞收 ACK: pre_ack_in (redistribution 预扩完成) + ack_in (bs_insert 批完成)
-// 收到即解锁对应 PMA — 锁 = "该 PMA 有一个在飞操作 (预扩或数据批)"。
-// 三个流都必须轮询: 只收 pre_ack 而忽略批 ACK 会导致批完成后锁永不解 → 死锁。
-// 防御: ack == -1 (STOP 收尾标记) 跳过 — 否则 unlock_pma 越界写。
-// 注意: 必须用 read_nb() (非阻塞) — 阻塞 empty()+read() 在流水循环里会被 HLS
-// 建模为等待 producer 的握手。必须 #pragma HLS INLINE: 否则函数作为独立模块被
-// 调用, 3 个流访问被建模为 interval=9 的黑盒, 外层逐边循环 II 被拉到 15。
-// 解锁错峰: ack 先存进 3 个待解锁槽 (pend_*), 每迭代至多执行 1 次 pma_lock 的
-// RMW (读-改-写) — 否则 3 个 unlock + 1 个 lock 的 BRAM 端口序列把逐边循环 II
-// 拉到 12 (每个 RMW = load 2 拍 + store 1 拍)。错峰后每迭代 ≤1 次 RMW, II 应降
-// 到 3~5。解锁延迟 ≤3 迭代 — 对 dispatch 轮询 (每轮扫全部 seperation) 无感,
-// 协议语义不变 (解锁最终一致)。
-void check_ack_back(
-    uint8_t* pma_lock,
+// ---- 锁表管理进程 (独立 DATAFLOW 阶段) ----
+// 职责: ① 轮询 3 个 ack 流 (pre_ack_in / ack_in_bs / ack_in_merge), 解锁锁表,
+//       并把解锁事件回传给主进程 (unlock_out); ② 接受主进程的锁请求 (lock_req_in)。
+// 与主进程解耦是本设计的死锁修复核心: 主进程阻塞在 edge/pre_expand 写时, 本进程
+// 依然消费 ack — 下游 (insert_phase / redistribution) 不会被 ack 反压卡死,
+// 主进程的阻塞写因此是安全的, 无需任何 write_nb。
+// 协议:
+//   lock_req_in: pma_idx (≥0) = 加锁请求; -1 = 主进程收尾 (所有锁已清) → 退出
+//   unlock_out:  已解锁的 pma_idx (与 ack 一一对应)
+//   ack == -1 (STOP 收尾标记) 直接丢弃, 无对应锁 (否则 unlock_pma 越界写)。
+// 深度不变量: unlock_out 深度 (256) 必须 ≥ 主进程阻塞期间可能到达的在飞 ack 数上界
+//   ≈ edge FIFO (2 批) + bs_out (8) + 3 个 ack FIFO (16×3) + task_in (64) ≈ 122。
+//   若增大上述任一 FIFO 深度, 需同步放大 unlock_out。
+static void lock_manager(
     hls::stream<ap_uint<32>>& pre_ack_in,
     hls::stream<ap_uint<32>>& ack_in_bs,
     hls::stream<ap_uint<32>>& ack_in_merge,
+    hls::stream<ap_uint<32>>& lock_req_in,
+    hls::stream<ap_uint<32>>& unlock_out,
+    int worker_id)
+{
+    uint8_t pma_lock[PMA_LOCK_SIZE];
+    #pragma HLS bind_storage variable=pma_lock type=RAM_2P impl=BRAM
+
+    while (true) {
+        bool busy = false;
+        ap_uint<32> v;
+        // 1. 轮询 ack 流 (非阻塞): 解锁 + 事件回传。3 个流用独立变量 (WAR 并行)。
+        if (pre_ack_in.read_nb(v)) {
+            if ((int)v != -1) { unlock_pma(pma_lock, (int)v, worker_id); unlock_out.write(v); }
+            busy = true;
+        }
+        if (ack_in_bs.read_nb(v)) {
+            if ((int)v != -1) { unlock_pma(pma_lock, (int)v, worker_id); unlock_out.write(v); }
+            busy = true;
+        }
+        if (ack_in_merge.read_nb(v)) {
+            if ((int)v != -1) { unlock_pma(pma_lock, (int)v, worker_id); unlock_out.write(v); }
+            busy = true;
+        }
+        // 2. 接受主进程锁请求 (阻塞写的一方是主进程; 本进程从不卡死 —
+        //    唯一可能的卡点 unlock_out 满受深度不变量保护)。
+        if (!lock_req_in.empty()) {
+            v = lock_req_in.read();
+            if ((int)v == -1) break;          // 主进程收尾: 退出
+            lock_pma(pma_lock, (int)v, worker_id);
+            busy = true;
+        }
+        if (!busy) ap_wait();
+    }
+}
+
+// ---- 主进程侧: 解锁事件轮询 + 锁提交 ----
+// 主进程持有 shadow 锁表 (与管理器的锁表并行维护, 语义一致):
+//   提交锁请求时置位, 收到解锁事件时清位。shadow 只被主进程读写, 无 RMW 竞争。
+// 解锁错峰: 每调用至多清 1 个 shadow 位 (1 次 RMW) — 逐边扫描循环 II 不被拖垮
+// (若循环被流水, 每迭代 ≤1 次 BRAM RMW; 解锁延迟 ≤ 事件数迭代, dispatch 轮询无感)。
+
+// 收解锁事件: 管理器回传的"某 PMA 已解锁" (与 ack 一一对应)
+static inline void poll_unlocks(
+    hls::stream<ap_uint<32>>& unlock_in,
+    uint8_t* pma_lock_shadow,
     int& inflight_pma_count,
-    int worker_id,
-    int& pend_pre,
-    int& pend_bs,
-    int& pend_merge
-)
+    int worker_id)
 {
     #pragma HLS INLINE
-    // 3 个 read_nb 用独立变量 (避免 WAR 串行化), nbread 并行发出
-    ap_uint<32> ack_pre, ack_bs, ack_merge;
-    if (pend_pre < 0) {
-        if (pre_ack_in.read_nb(ack_pre)) {
-            if (ack_pre != -1) pend_pre = (int)ack_pre;   // STOP(-1) 直接丢弃
-        }
-    }
-    if (pend_bs < 0) {
-        if (ack_in_bs.read_nb(ack_bs)) {
-            if (ack_bs != -1) pend_bs = (int)ack_bs;
-        }
-    }
-    if (pend_merge < 0) {
-        if (ack_in_merge.read_nb(ack_merge)) {
-            if (ack_merge != -1) pend_merge = (int)ack_merge;
-        }
-    }
-    // 每迭代至多 1 次 pma_lock RMW (解锁 + 计数)
-    if (pend_pre >= 0) {
-        unlock_pma(pma_lock, pend_pre, worker_id);
+    if (!unlock_in.empty()) {
+        ap_uint<32> v = unlock_in.read();
+        unlock_pma(pma_lock_shadow, (int)v, worker_id);
         inflight_pma_count--;
-        pend_pre = -1;
-    } else if (pend_bs >= 0) {
-        unlock_pma(pma_lock, pend_bs, worker_id);
-        inflight_pma_count--;
-        pend_bs = -1;
-    } else if (pend_merge >= 0) {
-        unlock_pma(pma_lock, pend_merge, worker_id);
-        inflight_pma_count--;
-        pend_merge = -1;
     }
+}
+
+// 提交锁请求给管理器 + 置位本地 shadow。
+// 用 write_nb + 自旋轮询 unlock, 打破 lock_req↔unlock 双阻塞死锁环:
+// 当 lock_req FIFO 满 (管理器忙) 时, 主进程在自旋中持续消费 unlock →
+// unlock 排空 → 管理器解除阻塞 → 消费 lock_req → 本写成功。
+// (lock_req/unlock 都是内部 stream=ap_fifo, write_nb 合法; 顶部 axis 端口才禁)
+static inline void submit_lock(
+    hls::stream<ap_uint<32>>& lock_req_out,
+    hls::stream<ap_uint<32>>& unlock_in,
+    uint8_t* pma_lock_shadow,
+    int& inflight_pma_count,
+    int pma_idx,
+    int worker_id)
+{
+    #pragma HLS INLINE
+    while (!lock_req_out.write_nb((ap_uint<32>)pma_idx)) {
+        poll_unlocks(unlock_in, pma_lock_shadow, inflight_pma_count, worker_id);
+    }
+    lock_pma(pma_lock_shadow, pma_idx, worker_id);
+    inflight_pma_count++;
 }
 
 // ---- Gate 决策辅助: 读 PMA 的 VEC_INFO + header + VC (gate m_axi) ----
@@ -133,7 +171,7 @@ static void gate_read_pma_vertex_counts(
     }
 }
 
-// ---- Task Reader (gate 路由内核) ----
+// ---- Task Reader 主进程 (gate 路由内核) ----
 // 读 online_in 流 (generator → router_stream 按 channel 分发), 收满 wave 8192 /
 // FLUSH / STOP 即阻塞并处理当前波。处理流程:
 //   sort → profile 计数 (每 PMA 每 vertex) → 发 pre_expand_cmd 并上锁
@@ -143,7 +181,9 @@ static void gate_read_pma_vertex_counts(
 //                  一个 PMA (separation cursors), 保持其他 PMA 锁定时仍能发 cmd。
 // 跨内核顺序保证: 一个 PMA 的边批只在 redistribution 完成预扩 (pre_ack) 后才发出,
 // 所以下游内核收到的边所在 PMA 一定已扩好。
-static void task_reader(
+// 锁机制: 本进程不直接读 ack 流 — lock_manager 进程独立轮询 3 个 ack 流,
+// 本进程通过 lock_req_out / unlock_in 与它交互 (见 lock_manager 注释)。
+static void task_reader_main(
     int worker_id,
     ap_uint<512>* hbm_gate,
     int pma_raw_data_start,
@@ -152,9 +192,8 @@ static void task_reader(
     hls::stream<pre_expand_cmd_t>& pre_expand_out,
     hls::stream<PMA_UPDATE_MESSAGE>& edge_out_bs,
     hls::stream<PMA_UPDATE_MESSAGE>& edge_out_merge,
-    hls::stream<ap_uint<32>>& pre_ack_in,
-    hls::stream<ap_uint<32>>& ack_in_bs,
-    hls::stream<ap_uint<32>>& ack_in_merge
+    hls::stream<ap_uint<32>>& lock_req_out,
+    hls::stream<ap_uint<32>>& unlock_in
 ) {
 
     // ---- Wave buffer: edges of the current wave (before processing) ----
@@ -171,17 +210,13 @@ static void task_reader(
     #pragma HLS bind_storage variable=seperations type=RAM_2P impl=BRAM
     #pragma HLS bind_storage variable=merge_path type=RAM_2P impl=BRAM
     #pragma HLS bind_storage variable=wave_buffer type=RAM_2P impl=BRAM
-    // PMA 锁: 本轮已处理的 PMA (按 PMA 值直接索引, 1 字节/PM)。
-    // 大小 65536: 支持 PMA 索引 < 65536 (顶点数 < 2^20 = 1048576)。
-    #define PMA_LOCK_SIZE 65536
-    uint8_t pma_lock[PMA_LOCK_SIZE];
-    #pragma HLS bind_storage variable=pma_lock type=RAM_2P impl=BRAM
+    // shadow 锁表: 与管理器锁表并行维护 (置位: 提交锁请求; 清位: 收解锁事件)。
+    uint8_t pma_lock_shadow[PMA_LOCK_SIZE];
+    #pragma HLS bind_storage variable=pma_lock_shadow type=RAM_2P impl=BRAM
 
     bool online_done = false;
     bool flush = false;
     int inflight_pma_count = 0;
-    // 待解锁 ack 槽 (check_ack_back 错峰解锁用, -1 = 空)
-    int pend_pre = -1, pend_bs = -1, pend_merge = -1;
     while (true)
     {
         // ===== 收集阶段: online 收进 wave_buffer, 收满 8192 / FLUSH / STOP 即退出 =====
@@ -217,7 +252,7 @@ static void task_reader(
             int seperation_count = 0;
             for (int i = 0 ; i < wave_count; i++)
             {
-                check_ack_back(pma_lock, pre_ack_in, ack_in_bs, ack_in_merge, inflight_pma_count, worker_id, pend_pre, pend_bs, pend_merge);
+                poll_unlocks(unlock_in, pma_lock_shadow, inflight_pma_count, worker_id);
                 int src = wave_buffer[i * 3 + 0];
                 int pma_idx = src >> 4;
                 if (pma_idx != current_pma)
@@ -239,9 +274,10 @@ static void task_reader(
                             #pragma HLS UNROLL
                             pre_cmd.count[v] = current_vc[v];
                         }
+                        // 阻塞写安全: 锁表管理进程独立消费 ack, 本进程的写阻塞不再
+                        // 引发 ack 反压闭环 (旧架构死锁的根因, 见 lock_manager 注释)。
                         pre_expand_out.write(pre_cmd);
-                        inflight_pma_count++;
-                        lock_pma(pma_lock, current_pma, worker_id);
+                        submit_lock(lock_req_out, unlock_in, pma_lock_shadow, inflight_pma_count, current_pma, worker_id);
                     }
                     current_pma = pma_idx;
                     for (int v = 0; v < 16; v++) {
@@ -268,15 +304,14 @@ static void task_reader(
                     pre_cmd.count[v] = current_vc[v];
                 }
                 pre_expand_out.write(pre_cmd);
-                inflight_pma_count++;
-                lock_pma(pma_lock, current_pma, worker_id);
+                submit_lock(lock_req_out, unlock_in, pma_lock_shadow, inflight_pma_count, current_pma, worker_id);
             }
             // ===== dispatch: 等 pre_ack 解锁后按 PMA 发边批 =====
             // 发送粒度由 gate 决策决定 (profile scan 已算好 merge_path[i]):
             //   merge → 整 PMA 一次发到 edge_out_merge (last=1 在 PMA 末边)
             //   bs    → 16 边一批发到 edge_out_bs (last=1 在每批末边), 一批后跳下一 PMA。
             // 循环逐 PMA 轮询: 某 PMA 被锁 (在飞) 时跳过, 继续发其他 PMA 的批, 保持
-            // pipeline 有 cmd 可处理; 锁由 ack 释放后下一轮继续该 PMA 剩余批。
+            // pipeline 有 cmd 可处理; 锁由管理器解锁事件释放后下一轮继续该 PMA 剩余批。
             int remaining = wave_count;
             seperation_cursors[0] = 0;
             for (int i = 1 ; i < seperation_count; i++)
@@ -285,11 +320,11 @@ static void task_reader(
             }
             while (remaining > 0)
             {
-                check_ack_back(pma_lock, pre_ack_in, ack_in_bs, ack_in_merge, inflight_pma_count, worker_id, pend_pre, pend_bs, pend_merge);
+                poll_unlocks(unlock_in, pma_lock_shadow, inflight_pma_count, worker_id);
                 for (int i = 0; i < seperation_count; i++)
                 {
                     int pma_idx = wave_buffer[seperation_cursors[i] * 3 + 0] >> 4;
-                    if (is_pma_locked(pma_lock, pma_idx, worker_id)) continue;
+                    if (is_pma_locked(pma_lock_shadow, pma_idx, worker_id)) continue;
                     if (seperation_cursors[i] >= seperations[i]) continue;
                     int start = seperation_cursors[i];
                     int end = seperations[i];
@@ -304,9 +339,9 @@ static void task_reader(
                         msg.src = src; msg.dst = dst; msg.opcode = (PMA_UPDATE_OPCODE)opcode; msg.last = (j == chunk_end - 1);
                         if (to_merge) edge_out_merge.write(msg);
                         else          edge_out_bs.write(msg);
+                        // edge_out_bs.write(msg);
                     }
-                    inflight_pma_count++;
-                    lock_pma(pma_lock, pma_idx, worker_id);
+                    submit_lock(lock_req_out, unlock_in, pma_lock_shadow, inflight_pma_count, pma_idx, worker_id);
                     remaining -= (chunk_end - start);
                     seperation_cursors[i] = chunk_end;
                 }
@@ -317,13 +352,13 @@ static void task_reader(
         if (flush) flush = false;
 
         // 收尾 ACK (最后一波的批可能仍在飞) — 否则 inflight 不降 → 死循环
-        check_ack_back(pma_lock, pre_ack_in, ack_in_bs, ack_in_merge, inflight_pma_count, worker_id, pend_pre, pend_bs, pend_merge);
+        poll_unlocks(unlock_in, pma_lock_shadow, inflight_pma_count, worker_id);
         if (online_done && inflight_pma_count == 0) break;
         // 全部处理完但未结束: 空转等 online (下一轮顶部继续收波)
         if (wave_count == 0) ap_wait();
     }
     while (inflight_pma_count > 0) {
-        check_ack_back(pma_lock, pre_ack_in, ack_in_bs, ack_in_merge, inflight_pma_count, worker_id, pend_pre, pend_bs, pend_merge);
+        poll_unlocks(unlock_in, pma_lock_shadow, inflight_pma_count, worker_id);
         ap_wait();
     }
     // Send STOP（所有批完成后最后执行）— 两条路径都要收, 各自收尾退出。
@@ -334,9 +369,16 @@ static void task_reader(
     stop_msg.opcode = PMA_UPDATE_STOP; stop_msg.last = 1;
     edge_out_bs.write(stop_msg);
     edge_out_merge.write(stop_msg);
+    // 通知锁表管理进程退出 (所有真 ack 已消费, 无剩余锁)。
+    // 此后的 STOP ack (-1) 无人消费也无妨: 无任何进程等待它。
+    // write_nb + ap_wait 自旋: 即使 lock_req 暂时满, 管理器终会消费, 不会死锁。
+    while (!lock_req_out.write_nb((ap_uint<32>)-1)) { ap_wait(); }
 }
 
 // ---- Top-level ----
+// DATAFLOW 双进程: lock_manager (锁表 + ack 轮询) → task_reader_main (gate 路由)。
+// 双向通道 (lock_req / unlock) 为 stream 反馈, UG1399 支持 hls::stream 反馈;
+// 两侧消费均为非阻塞 (read_nb / empty+read), 无初始死锁。
 
 extern "C"
 {
@@ -367,8 +409,19 @@ extern "C"
         #pragma HLS INTERFACE axis port=ack_in_bs
         #pragma HLS INTERFACE axis port=ack_in_merge
 
-        task_reader(worker_id, hbm_gate, pma_raw_data_start, pma_vecinfo_start / 64,
-                    online_in, pre_expand_out, edge_out_bs, edge_out_merge,
-                    pre_ack_in, ack_in_bs, ack_in_merge);
+        // 内部通道: lock_req (main → manager, 深度 16 足够: main 提交慢, manager 消费快)
+        //           unlock (manager → main, 深度 256: 主进程阻塞期间的 ack 缓冲垫, 见
+        //           lock_manager 注释的深度不变量)
+        hls::stream<ap_uint<32>> lock_req;
+        hls::stream<ap_uint<32>> unlock;
+        #pragma HLS STREAM variable=lock_req depth=16
+        #pragma HLS STREAM variable=unlock depth=256
+
+        #pragma HLS DATAFLOW
+
+        lock_manager(pre_ack_in, ack_in_bs, ack_in_merge, lock_req, unlock, worker_id);
+        task_reader_main(worker_id, hbm_gate, pma_raw_data_start, pma_vecinfo_start / 64,
+                         online_in, pre_expand_out, edge_out_bs, edge_out_merge,
+                         lock_req, unlock);
     }
 }
