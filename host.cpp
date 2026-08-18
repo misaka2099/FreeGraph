@@ -632,7 +632,18 @@ int main(int argc, char** argv)
     }
 #endif
 
+    bool read_pipeline_started = false;
+    auto ensure_read_pipeline_started = [&]() {
+        if (read_pipeline_started) return;
+        std::cout << "Starting read pipeline on first verification request..." << std::endl;
+        for (auto &run_worker : run_pma_read_worker_kernels) run_worker.start();
+        run_pma_read_merger_kernel.start();
+        run_pma_read_router_kernel.start();
+        read_pipeline_started = true;
+    };
+
     auto verify_graph = [&](const std::vector<std::vector<int>>& expected_graph, int current_max_vertex, const std::string& label, bool last) -> double {
+        ensure_read_pipeline_started();
         std::cout << "Verifying " << label << "..." << std::endl;
         int check_vertex_range = std::max(current_max_vertex, base_max_vertex) + 1;
         std::vector<std::vector<int>> Updated_Graph(check_vertex_range);
@@ -1071,18 +1082,12 @@ int main(int argc, char** argv)
     // 2. Start Long-Running (Keep Alive) Kernels
 #ifdef USE_STANDALONE_MODE
     // Standalone: insert_edge + alloc_access started per-batch (not keep-alive)
-    // Read pipeline is keep-alive for verification
-    for (auto &run_worker : run_pma_read_worker_kernels) { run_worker.start(); }
-    run_pma_read_merger_kernel.start();
-    run_pma_read_router_kernel.start();
+    // Read pipeline is started lazily by ensure_read_pipeline_started() when
+    // verification actually requests a read.
 #else
     for (auto &r : run_alloc_access_kernels) { r.start(); }
     for (auto &r : run_pma_insert_edge_kernels) { r.start(); }
     run_update_message_router_kernel.start();
-    for (auto &run_worker : run_pma_read_worker_kernels) { run_worker.start(); }
-    run_pma_read_merger_kernel.start();
-    run_pma_read_router_kernel.start();
-
     bo_src.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     bo_dst.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     bo_opcode.sync(XCL_BO_SYNC_BO_TO_DEVICE);
@@ -1302,7 +1307,7 @@ int main(int argc, char** argv)
                         int ch = pma_idx % CHANNEL_NUM;
 
                         // Sync HBM + vecinfo back from device
-        for (int ch = 0; ch < CHANNEL_NUM; ++ch) { ch_bufs[ch].sync(XCL_BO_SYNC_BO_TO_DEVICE); }
+                        for (int ch = 0; ch < CHANNEL_NUM; ++ch) { ch_bufs[ch].sync(XCL_BO_SYNC_BO_FROM_DEVICE); }
 
                         VEC_INFO vi = vec_info_ptrs[ch][pma_idx];
                         int start = (int)vi.range(31, 0);
@@ -1358,12 +1363,11 @@ int main(int argc, char** argv)
 
     std::cout << "Waiting service kernels to drain and exit by finish protocol..." << std::endl;
     // alloc_access & mem_access removed
-    run_pma_read_router_kernel.wait();
-    for (auto &run_worker : run_pma_read_worker_kernels)
-    {
-        run_worker.wait();
+    if (read_pipeline_started) {
+        run_pma_read_router_kernel.wait();
+        for (auto &run_worker : run_pma_read_worker_kernels) run_worker.wait();
+        run_pma_read_merger_kernel.wait();
     }
-    run_pma_read_merger_kernel.wait();
 
     std::cout << "Dumping device PMA state (vecinfo + HBM) ..." << std::endl;
     for (int ch = 0; ch < CHANNEL_NUM; ++ch) {

@@ -68,14 +68,10 @@ void redistribute_edge_from_hbm(
         int edge_end   = (chunk_start + chunk_segs) * base + ((chunk_start + chunk_segs) < extra ? (chunk_start + chunk_segs) : extra);
         int chunk_edges = edge_end - edge_start;
 
-        // Phase 1: init onchip_buffer to EMPTY_SEG for this chunk
-        for (int i = 0; i < chunk_words; i += SEG_WORDS_PER_SEG) {
-            #pragma HLS PIPELINE II=1
-            onchip_buffer[i + 0] = EMPTY_SEG_ROM[0];
-            onchip_buffer[i + 1] = EMPTY_SEG_ROM[1];
-            onchip_buffer[i + 2] = EMPTY_SEG_ROM[2];
-            onchip_buffer[i + 3] = EMPTY_SEG_ROM[3];
-        }
+        // Every output segment is built below as four complete packed words,
+        // including the empty-segment representation.  Do not pre-clear this
+        // URAM range: that full pass is overwritten before Phase 4 and only
+        // inserts a serialization bubble ahead of the HBM burst.
 
         // Phase 2: burst-read edges from hbm_buffer → edge_buf
         int hbm_edge_wo = (edge_offset + edge_start) >> 4;
@@ -178,6 +174,123 @@ void redistribute_edge_from_hbm(
     }
 }
 
+// Fast path for a contiguous range of updated vertices in one small PMA.  The
+// normal per-vertex helper correctly preserves arbitrary large PMAs, but it
+// turns a run such as vertices 3..8 into six independent 4-word payload
+// writes.  Here each vertex is still distributed by exactly the same
+// base+extra rule, while all resulting segments are staged in one URAM image
+// and committed through one monotonic payload burst.  VC/FE remain separate
+// RMW bursts because their packed words may contain untouched neighbours.
+static void redistribute_vertex_group_from_hbm(
+    ap_uint<512>* hbm, ap_uint<512>* hbm_buffer,
+    ap_uint<512>* source_buffer, bool source_is_uram,
+    long long pma_seg_base, int group_first, int group_last,
+    const int vr[VERTEX_PER_PMA], const int merged_ec[VERTEX_PER_PMA],
+    const int edge_offset[VERTEX_PER_PMA],
+    long long vc_hbm_base, long long fe_hbm_base,
+    ap_uint<512> onchip_buffer[MAX_ONCHIP_SEG_WORDS],
+    ap_uint<512> edge_buf[MAX_ONCHIP_SEG_WORDS])
+{
+    int first_seg = (group_first == 0) ? 0 : vr[group_first - 1];
+    int last_seg = vr[group_last];
+    int group_segs = last_seg - first_seg;
+
+    // Build every segment of the affected contiguous run on chip.  Each
+    // source vertex is read as one contiguous edge burst from hbm_buffer.
+    for (int v = group_first; v <= group_last; v++) {
+        int vs = (v == 0) ? 0 : vr[v - 1];
+        int ve = vr[v];
+        int segs = ve - vs;
+        int total = merged_ec[v];
+        int local_base = vs - first_seg;
+        int base = total / segs;
+        int extra = total % segs;
+        int edge_words = (total + 15) >> 4;
+        int hbm_edge_wo = edge_offset[v] >> 4;
+        for (int w = 0; w < edge_words; w++) {
+            #pragma HLS PIPELINE II=1
+            edge_buf[w] = source_is_uram ? source_buffer[hbm_edge_wo + w]
+                                         : hbm_buffer[hbm_edge_wo + w];
+        }
+        int pos = 0;
+        for (int s = 0; s < segs; s++) {
+            int fill = base + (s < extra ? 1 : 0);
+            ap_uint<512> packed[4];
+            #pragma HLS ARRAY_PARTITION variable=packed complete
+            packed[0] = ~ap_uint<512>(0);
+            packed[1] = ~ap_uint<512>(0);
+            packed[2] = ~ap_uint<512>(0);
+            packed[3] = ~ap_uint<512>(0);
+            for (int k = 0; k < fill; k++) {
+                #pragma HLS PIPELINE II=1
+                int e = (int)edge_buf[pos >> 4].range((pos & 0xF) * 32 + 31,
+                                                       (pos & 0xF) * 32);
+                packed[k >> 4].range((k & 0xF) * 32 + 31, (k & 0xF) * 32) = (ap_uint<32>)e;
+                pos++;
+            }
+            packed[3].range(511, 480) = (ap_uint<32>)fill;
+            for (int w = 0; w < SEG_WORDS_PER_SEG; w++) {
+                // Fixed four-word register-to-URAM commit.  Unroll it: a
+                // pipelined loop here carried the dynamic URAM address and
+                // synthesized at II=6 despite no data dependence.
+                #pragma HLS UNROLL
+                onchip_buffer[(local_base + s) * SEG_WORDS_PER_SEG + w] = packed[w];
+            }
+        }
+    }
+
+    // One payload burst for the complete contiguous vertex group.
+    for (int w = 0; w < group_segs * SEG_WORDS_PER_SEG; w++) {
+        #pragma HLS PIPELINE II=1
+        hbm[pma_seg_base + (long long)first_seg * SEG_WORDS_PER_SEG + w] = onchip_buffer[w];
+    }
+
+    // VC and FE are packed arrays.  Read/modify/write the minimum contiguous
+    // word span once per group, instead of once per vertex.
+    int vc_ws = first_seg / VC_SOA_ENTRIES_PER_WORD;
+    int vc_we = (last_seg + VC_SOA_ENTRIES_PER_WORD - 1) / VC_SOA_ENTRIES_PER_WORD;
+    for (int w = 0; w < vc_we - vc_ws; w++) {
+        #pragma HLS PIPELINE II=1
+        edge_buf[w] = hbm[vc_hbm_base + vc_ws + w];
+    }
+    for (int s = 0; s < group_segs; s++) {
+        #pragma HLS PIPELINE II=1
+        int abs_seg = first_seg + s;
+        int v = group_first;
+        while (v < group_last && abs_seg >= vr[v]) v++;
+        int vstart = (v == 0) ? 0 : vr[v - 1];
+        int vseg = vr[v] - vstart;
+        int local = abs_seg - vstart;
+        int fill = merged_ec[v] / vseg + (local < (merged_ec[v] % vseg) ? 1 : 0);
+        edge_buf[abs_seg / VC_SOA_ENTRIES_PER_WORD - vc_ws]
+            .range((abs_seg % VC_SOA_ENTRIES_PER_WORD) * 32 + 31,
+                   (abs_seg % VC_SOA_ENTRIES_PER_WORD) * 32) = (ap_uint<32>)fill;
+    }
+    for (int w = 0; w < vc_we - vc_ws; w++) {
+        #pragma HLS PIPELINE II=1
+        hbm[vc_hbm_base + vc_ws + w] = edge_buf[w];
+    }
+
+    int fe_ws = first_seg / FE_SOA_ENTRIES_PER_WORD;
+    int fe_we = (last_seg + FE_SOA_ENTRIES_PER_WORD - 1) / FE_SOA_ENTRIES_PER_WORD;
+    for (int w = 0; w < fe_we - fe_ws; w++) {
+        #pragma HLS PIPELINE II=1
+        edge_buf[w] = hbm[fe_hbm_base + fe_ws + w];
+    }
+    for (int s = 0; s < group_segs; s++) {
+        #pragma HLS PIPELINE II=1
+        int abs_seg = first_seg + s;
+        ap_uint<32> first_edge = onchip_buffer[s * SEG_WORDS_PER_SEG].range(31, 0);
+        edge_buf[abs_seg / FE_SOA_ENTRIES_PER_WORD - fe_ws]
+            .range((abs_seg % FE_SOA_ENTRIES_PER_WORD) * 32 + 31,
+                   (abs_seg % FE_SOA_ENTRIES_PER_WORD) * 32) = first_edge;
+    }
+    for (int w = 0; w < fe_we - fe_ws; w++) {
+        #pragma HLS PIPELINE II=1
+        hbm[fe_hbm_base + fe_ws + w] = edge_buf[w];
+    }
+}
+
 // ---- Merge Phase (逐 PMA / 逐 vertex 归并) ----
 // 读 task_reader 发来的整 PMA 批 (last=1 在 PMA 末边), 对每个被影响的 vertex:
 //   读它的 segment 已有边 (有序) + 该 run 的新边 (有序) → 双指针归并 → 按 47/段写回
@@ -193,11 +306,27 @@ static void merge_phase(
     hls::stream<PMA_UPDATE_MESSAGE>& edge_in,
     hls::stream<ap_uint<32>>& ack_out)
 {
-    // 片上缓冲 (URAM)
+    // Complete-PMA data cache (URAM).  Only data segments are resident;
+    // helper words are regenerated by redistribute_vertex_group_from_hbm.
+    ap_uint<512> pma_cache[FULL_PMA_CACHE_WORDS(MERGE_FULL_PMA_CACHE_SEGMENTS)];
+#pragma HLS bind_storage variable=pma_cache type=RAM_2P impl=URAM
+    int cached_pma = -1;
+    int cached_seg_count = 0;
+    long long cached_data_base = 0;
+    bool cache_valid = false;
+
+    // Small working window retained for the existing merge/redistribution
+    // routines.  It is a view copied from the complete-PMA image, not the
+    // cache itself.
     ap_uint<512> onchip_buffer[MAX_ONCHIP_SEG_WORDS];
     #pragma HLS bind_storage variable=onchip_buffer type=RAM_2P impl=URAM
     ap_uint<512> edge_buffer[MAX_ONCHIP_SEG_WORDS];
     #pragma HLS bind_storage variable=edge_buffer type=RAM_2P impl=URAM
+    // Dedicated source window for PMAs whose complete merged payload fits.
+    // Keeping it separate from edge_buffer avoids source/scratch aliasing in
+    // redistribution_vertex_group_from_hbm.
+    ap_uint<512> source_buffer[MAX_ONCHIP_SEG_WORDS];
+    #pragma HLS bind_storage variable=source_buffer type=RAM_2P impl=URAM
 
     while (true) {
         // ---- 读一个 PMA 的整批边 (last=1 在 PMA 末边, task_reader 整 PMA 发送) ----
@@ -232,16 +361,49 @@ static void merge_phase(
         long long fe_hbm_base = hbase + HEADER_WORDS;
         long long vc_hbm_base = fe_hbm_base + fe_words;
         int total_hlp = fe_words + vc_words_for(total_segs);
+        long long data_base = (byte_off + HEADER_BYTES + (long long)total_hlp * 64) / 64;
+
+        // Profile-selected PMAs are loaded as one contiguous burst.  If a
+        // PMA exceeds the fixed merge cache capacity, retain the old windowed
+        // path for correctness rather than indexing past URAM.
+        bool full_cacheable = (total_segs <= MERGE_FULL_PMA_CACHE_SEGMENTS);
+        if (full_cacheable && (!cache_valid || cached_pma != pma)) {
+            for (int w = 0; w < total_segs * SEG_WORDS_PER_SEG; w++) {
+#pragma HLS PIPELINE II=1
+                pma_cache[w] = hbm_pma[data_base + w];
+            }
+            ap_wait();
+            cached_pma = pma;
+            cached_seg_count = total_segs;
+            cached_data_base = data_base;
+            cache_valid = true;
+        }
 
         // ---- 按 vertex 统计该 run 的新边数 ----
         int vertex_new_cnt[VERTEX_PER_PMA];
         #pragma HLS ARRAY_PARTITION variable=vertex_new_cnt complete
+        int merged_ec[VERTEX_PER_PMA];
+        int merged_edge_offset[VERTEX_PER_PMA];
+        #pragma HLS ARRAY_PARTITION variable=merged_ec complete
+        #pragma HLS ARRAY_PARTITION variable=merged_edge_offset complete
         for (int v = 0; v < VERTEX_PER_PMA; v++) vertex_new_cnt[v] = 0;
         for (int i = 0; i < cnt; i++) {
             #pragma HLS PIPELINE II=1
             if (edges[i].opcode == PMA_UPDATE_INSERT_EDGE)
                 vertex_new_cnt[edges[i].src & 0xF]++;
         }
+
+        // Give each updated vertex an independently word-aligned section of
+        // hbm_buffer.  This lets a later contiguous vertex-group commit read
+        // all sources without any partial-word cross-vertex dependency.
+        int merged_buffer_cursor = 0;
+        for (int v = 0; v < VERTEX_PER_PMA; v++) {
+            #pragma HLS UNROLL
+            merged_ec[v] = ec[v] + vertex_new_cnt[v];
+            merged_edge_offset[v] = merged_buffer_cursor;
+            merged_buffer_cursor += (merged_ec[v] + 15) & ~15;
+        }
+        bool uram_fast = (merged_buffer_cursor <= MAX_ONCHIP_SEG_WORDS * 16);
 
         bool header_changed = false;
         for (int v = 0; v < VERTEX_PER_PMA; v++) {
@@ -279,7 +441,7 @@ static void merge_phase(
             // → 连续 burst 写 hbm_buffer。原实现逐边 hbm_buffer[w].range(...) 部分写触发
             // HLS read-modify-write (每条边 2 笔 HBM 事务, clustered 10000 边 ~20000 笔 —
             // 慢的根因); 本版整字累积 + burst 写, IO 降到每块 1 次连续突发。
-            int out_block_base = 0;    // 已写到 hbm_buffer 的字数 (当前块基址)
+            int out_block_base = merged_edge_offset[v] >> 4;
             int out_word_idx = 0;      // edge_buffer 中已攒的整字数
             ap_uint<512> out_word = 0; // 正在攒的 512-bit 输出字 (16 条边)
             int out_slot = 0;          // 0..15
@@ -297,10 +459,13 @@ static void merge_phase(
                 if (chunk_segs > CHUNK_SEGS) chunk_segs = CHUNK_SEGS;
                 int chunk_words = chunk_segs * SEG_WORDS_PER_SEG;
 
-                // 读该块 segments 到 onchip_buffer
+                // Read a window from the complete-PMA image.  The fallback
+                // path is used only for PMAs larger than the fixed cache.
                 for (int w = 0; w < chunk_words; w++) {
-                    #pragma HLS PIPELINE II=1
-                    onchip_buffer[w] = hbm_pma[seg_start_word + chunk_start * SEG_WORDS_PER_SEG + w];
+#pragma HLS PIPELINE II=1
+                    onchip_buffer[w] = full_cacheable
+                        ? pma_cache[(vs + chunk_start) * SEG_WORDS_PER_SEG + w]
+                        : hbm_pma[seg_start_word + chunk_start * SEG_WORDS_PER_SEG + w];
                 }
 
                 // ---- 解包 existing 边 → existing_packed (段序 flat) ----
@@ -337,7 +502,8 @@ static void merge_phase(
                     out_word.range(out_slot * 32 + 31, out_slot * 32) = (ap_uint<32>)pick;
                     out_slot++;
                     if (out_slot == 16) {
-                        edge_buffer[out_word_idx] = out_word;
+                        if (uram_fast) source_buffer[merged_edge_offset[v] / 16 + out_word_idx] = out_word;
+                        else edge_buffer[out_word_idx] = out_word;
                         out_word_idx++;
                         out_word = 0;
                         out_slot = 0;
@@ -346,7 +512,7 @@ static void merge_phase(
                 }
 
                 // 块结束: flush edge_buffer 完整字 → hbm_buffer (循环外, 保 II=1)
-                if (out_word_idx > 0) {
+                if (!uram_fast && out_word_idx > 0) {
                     for (int bw = 0; bw < out_word_idx; bw++) {
                         #pragma HLS PIPELINE II=1
                         hbm_buffer[out_block_base + bw] = edge_buffer[bw];
@@ -366,7 +532,8 @@ static void merge_phase(
                 out_word.range(out_slot * 32 + 31, out_slot * 32) = (ap_uint<32>)new_edges[n++];
                 out_slot++;
                 if (out_slot == 16) {
-                    edge_buffer[out_word_idx] = out_word;
+                    if (uram_fast) source_buffer[merged_edge_offset[v] / 16 + out_word_idx] = out_word;
+                    else edge_buffer[out_word_idx] = out_word;
                     out_word_idx++;
                     out_word = 0;
                     out_slot = 0;
@@ -374,25 +541,47 @@ static void merge_phase(
                 total++;
             }
             // 尾部 flush: 不足一块的剩余输出 (redistribute 按 edge_words 读回)
-            if (out_slot > 0) { edge_buffer[out_word_idx] = out_word; out_word_idx++; }
-            if (out_word_idx > 0) {
+            if (out_slot > 0) {
+                if (uram_fast) source_buffer[merged_edge_offset[v] / 16 + out_word_idx] = out_word;
+                else edge_buffer[out_word_idx] = out_word;
+                out_word_idx++;
+            }
+            if (!uram_fast && out_word_idx > 0) {
                 for (int bw = 0; bw < out_word_idx; bw++) {
                     #pragma HLS PIPELINE II=1
                     hbm_buffer[out_block_base + bw] = edge_buffer[bw];
                 }
             }
 
-            // ---- 写回 segments (base+extra 分布, 更新 VC/FE) ----
-            redistribute_edge_from_hbm(
-                hbm_pma, hbm_buffer,
-                seg_start_word, seg_end_word, total,
-                0,             // edge_offset: merged 从 hbm_buffer[0] 开始
-                vs,            // group_left: 该 vertex 起始绝对 segment
-                vc_hbm_base, fe_hbm_base,
-                onchip_buffer, edge_buffer);
-
             ec[v] += nc;
             header_changed = true;
+        }
+
+        // Commit each maximal contiguous run of updated vertices as one
+        // on-chip pre-group.  This is the important burst conversion: a run
+        // spanning N vertices produces one payload write of 4*sum(segs)
+        // beats (split only at the AXI 256-beat maximum), instead of N short
+        // per-vertex bursts.  Untouched gaps are deliberately not rewritten.
+        for (int group_first = 0; group_first < VERTEX_PER_PMA; ) {
+            if (vertex_new_cnt[group_first] == 0) { group_first++; continue; }
+            int group_last = group_first;
+            while (group_last + 1 < VERTEX_PER_PMA && vertex_new_cnt[group_last + 1] != 0)
+                group_last++;
+            long long pma_seg_base = hbase + HEADER_WORDS + total_hlp;
+            if (uram_fast) {
+                redistribute_vertex_group_from_hbm(
+                    hbm_pma, hbm_buffer, source_buffer, true,
+                    pma_seg_base, group_first, group_last,
+                    vr, merged_ec, merged_edge_offset, vc_hbm_base, fe_hbm_base,
+                    onchip_buffer, edge_buffer);
+            } else {
+                redistribute_vertex_group_from_hbm(
+                    hbm_pma, hbm_buffer, hbm_buffer, false,
+                    pma_seg_base, group_first, group_last,
+                    vr, merged_ec, merged_edge_offset, vc_hbm_base, fe_hbm_base,
+                    onchip_buffer, edge_buffer);
+            }
+            group_first = group_last + 1;
         }
 
         // ---- 写回 header.edge_count (range 不变) ----
@@ -403,6 +592,13 @@ static void merge_phase(
                 new_ec.range(v * 32 + 31, v * 32) = (ap_uint<32>)ec[v];
             }
             hbm_pma[hbase + 1] = new_ec;
+        }
+
+        // Redistribution writes the newly packed data and reconstructed FE/VC
+        // directly to HBM.  Invalidate the image so the next wave reloads the
+        // balanced PMA instead of observing stale cached segments.
+        if (full_cacheable) {
+            cache_valid = false;
         }
 
         // ---- ack (每 PMA 一次, 与 task_reader 整 PMA 发送 +1 记账配对) ----

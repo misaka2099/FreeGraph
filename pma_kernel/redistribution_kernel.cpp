@@ -171,6 +171,9 @@ void collect_edge_to_buffer(
 {
     total_edges = 0;
     long long total_words = end_word - start_word;
+    int output_hbm_word = 0;
+    int output_slot = 0;
+    ap_uint<512> output_word = ~ap_uint<512>(0);
 
     // Process words in chunks that fit in onchip_buffer
     for (int chunk_off = 0; chunk_off < total_words; chunk_off += MAX_ONCHIP_SEG_WORDS) {
@@ -185,24 +188,9 @@ void collect_edge_to_buffer(
             onchip_buffer[i] = hbm[start_word + chunk_off + i];
         }
 
-        // ==== Phase 2: init edge_buf + pack valid edges (all on-chip) ====
+        // ==== Phase 2: pack valid edges (all on-chip) ====
         int segs_in_chunk = chunk_words >> 2;  // / SEG_WORDS_PER_SEG (4)
-        int max_edge_words = ((segs_in_chunk * EDGE_SLOTS_PER_SEG + 15) >> 4) + 1;
-
-        // Initialize edge_buf to all UNUSED_ICON (all 1s = -1 in every slot)
-        for (int i = 0; i < max_edge_words; i++) {
-            #pragma HLS PIPELINE II=1
-            edge_buf[i] = ~ap_uint<512>(0);
-        }
-
-        // Edges are packed with GLOBAL edge indices so chunks stay contiguous
-        // across the 16-slot word boundary: edge #(total_edges + edge_cnt)
-        // lands at word (total_edges + edge_cnt) >> 4, slot ... & 0xF, relative
-        // to hbm_wo = total_edges >> 4. Without this, chunk N overwrites the
-        // tail of chunk N-1's last word when the cumulative edge count is not
-        // a multiple of 16.
-        int hbm_wo    = total_edges >> 4;
-        int edge_cnt  = 0;
+        int packed_words = 0;
         for (int s = 0; s < segs_in_chunk; s++) {
             int seg_base = s << 2;  // s * SEG_WORDS_PER_SEG (4)
             // valid_count lives in word 3, bits [511:480]
@@ -210,27 +198,39 @@ void collect_edge_to_buffer(
             if (vc > EDGE_SLOTS_PER_SEG) vc = EDGE_SLOTS_PER_SEG;
 
             for (int k = 0; k < vc; k++) {
-                // No PIPELINE — RMW on same edge_buf word across consecutive
-                // iterations is resolved by HLS with safe II; on-chip access
-                // is not the bottleneck (HBM burst dominates).
+                // Register packer: one sequential 32-bit insertion per cycle.
+                // URAM is written only once per completed 512-bit word, so
+                // there is no per-edge edge_buf read-modify-write dependency.
+                #pragma HLS PIPELINE II=1
                 int wi = seg_base + (k >> 4);
                 int si = k & 0xF;
                 int edge = (int)onchip_buffer[wi].range(si * 32 + 31, si * 32);
-                int global_edge = total_edges + edge_cnt;
-                int word_idx = (global_edge >> 4) - hbm_wo;
-                int slot     = global_edge & 0xF;
-                edge_buf[word_idx].range(slot * 32 + 31, slot * 32) = (ap_uint<32>)edge;
-                edge_cnt++;
+                output_word.range(output_slot * 32 + 31, output_slot * 32) = (ap_uint<32>)edge;
+                output_slot++;
+                total_edges++;
+                if (output_slot == 16) {
+                    edge_buf[packed_words++] = output_word;
+                    output_word = ~ap_uint<512>(0);
+                    output_slot = 0;
+                }
             }
         }
 
-        // ==== Phase 3: burst-write edge_buf → hbm_buffer ====
-        int edge_words = ((total_edges + edge_cnt + 15) >> 4) - hbm_wo;
-        for (int i = 0; i < edge_words; i++) {
+        // ==== Phase 3: burst-write only complete words to hbm_buffer ====
+        // The partial word remains in output_word and is continued by the next
+        // chunk, avoiding a boundary read-modify-write and preserving one long
+        // monotonic write stream.
+        for (int i = 0; i < packed_words; i++) {
             #pragma HLS PIPELINE II=1
-            hbm_buffer[hbm_wo + i] = edge_buf[i];
+            hbm_buffer[output_hbm_word + i] = edge_buf[i];
         }
-        total_edges += edge_cnt;
+        output_hbm_word += packed_words;
+    }
+
+    // Final partial word is required because redistribution reads
+    // ceil(total_edges / 16) words from hbm_buffer.
+    if (output_slot != 0) {
+        hbm_buffer[output_hbm_word] = output_word;
     }
 }
 
@@ -276,14 +276,9 @@ void redistribute_edge_from_hbm(
         int edge_end   = (chunk_start + chunk_segs) * base + ((chunk_start + chunk_segs) < extra ? (chunk_start + chunk_segs) : extra);
         int chunk_edges = edge_end - edge_start;
 
-        // ==== Phase 1: init onchip_buffer to EMPTY_SEG for this chunk ====
-        for (int i = 0; i < chunk_words; i += SEG_WORDS_PER_SEG) {
-            #pragma HLS PIPELINE II=1
-            onchip_buffer[i + 0] = EMPTY_SEG_ROM[0];
-            onchip_buffer[i + 1] = EMPTY_SEG_ROM[1];
-            onchip_buffer[i + 2] = EMPTY_SEG_ROM[2];
-            onchip_buffer[i + 3] = EMPTY_SEG_ROM[3];
-        }
+        // Phase 3 constructs all four words of every output segment, even
+        // for empty segments.  A prior URAM clear is therefore redundant and
+        // delays the contiguous Phase-4 HBM write burst.
 
         // ==== Phase 2: burst-read edges from hbm_buffer → edge_buf ====
         // edge_words must cover the full word range: the starting word may be
@@ -498,13 +493,12 @@ static void pma_redist_enlarge(
         if (old_ec == 0) {
             // SoA helper already EMPTY from step 5; just write clean segments.
             long long empty_base = nseg_base + (long long)nvs * SEG_WORDS_PER_SEG;
-            // 内层流水: 每迭代 1 次 HBM 写 (原每迭代 4 次写 → II=4)
-            for (int i = 0; i < ncnt; i++) {
-                int off = i * SEG_WORDS_PER_SEG;
-                for (int w = 0; w < SEG_WORDS_PER_SEG; w++) {
-                    #pragma HLS PIPELINE II=1
-                    hbm[empty_base + off + w] = EMPTY_SEG_ROM[w];
-                }
+            // Flatten contiguous segments into one address progression.  The
+            // nested 4-word loop made the generated HBM traffic visibly break
+            // at each segment; this form permits up to the AXI 256-beat limit.
+            for (int word = 0; word < ncnt * SEG_WORDS_PER_SEG; word++) {
+                #pragma HLS PIPELINE II=1
+                hbm[empty_base + word] = EMPTY_SEG_ROM[word & (SEG_WORDS_PER_SEG - 1)];
             }
             continue;
         }
@@ -744,13 +738,11 @@ static void pre_expand_finish(
 
     if (is_init) {
         // ---- INIT: no old data — just write empty segments ----
-        // 内层流水: 每迭代 1 次 HBM 写 (原每迭代 4 次写 → II=4)
-        for (int s = 0; s < ntseg; s++) {
-            int off = s * SEG_WORDS_PER_SEG;
-            for (int w = 0; w < SEG_WORDS_PER_SEG; w++) {
-                #pragma HLS PIPELINE II=1
-                hbm[nseg_base + off + w] = EMPTY_SEG_ROM[w];
-            }
+        // One contiguous HBM burst stream over the whole PMA, rather than one
+        // short 4-beat request per segment.
+        for (int word = 0; word < ntseg * SEG_WORDS_PER_SEG; word++) {
+            #pragma HLS PIPELINE II=1
+            hbm[nseg_base + word] = EMPTY_SEG_ROM[word & (SEG_WORDS_PER_SEG - 1)];
         }
     } else {
         // ---- ENLARGE: collect old edges → redistribute to new layout ----
@@ -769,13 +761,10 @@ static void pre_expand_finish(
 
             if (old_ec == 0) {
                 long long empty_base = nseg_base + (long long)nvs * SEG_WORDS_PER_SEG;
-                // 内层流水: 每迭代 1 次 HBM 写 (原每迭代 4 次写 → II=4)
-                for (int i = 0; i < ncnt; i++) {
-                    int off = i * SEG_WORDS_PER_SEG;
-                    for (int w = 0; w < SEG_WORDS_PER_SEG; w++) {
-                        #pragma HLS PIPELINE II=1
-                        hbm[empty_base + off + w] = EMPTY_SEG_ROM[w];
-                    }
+                // Same burst coalescing for empty vertices during ENLARGE.
+                for (int word = 0; word < ncnt * SEG_WORDS_PER_SEG; word++) {
+                    #pragma HLS PIPELINE II=1
+                    hbm[empty_base + word] = EMPTY_SEG_ROM[word & (SEG_WORDS_PER_SEG - 1)];
                 }
                 continue;
             }

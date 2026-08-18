@@ -133,6 +133,13 @@ struct INTRA_PMA_UPDATE_MESSAGE
 #define LARGE_SIZE    8192
 #define MEDIUM_SIZE   4096
 #define SMALL_SIZE    1024
+
+// Full-PMA cache budget: 24K project segments for BS and 8K for merge.
+// Each segment is four 512-bit words, so the combined capacity is ~8 MiB,
+// matching GraSU's cache size while giving BS the larger share.
+#define BS_FULL_PMA_CACHE_SEGMENTS 24576
+#define MERGE_FULL_PMA_CACHE_SEGMENTS 8192
+#define FULL_PMA_CACHE_WORDS(NSEG) ((NSEG) * SEG_WORDS_PER_SEG)
 #define TOTAL_CACHE_LINES (LARGE_LINES + MEDIUM_LINES + SMALL_LINES)  // 22
 #define PHYS_CACHE_LINES 8
 

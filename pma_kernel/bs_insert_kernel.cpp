@@ -47,19 +47,11 @@ void seg_insert(
     }
 
     // Insert each new edge using binary search for O(log N) position finding
-    // edge_buf[0..valid-1] is sorted ascending — binary search replaces 48-way
-    // parallel comparator+popcount with ~6 sequential comparisons, saving LUTs
-    // and shortening the critical path at negligible latency cost (HBM access
-    // dominates the pipeline anyway).
+    // edge_buf[0..valid-1] is sorted ascending.
     for (int ei = 0; ei < dst_cnt; ei++) {
         #pragma HLS PIPELINE II=2
         int dst = dsts[ei];
         if (valid >= EDGE_SLOTS_PER_SEG) break;
-
-        // Binary search for insertion position
-        // 无符号半开区间 [0, valid): (lo+hi)>>1 直接移位, 避免带符号 (lo+hi)/2 的
-        // 符号修正链 (add→bitselect→sub→lshr→zext→select ≈ 2.5ns 关键路径)。
-        // edge_buf 中 UNUSED_ICON(-1) 无符号比较 = 0xFFFFFFFF → 视为 +∞, 语义保持。
         unsigned lo = 0, hi = (unsigned)valid;
         while (lo < hi) {
             #pragma HLS PIPELINE II=1
@@ -70,11 +62,7 @@ void seg_insert(
                 hi = mid;
         }
         int pos = (int)lo;
-
-        // Shift elements right to make room
-        for (int k = valid; k > pos; k--) {
-            edge_buf[k] = edge_buf[k - 1];
-        }
+        for (int k = valid; k > pos; k--) edge_buf[k] = edge_buf[k - 1];
         edge_buf[pos] = dst;
         valid++;
     }
@@ -283,6 +271,18 @@ void insert_phase(
 {
     int pending_cnt = 0;
 
+    // One owner-local complete-PMA image.  The cache contains data segments
+    // only; FE/VC/helper words stay out of the cache and are reconstructed on
+    // writeback.  Keeping ownership in this sequential phase avoids passing a
+    // shared URAM through DATAFLOW sub-functions.
+    ap_uint<512> pma_cache[FULL_PMA_CACHE_WORDS(BS_FULL_PMA_CACHE_SEGMENTS)];
+#pragma HLS bind_storage variable=pma_cache type=RAM_2P impl=URAM
+    int cached_pma = -1;
+    int cached_seg_count = 0;
+    int cached_data_base = 0;
+    bool cache_valid = false;
+    bool cache_dirty = false;
+
     while (true) {
         // --- read_nb: poll redistribution ACK every cycle ---
         if (!redist_ack_in.empty()) {
@@ -344,15 +344,54 @@ void insert_phase(
         int seg_bases[16];
         int seg_valid_buf[16];
 
+        // Sort the small hit list so adjacent segments can be fetched as one
+        // monotonic burst.  The old code emitted one 4-word transaction per
+        // segment even when all targets were adjacent; this keeps II=1 but
+        // leaves the HBM command overhead dominant.
+        for (int i = 1; i < seg_cnt; i++) {
+            #pragma HLS PIPELINE II=1
+            int key = seg_list[i];
+            int j = i - 1;
+            while (j >= 0 && seg_list[j] > key) {
+                seg_list[j + 1] = seg_list[j];
+                j--;
+            }
+            seg_list[j + 1] = key;
+        }
+
+        int data_base = (boff + HEADER_BYTES + total_hlp_words * 64) / 64;
         for (int si = 0; si < seg_cnt; si++) {
-            int seg = seg_list[si];
-            int base = (boff + HEADER_BYTES + total_hlp_words * 64 + seg * SEG_BYTES) / 64;
-            seg_bases[si] = base;
-            // 内层流水 II=1: 每段 4 字连续读 → 推断成 4-beat burst。外层串行逐段。
-            // (原外层 PIPELINE + 内层 UNROLL 会因 4 次并行 HBM 访问端口受限, II 上不去)
+            seg_bases[si] = data_base + seg_list[si] * SEG_WORDS_PER_SEG;
+        }
+        // A miss loads the complete PMA as one contiguous HBM burst.  No
+        // helper words are copied; they are rebuilt from this image at flush.
+        bool full_cacheable = (tseg <= BS_FULL_PMA_CACHE_SEGMENTS);
+        if (full_cacheable && (!cache_valid || cached_pma != pma)) {
+            if (cache_valid && cache_dirty) {
+                for (int w = 0; w < cached_seg_count * SEG_WORDS_PER_SEG; w++) {
+#pragma HLS PIPELINE II=1
+                    hbm[cached_data_base + w] = pma_cache[w];
+                }
+                ap_wait();
+            }
+            cached_pma = pma;
+            cached_seg_count = tseg;
+            cached_data_base = data_base;
+            cache_valid = true;
+            cache_dirty = false;
+            for (int w = 0; w < cached_seg_count * SEG_WORDS_PER_SEG; w++) {
+#pragma HLS PIPELINE II=1
+                pma_cache[w] = hbm[cached_data_base + w];
+            }
+            ap_wait();
+        }
+        for (int si = 0; si < seg_cnt; si++) {
+            int ts = seg_list[si];
             for (int w = 0; w < SEG_WORDS_PER_SEG; w++) {
-                #pragma HLS PIPELINE II=1
-                seg_buf[si][w] = hbm[base + w];
+#pragma HLS PIPELINE II=1
+                seg_buf[si][w] = full_cacheable
+                    ? pma_cache[ts * SEG_WORDS_PER_SEG + w]
+                    : hbm[seg_bases[si] + w];
             }
         }
 
@@ -380,13 +419,16 @@ void insert_phase(
                        seg_buf[si], seg_valid_buf[si], seg_overflow[si]);
         }
 
-        // --- Phase C1: burst-write all modified segments (pure write, no RMW) ---
+        // --- Phase C1: commit modified segments to the complete PMA image. ---
         for (int si = 0; si < seg_cnt; si++) {
-            int base = seg_bases[si];
             for (int w = 0; w < SEG_WORDS_PER_SEG; w++) {
-                #pragma HLS PIPELINE II=1
-                hbm[base + w] = seg_buf[si][w];
+#pragma HLS PIPELINE II=1
+                if (full_cacheable)
+                    pma_cache[seg_list[si] * SEG_WORDS_PER_SEG + w] = seg_buf[si][w];
+                else
+                    hbm[seg_bases[si] + w] = seg_buf[si][w];
             }
+            if (full_cacheable) cache_dirty = true;
         }
 
         // --- Phase C2: VC RMW — 去重 VC word, 一次读 → 片上 patch → 一次写 ---
@@ -444,21 +486,41 @@ void insert_phase(
         hbm[wb_base + 2] = 0;
         hbm[wb_base + 3] = 0;
 
-        // Push SEGMENT_REBALANCE tasks for overflowed segments
+        // Detect overflow before exposing any task to redistribution.  A
+        // complete-PMA cache must be committed first; otherwise redistribution
+        // can consume the task and read stale segment data from HBM.
         bool has_rebalance = false;
         for (int si = 0; si < seg_cnt; si++) {
             #pragma HLS PIPELINE II=1
             if (!seg_overflow[si]) continue;
-            rebalance_task_t t;
-            t.pma        = pma;
-            t.payload    = seg_list[si];
-            t.start_byte = b.start_byte;
-            t.range_word = b.range_word;
-            task_fifo.write(t);
             has_rebalance = true;
         }
 
+        if (full_cacheable && cache_valid && cache_dirty) {
+            for (int w = 0; w < cached_seg_count * SEG_WORDS_PER_SEG; w++) {
+#pragma HLS PIPELINE II=1
+                hbm[cached_data_base + w] = pma_cache[w];
+            }
+            ap_wait();
+        }
+
         if (has_rebalance) {
+            // Only now publish overflow tasks: redistribution must observe the
+            // fully committed PMA image.
+            for (int si = 0; si < seg_cnt; si++) {
+                #pragma HLS PIPELINE II=1
+                if (!seg_overflow[si]) continue;
+                rebalance_task_t t;
+                t.pma        = pma;
+                t.payload    = seg_list[si];
+                t.start_byte = b.start_byte;
+                t.range_word = b.range_word;
+                task_fifo.write(t);
+            }
+            if (full_cacheable) {
+                cache_dirty = false;
+                cache_valid = false;
+            }
             // ACK marker → redistribution → redist_ack → forwarded upstream
             rebalance_task_t ack_task;
             ack_task.pma        = pma;
@@ -468,9 +530,21 @@ void insert_phase(
             task_fifo.write(ack_task);
             pending_cnt++;
         } else {
-            // No rebalance: ACK upstream directly
+            // No rebalance: commit the dirty cache before releasing the PMA
+            // lock via ACK. Keep the clean image resident for the next batch.
+            if (full_cacheable && cache_valid) cache_dirty = false;
             ack_out.write((ap_uint<32>)pma);
         }
+    }
+
+    // Flush the final complete PMA before stopping.  FE/VC reconstruction is
+    // intentionally kept in the writeback path, never resident in pma_cache.
+    if (cache_valid && cache_dirty) {
+        for (int w = 0; w < cached_seg_count * SEG_WORDS_PER_SEG; w++) {
+#pragma HLS PIPELINE II=1
+            hbm[cached_data_base + w] = pma_cache[w];
+        }
+        ap_wait();
     }
 
     // --- STOP: send STOP to redistribution, then drain pending table ---

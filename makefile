@@ -1,6 +1,5 @@
 VPP ?= v++
-include ./ReGraph/global_para.mk
-PLATFORM ?= /xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm
+PLATFORM ?= /opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm
 INCLUDES := -I$(abspath include)
 TARGET ?= sw_emu
 # Gate 路由策略 (data_type.h decide_merge_path): 0=全走 bs, 1=全走 merge, 2=新边数>16 走 merge
@@ -20,7 +19,6 @@ WHOLE_SYSTEM_XCLBIN := $(TARGET)_whole_system.xclbin
 WHOLE_SYSTEM_XO_FILE := $(MEM_XO_FILES) $(WHOLE_PMA_XO_FILES) $(REGRAPH_XO_FILES)
 CONFIG_FILES := system.cfg
 all: subdirs $(XCLBIN_FILE)
-
 # Compilation-time algorithm selection (default bfs). Usage: `make whole_host ALGO=pr` or `ALGO=cc`
 ALGO ?= bfs
 ifeq ($(ALGO),pr)
@@ -99,7 +97,7 @@ MERGE_BS_ALL_XO := $(MEM_XO_FILES) $(MERGE_BS_PMA_XO_FILES)
 MERGE_BS_XCLBIN := $(TARGET)_merge_bs.xclbin
 merge_bs: subdirs_merge_bs $(MERGE_BS_XCLBIN)
 subdirs_merge_bs:
-	$(MAKE) -C memkernel all TARGET=$(TARGET)
+	$(MAKE) -C memkernel alloc_access_kernel.xo TARGET=$(TARGET)
 	$(MAKE) -C pma_kernel task_reader_kernel.xo bs_insert_kernel.xo merge_pipeline.xo redistribution_kernel.xo TARGET=$(TARGET) GATE_POLICY=$(GATE_POLICY)
 	$(MAKE) -C pma_kernel update_message_generator.xo update_message_router_stream.xo pma_read_router_kernel.xo pma_read_worker_kernel.xo pma_read_merger_kernel.xo check_kernel.xo TARGET=$(TARGET)
 $(MERGE_BS_XCLBIN): $(MERGE_BS_ALL_XO)
