@@ -175,7 +175,8 @@ static void deallocate(int start, int len, bitmap_word_t* bitmap)
 static void alloc_free_worker(
     hls::stream<ap_axiu<96,0,0,0>>& cmd_stream,
     hls::stream<ap_axiu<64,0,0,0>>& rsp_stream,
-    hls::stream<ap_axiu<ALLOC_BITMAP_STORAGE_WORD_BITS,0,0,0>>& bitmap_init
+    hls::stream<ap_axiu<ALLOC_BITMAP_STORAGE_WORD_BITS,0,0,0>>& bitmap_init,
+    int initial_cursor
 )
 {
     bitmap_word_t storage[ALLOC_BITMAP_WORDS];
@@ -190,7 +191,10 @@ static void alloc_free_worker(
         storage[i] = w.data;
     }
 
-    int next_fit_cursor = 0;
+    int next_fit_cursor = initial_cursor;
+    if (next_fit_cursor < 0) next_fit_cursor = 0;
+    if (next_fit_cursor >= ALLOC_BITMAP_TOTAL_BLOCKS)
+        next_fit_cursor %= ALLOC_BITMAP_TOTAL_BLOCKS;
 
     while (true)
     {
@@ -239,11 +243,14 @@ static void alloc_free_worker(
 extern "C"
 {
     void alloc_access_kernel(
+        int initial_cursor,
         hls::stream<ap_axiu<ALLOC_BITMAP_STORAGE_WORD_BITS,0,0,0>>& bitmap_init,
         hls::stream<ap_axiu<96,0,0,0>>& cmd_stream,
         hls::stream<ap_axiu<64,0,0,0>>& rsp_stream
     )
     {
+        (void)initial_cursor;
+        #pragma HLS INTERFACE s_axilite port=initial_cursor bundle=control
         #pragma HLS INTERFACE s_axilite port=return bundle=control
         #pragma HLS INTERFACE axis port=bitmap_init
         #pragma HLS INTERFACE axis port=cmd_stream
@@ -255,6 +262,6 @@ extern "C"
 
         #pragma HLS DATAFLOW
 
-        alloc_free_worker(cmd_stream, rsp_stream, bitmap_init);
+        alloc_free_worker(cmd_stream, rsp_stream, bitmap_init, initial_cursor);
     }
 }

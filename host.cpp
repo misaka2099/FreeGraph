@@ -17,8 +17,8 @@
 #include <fstream>
 #include <random>
 bool final_match = true;
-// Uncomment for standalone mode (no generator, no router, per-worker task buffers)
-//#define USE_STANDALONE_MODE
+// The split host supports only the ONLINE generator -> router -> worker path.
+// USE_STANDALONE_MODE is supplied by the split-host build targets.
 
 const bool kBaseGraphReadOnlyTest = false;
 const bool kVertexOnlyTest = false;
@@ -83,25 +83,14 @@ void print_pma(
 int main(int argc, char** argv)
 {
     if (argc < 3) {
-        std::cerr << "Usage: " << argv[0] << " <xclbin> <graph> [--online] [device_index=1]" << std::endl;
-        std::cerr << "  --online   Use generator→router→worker online update path" << std::endl;
-        std::cerr << "  (default)  Host writes edges directly to per-worker task buffers" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <xclbin> <graph>" << std::endl;
         return 1;
     }
 
     std::string xclbin_name = argv[1];
     std::string graph_path = argv[2];
-    bool use_online_path = false;
-
-    for (int i = 3; i < argc; i++) {
-        std::string arg = argv[i];
-        if (arg == "--online") use_online_path = true;
-    }
-#ifdef USE_STANDALONE_MODE
-    // 拆分版: 仅 online 路径 (task_reader 无 task_buffer), 强制 online
-    use_online_path = true;
-#endif
-    std::cout << "Update path: " << (use_online_path ? "ONLINE (generator→router→worker)" : "DIRECT (host→task_buffer)") << std::endl;
+    const bool host_verify = (argc >= 4 && std::string(argv[3]) == "--host-verify");
+    std::cout << "Update path: ONLINE (generator→router→worker)" << std::endl;
     auto start_init = std::chrono::high_resolution_clock::now();
     
     std::fstream graph_file(graph_path);
@@ -417,6 +406,7 @@ int main(int argc, char** argv)
     long long pma_raw_data_start = 0;
     long long pma_vecinfo_start  = PMA_DATA_SIZE;
     long long pma_bm_start       = PMA_DATA_SIZE + VECINFO_SIZE;
+    std::vector<int> allocator_initial_segments(CHANNEL_NUM, 0);
 
     // --- One BO per channel — all 3 m_axi ports share the same bank ---
     std::vector<xrt::bo> ch_bufs; ch_bufs.reserve(CHANNEL_NUM);
@@ -624,12 +614,10 @@ int main(int argc, char** argv)
 
     // alloc_access kernel args
 #ifdef USE_STANDALONE_MODE
-    // Standalone: alloc_access has no m_axi/s_axilite args — all axis streams
-    // (bitmap_init, cmd_stream, rsp_stream connected via system.cfg)
+    // alloc_access has one scalar control argument; all bitmap/cmd/rsp ports
+    // remain AXIS connections in system_merge_bs.cfg.
 #else
-    for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
-        run_alloc_access_kernels[ch].set_arg(0, bo_bitmap[ch]);
-    }
+    // Online mode uses the same AXIS-only allocator interface.
 #endif
 
     bool read_pipeline_started = false;
@@ -643,12 +631,62 @@ int main(int argc, char** argv)
     };
 
     auto verify_graph = [&](const std::vector<std::vector<int>>& expected_graph, int current_max_vertex, const std::string& label, bool last) -> double {
-        ensure_read_pipeline_started();
         std::cout << "Verifying " << label << "..." << std::endl;
         int check_vertex_range = std::max(current_max_vertex, base_max_vertex) + 1;
         std::vector<std::vector<int>> Updated_Graph(check_vertex_range);
 
-        auto run_check_kernel = xrt::run(check_kernel);
+        auto verify_start = std::chrono::high_resolution_clock::now();
+        double kernel_time = 0.0;
+        if (host_verify) {
+            // Host-only verification: synchronize the authoritative PMA HBM
+            // image and decode header/segment payloads directly on the CPU.
+            // This deliberately does not start the pma_read/check pipeline.
+            for (int ch = 0; ch < CHANNEL_NUM; ++ch)
+                ch_bufs[ch].sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+            int pma_limit = (check_vertex_range + VERTEX_PER_PMA - 1) / VERTEX_PER_PMA;
+            for (int pma_idx = 0; pma_idx < pma_limit; ++pma_idx) {
+                int ch = pma_idx % CHANNEL_NUM;
+                VEC_INFO vi = vec_info_ptrs[ch][pma_idx];
+                int start = (int)vi.range(31, 0);
+                int len = (int)vi.range(63, 32);
+                if (len <= 0 || start < 0) continue;
+                PMA_HEADER header;
+                memcpy(&header, hbm_base_addresses[ch] + start, sizeof(PMA_HEADER));
+                int total_segs = header.vertex_range[VERTEX_PER_PMA - 1];
+                if (total_segs <= 0) continue;
+                int hlp_words = fe_words_for(total_segs) + vc_words_for(total_segs);
+                int* payload = reinterpret_cast<int*>(hbm_base_addresses[ch] + start
+                    + sizeof(PMA_HEADER) + hlp_words * 64);
+                for (int v = 0; v < VERTEX_PER_PMA; ++v) {
+                    int src = pma_idx * VERTEX_PER_PMA + v;
+                    if (src < 0 || src >= check_vertex_range) continue;
+                    int seg_start = v == 0 ? 0 : header.vertex_range[v - 1];
+                    int seg_end = header.vertex_range[v];
+                    for (int s = seg_start; s < seg_end; ++s) {
+                        int vc = payload[s * SEGMENT_SIZE + VALID_COUNT_IDX];
+                        if (vc < 0) vc = 0;
+                        if (vc > EDGE_SLOTS_PER_SEG) vc = EDGE_SLOTS_PER_SEG;
+                        for (int k = 0; k < vc; ++k) {
+                            int dst = payload[s * SEGMENT_SIZE + k];
+                            if (dst != UNUSED_ICON) Updated_Graph[src].push_back(dst);
+                        }
+                    }
+                }
+            }
+            auto verify_end = std::chrono::high_resolution_clock::now();
+            // Continue through the common comparison/reporting path below.
+            for (int i = 0; i < check_vertex_range; ++i) {
+                std::sort(Updated_Graph[i].begin(), Updated_Graph[i].end());
+                Updated_Graph[i].erase(std::unique(Updated_Graph[i].begin(), Updated_Graph[i].end()), Updated_Graph[i].end());
+            }
+            // The comparison/reporting block below owns final_match and
+            // mismatch files; return timing after it completes.
+            (void)verify_start;
+            (void)verify_end;
+        } else {
+            ensure_read_pipeline_started();
+
+            auto run_check_kernel = xrt::run(check_kernel);
         run_check_kernel.set_arg(0, bo_coo_src);
         run_check_kernel.set_arg(1, bo_coo_dst);
         run_check_kernel.set_arg(2, bo_num_edges);
@@ -679,21 +717,22 @@ int main(int argc, char** argv)
         bo_coo_dst.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
 
         auto k_end = std::chrono::high_resolution_clock::now();
-        double kernel_time = std::chrono::duration<double>(k_end - k_start).count();
+        kernel_time = std::chrono::duration<double>(k_end - k_start).count();
         // ---- end kernel-only timing ----
 
-        // Build Updated_Graph from COO arrays
-        for (int i = 0; i < check_vertex_range; ++i) Updated_Graph[i].clear();
-        for (int id = 0; id < static_cast<int>(buffer_len); ++id) {
-            int s = coo_src_ptr[id];
-            int d = coo_dst_ptr[id];
-            if (s == -1 || d == -1) break;
-            if (s < 0 || s >= check_vertex_range) continue;
-            Updated_Graph[s].push_back(d);
-        }
-        for (int i = 0; i < check_vertex_range; ++i) {
-            std::sort(Updated_Graph[i].begin(), Updated_Graph[i].end());
-            Updated_Graph[i].erase(std::unique(Updated_Graph[i].begin(), Updated_Graph[i].end()), Updated_Graph[i].end());
+            // Build Updated_Graph from COO arrays
+            for (int i = 0; i < check_vertex_range; ++i) Updated_Graph[i].clear();
+            for (int id = 0; id < static_cast<int>(buffer_len); ++id) {
+                int s = coo_src_ptr[id];
+                int d = coo_dst_ptr[id];
+                if (s == -1 || d == -1) break;
+                if (s < 0 || s >= check_vertex_range) continue;
+                Updated_Graph[s].push_back(d);
+            }
+            for (int i = 0; i < check_vertex_range; ++i) {
+                std::sort(Updated_Graph[i].begin(), Updated_Graph[i].end());
+                Updated_Graph[i].erase(std::unique(Updated_Graph[i].begin(), Updated_Graph[i].end()), Updated_Graph[i].end());
+            }
         }
         bool all_match = true;
         std::string clean_label = label;
@@ -734,7 +773,9 @@ int main(int argc, char** argv)
                 std::cout << "See mismatch_" << clean_label << ".txt for details." << std::endl;
             }
         }
-        return kernel_time;
+        return host_verify
+            ? std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - verify_start).count()
+            : kernel_time;
     };
 
     auto add_base_graph_to_hbm = [&](int vertex_num, int edge_num) -> bool
@@ -789,7 +830,9 @@ int main(int argc, char** argv)
             // POS Direction
             {
                 PMA_HEADER pos_header = {0};
-                std::vector<int> pos_data;
+                std::vector<int> fe_entries;
+                std::vector<int> vc_entries;
+                std::vector<int> segment_data;
                 
                 for (int i = 0 ; i < VERTEX_PER_PMA; i++)
                 {
@@ -824,16 +867,32 @@ int main(int argc, char** argv)
                     int neighbor_idx = 0;
                     for (int s = 0; s < total_segments; ++s) {
                         int valid_num = base_num + (s < extra_num ? 1 : 0);
+                        fe_entries.push_back(valid_num > 0 ? neighbors[neighbor_idx] : UNUSED_ICON);
+                        vc_entries.push_back(valid_num);
                         for (int k = 0; k < valid_num; ++k) {
-                            pos_data.push_back(neighbors[neighbor_idx++]);
+                            segment_data.push_back(neighbors[neighbor_idx++]);
                         }
                         for (int k = valid_num; k < EDGE_SLOTS_PER_SEG; ++k) {
-                            pos_data.push_back(UNUSED_ICON);
+                            segment_data.push_back(UNUSED_ICON);
                         }
                         // Slot VALID_COUNT_IDX (63) = valid_count
-                        pos_data.push_back(valid_num);
+                        segment_data.push_back(valid_num);
                     }
                 }
+
+                // FPGA layout is header + FE SoA + VC SoA + segment payload.
+                // Pad FE/VC to complete 512-bit words (16 int entries/word).
+                const int helper_words = (pos_header.vertex_range[VERTEX_PER_PMA - 1]
+                                          + FE_SOA_ENTRIES_PER_WORD - 1)
+                                         / FE_SOA_ENTRIES_PER_WORD;
+                std::vector<int> pos_data;
+                pos_data.reserve((helper_words * 2 * FE_SOA_ENTRIES_PER_WORD)
+                                 + segment_data.size());
+                fe_entries.resize(helper_words * FE_SOA_ENTRIES_PER_WORD, UNUSED_ICON);
+                vc_entries.resize(helper_words * VC_SOA_ENTRIES_PER_WORD, 0);
+                pos_data.insert(pos_data.end(), fe_entries.begin(), fe_entries.end());
+                pos_data.insert(pos_data.end(), vc_entries.begin(), vc_entries.end());
+                pos_data.insert(pos_data.end(), segment_data.begin(), segment_data.end());
                 
                 // Write to HBM
                 int total_len = sizeof(PMA_HEADER) + pos_data.size() * sizeof(int);
@@ -901,6 +960,8 @@ int main(int argc, char** argv)
         {
         std::cout << "[DBG] L640: PMA init complete, max offset per ch: " << current_addr_offset[0] << ", " << (CHANNEL_NUM>1?current_addr_offset[1]:0) << std::endl;
             long long total_blocks = (current_addr_offset[ch] + INIT_VEC_LEN_IN_BYTE - 1) / INIT_VEC_LEN_IN_BYTE;
+            allocator_initial_segments[ch] = static_cast<int>(
+                total_blocks % ALLOC_BITMAP_TOTAL_BLOCKS);
             long long full_bytes = total_blocks / 8;
             int rem_bits = (int)(total_blocks % 8);
             memset(bitmap_ptrs[ch], 0xFF, full_bytes);
@@ -1079,6 +1140,12 @@ int main(int argc, char** argv)
 #endif
     }
 
+    // Base PMAs are packed sequentially per channel.  The first free segment
+    // is therefore the best initial next-fit cursor for that channel.
+    for (int ch = 0; ch < static_cast<int>(run_alloc_access_kernels.size()); ++ch) {
+        run_alloc_access_kernels[ch].set_arg(0, allocator_initial_segments[ch]);
+    }
+
     // 2. Start Long-Running (Keep Alive) Kernels
 #ifdef USE_STANDALONE_MODE
     // Standalone: insert_edge + alloc_access started per-batch (not keep-alive)
@@ -1211,9 +1278,7 @@ int main(int argc, char** argv)
             }
 
             bool last = (idx == operations.size());
-            // gen_edge_count: edges to send via generator→router→worker online path
-            int gen_edge_count = use_online_path ? edge_count : 0;
-            double update_time = run_update_batch(gen_edge_count, "ts_" + std::to_string(current_ts), last);
+            double update_time = run_update_batch(edge_count, "ts_" + std::to_string(current_ts), last);
             incremental_phase_s += update_time;
 
             std::cout << "Waiting 5s after update batch..." << std::endl;

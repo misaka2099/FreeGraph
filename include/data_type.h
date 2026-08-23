@@ -66,6 +66,8 @@ enum PMA_UPDATE_OPCODE
     PMA_UPDATE_STOP = 4,
     PMA_UPDATE_FLUSH_CACHE = 5,
     PMA_UPDATE_GAS_QUERY = 6,     // GAS vertex query: src = vertex to query
+    PMA_UPDATE_CACHE_HINT = 7,    // src=pma, dst=current-wave update count
+    PMA_UPDATE_WAVE_END = 8,      // flush/age caches and return ACK(-2)
 };
 struct PMA_UPDATE_MESSAGE
 {
@@ -137,9 +139,14 @@ struct INTRA_PMA_UPDATE_MESSAGE
 // Full-PMA cache budget: 24K project segments for BS and 8K for merge.
 // Each segment is four 512-bit words, so the combined capacity is ~8 MiB,
 // matching GraSU's cache size while giving BS the larger share.
-#define BS_FULL_PMA_CACHE_SEGMENTS 24576
-#define MERGE_FULL_PMA_CACHE_SEGMENTS 8192
 #define FULL_PMA_CACHE_WORDS(NSEG) ((NSEG) * SEG_WORDS_PER_SEG)
+#define BS_FE_CACHE_LINES 20
+#define BS_FE_CACHE_SEGMENTS 4096
+#define BS_CACHE_HINTS_PER_WAVE 10
+#define MERGE_CACHE_LINES 5
+#define MERGE_CACHE_SEGMENTS_PER_LINE 1024
+#define MERGE_CACHE_HINTS_PER_WAVE 5
+#define CACHE_WAVE_ACK (-2)
 #define TOTAL_CACHE_LINES (LARGE_LINES + MEDIUM_LINES + SMALL_LINES)  // 22
 #define PHYS_CACHE_LINES 8
 
@@ -315,6 +322,7 @@ struct bs_batch_t {
     int local_src[16];           // source vertex within PMA (0..15)
     ap_uint<16> op_mask;         // bit i: 0=insert_edge, 1=delete_edge
     int count;                   // number of ops (1..16)
+    bool fe_cache_resident;      // worker found a resident FE line for this PMA
 };
 
 // Phase 2→3: Modification summary for rebalance decision
@@ -347,6 +355,13 @@ struct rebalance_task_t {
     int payload;                 // segment index (>=0), -1=STOP, -2=ACK marker
     long long start_byte;        // forwarded: PMA absolute HBM byte offset (64-bit)
     ap_uint<512> range_word;     // forwarded: header[0] — vertex ranges + total_segs
+};
+
+// BS insert -> FE cache write-through update.
+struct fe_cache_update_t {
+    int pma;
+    int seg;
+    int first_edge;
 };
 
 // ---- Gate 路由策略 (task_reader 按 PMA 决策: 走 merge 还是走 bs) ----

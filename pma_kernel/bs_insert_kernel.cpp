@@ -20,6 +20,22 @@ static VEC_INFO vi_read(ap_uint<512>* hbm, int vi_word_off, int pma_idx)
     return vi;
 }
 
+static void flush_fe_cache_line(
+    ap_uint<512>* hbm, int data_off, int line,
+    ap_uint<512> fe_cache[BS_FE_CACHE_LINES][BS_FE_CACHE_SEGMENTS / FE_SOA_ENTRIES_PER_WORD],
+    int cache_start, int cache_segs)
+{
+    #pragma HLS INLINE off
+    int hbase = (cache_start - data_off) / 64;
+    int fe_base = hbase + HEADER_WORDS;
+    int words = fe_words_for(cache_segs);
+    for (int w = 0; w < words; w++) {
+        #pragma HLS PIPELINE II=1
+        hbm[fe_base + w] = fe_cache[line][w];
+    }
+    ap_wait();
+}
+
 // ---- Segment Insert (pure compute, no HBM access) ----
 // Processes one segment: extract edges, insert new dsts, pack back.
 // Designed for multiple parallel instances (INLINE off).
@@ -49,7 +65,7 @@ void seg_insert(
     // Insert each new edge using binary search for O(log N) position finding
     // edge_buf[0..valid-1] is sorted ascending.
     for (int ei = 0; ei < dst_cnt; ei++) {
-        #pragma HLS PIPELINE II=2
+        #pragma HLS PIPELINE II=1
         int dst = dsts[ei];
         if (valid >= EDGE_SLOTS_PER_SEG) break;
         unsigned lo = 0, hi = (unsigned)valid;
@@ -88,7 +104,8 @@ void bs_worker(
     ap_uint<512>* hbm,
     int data_off, int vi_wo,
     hls::stream<PMA_UPDATE_MESSAGE>& edge_in,
-    hls::stream<bs_batch_t>& bs_out
+    hls::stream<bs_batch_t>& bs_out,
+    hls::stream<fe_cache_update_t>& fe_update_in
 )
 {
     // Buffers declared outside while for HLS lifetime analysis
@@ -96,10 +113,106 @@ void bs_worker(
     int vr[VERTEX_PER_PMA];
     #pragma HLS ARRAY_PARTITION variable=vr complete
 
+    const int FE_CACHE_WORDS = BS_FE_CACHE_SEGMENTS / FE_SOA_ENTRIES_PER_WORD;
+    ap_uint<512> fe_cache[BS_FE_CACHE_LINES][FE_CACHE_WORDS];
+    #pragma HLS bind_storage variable=fe_cache type=RAM_2P impl=URAM
+    bool cache_valid[BS_FE_CACHE_LINES];
+    bool cache_loaded[BS_FE_CACHE_LINES];
+    bool cache_dirty[BS_FE_CACHE_LINES];
+    int cache_pma[BS_FE_CACHE_LINES];
+    int cache_start[BS_FE_CACHE_LINES];
+    int cache_segs[BS_FE_CACHE_LINES];
+    ap_uint<32> cache_score[BS_FE_CACHE_LINES];
+    ap_uint<32> cache_wave_updates[BS_FE_CACHE_LINES];
+    for (int line = 0; line < BS_FE_CACHE_LINES; line++) {
+        cache_valid[line] = false;
+        cache_loaded[line] = false;
+        cache_dirty[line] = false;
+        cache_pma[line] = -1;
+        cache_start[line] = 0;
+        cache_segs[line] = 0;
+        cache_score[line] = 0;
+        cache_wave_updates[line] = 0;
+    }
+
     while (true) {
+        // Updates are issued by insert_phase before its batch ACK.  Therefore
+        // all feedback for the preceding batch is available before task_reader
+        // can send another batch for the same PMA.
+        fe_cache_update_t feu;
+        while (fe_update_in.read_nb(feu)) {
+            for (int line = 0; line < BS_FE_CACHE_LINES; line++) {
+                if (feu.seg < 0) {
+                    // Redistribution may move/repack the complete PMA and
+                    // rebuild every FE entry.  A per-segment patch is not
+                    // sufficient; invalidate the whole cached line after
+                    // the redistribution ACK has reached insert_phase.
+                    if (cache_pma[line] == feu.pma) {
+                        cache_valid[line] = false;
+                        cache_loaded[line] = false;
+                        cache_dirty[line] = false;
+                    }
+                } else if (cache_valid[line] && cache_loaded[line] &&
+                    cache_pma[line] == feu.pma && feu.seg < cache_segs[line]) {
+                    int word = feu.seg / FE_SOA_ENTRIES_PER_WORD;
+                    int slot = feu.seg % FE_SOA_ENTRIES_PER_WORD;
+                    fe_cache[line][word].range(slot * 32 + 31, slot * 32)
+                        = (ap_uint<32>)feu.first_edge;
+                    cache_dirty[line] = true;
+                }
+            }
+        }
         PMA_UPDATE_MESSAGE first = edge_in.read();
         if (first.opcode == PMA_UPDATE_STOP && first.last == 1) {
             bs_batch_t s; s.pma_idx = -1; s.count = 0; bs_out.write(s); break;
+        }
+        if (first.opcode == PMA_UPDATE_CACHE_HINT) {
+            int hit = -1;
+            int empty = -1;
+            int victim = 0;
+            ap_uint<32> victim_value = ~ap_uint<32>(0);
+            for (int line = 0; line < BS_FE_CACHE_LINES; line++) {
+                if (cache_valid[line] && cache_pma[line] == first.src) hit = line;
+                if (!cache_valid[line] && empty < 0) empty = line;
+                ap_uint<32> predicted = cache_score[line] - (cache_score[line] >> 3)
+                                              + cache_wave_updates[line];
+                if (cache_valid[line] && predicted < victim_value) {
+                    victim_value = predicted;
+                    victim = line;
+                }
+            }
+            if (hit < 0 && (empty >= 0 || (ap_uint<32>)first.dst > victim_value)) {
+                int line = empty >= 0 ? empty : victim;
+                if (cache_valid[line] && cache_loaded[line] && cache_dirty[line]) {
+                    flush_fe_cache_line(hbm, data_off, line, fe_cache,
+                                        cache_start[line], cache_segs[line]);
+                }
+                cache_valid[line] = true;
+                cache_loaded[line] = false;
+                cache_dirty[line] = false;
+                cache_pma[line] = first.src;
+                cache_start[line] = 0;
+                cache_segs[line] = 0;
+                cache_score[line] = 0;
+                cache_wave_updates[line] = 0;
+            }
+            continue;
+        }
+        if (first.opcode == PMA_UPDATE_WAVE_END) {
+            for (int line = 0; line < BS_FE_CACHE_LINES; line++) {
+                if (cache_valid[line] && cache_loaded[line] && cache_dirty[line]) {
+                    flush_fe_cache_line(hbm, data_off, line, fe_cache,
+                                        cache_start[line], cache_segs[line]);
+                    cache_dirty[line] = false;
+                }
+                ap_uint<33> next = (ap_uint<33>)cache_score[line]
+                                 - (cache_score[line] >> 3)
+                                 + cache_wave_updates[line];
+                cache_score[line] = next[32] ? ~ap_uint<32>(0) : (ap_uint<32>)next;
+                cache_wave_updates[line] = 0;
+            }
+            bs_batch_t s; s.pma_idx = CACHE_WAVE_ACK; s.count = 0; bs_out.write(s);
+            continue;
         }
 
         int pma = first.src >> 4;
@@ -132,58 +245,41 @@ void bs_worker(
         // FE area base (word offset): 1 entry per segment, 16 entries per 512-bit word
         int fe_hbm_base = hbase + HEADER_WORDS;
 
-        // 片上 FE 缓存 (per-batch): 二分搜索先在 HBM 上 burst 预取该 vertex 的 FE 区
-        // 到 fe_cache, 再片上二分。原实现直接 HBM 二分 — 每步 77 周期读延迟不可重叠,
-        // 每条边 ~log2(segs)×77 周期。片上二分每步 2 拍, 快 ~20 倍。
-        // 批内边按 src 排序 → 同 vertex 连续, unique vertex 数通常 1~2。
-        // 缓存上限 FE_CACHE_ENTRIES 段/vertex (4096 = 256 字 = 16KB BRAM);
-        // 超限 vertex fallback 原 HBM 二分 (保正确性, 超大 vertex 罕见)。
-        const int FE_CACHE_ENTRIES = 4096;
-        const int FE_CACHE_WORDS = FE_CACHE_ENTRIES / FE_SOA_ENTRIES_PER_WORD;
-        ap_uint<512> fe_cache[16][FE_CACHE_WORDS];
-        #pragma HLS bind_storage variable=fe_cache type=RAM_2P impl=BRAM
-        int unique_v[16];
-        #pragma HLS ARRAY_PARTITION variable=unique_v complete
-        int unique_cnt = 0;
-
-        // ---- 收集批内 unique vertex (仅 INSERT 边; 超限 vertex 不进缓存 → fallback HBM) ----
-        for (int i = 0; i < cnt; i++) {
-            #pragma HLS PIPELINE II=1
-            int ls = edges[i].src & 0xF;
-            int op = (int)edges[i].opcode;
-            if (op != PMA_UPDATE_INSERT_EDGE) continue;
-            int vs_t = (ls == 0) ? 0 : vr[ls - 1];
-            if (vr[ls] - vs_t > FE_CACHE_ENTRIES) continue;   // 超限 → HBM 二分
-            bool found = false;
-            for (int u = 0; u < unique_cnt; u++) {
-                #pragma HLS UNROLL
-                if (unique_v[u] == ls) found = true;
-            }
-            if (!found && unique_cnt < 16) {
-                unique_v[unique_cnt] = ls;
-                unique_cnt++;
-            }
+        int cache_line = -1;
+        for (int line = 0; line < BS_FE_CACHE_LINES; line++) {
+            if (cache_valid[line] && cache_pma[line] == pma) cache_line = line;
         }
-
-        // ---- 预取每个 unique vertex 的 FE 区 (burst 读, 内层流水 II=1) ----
-        for (int u = 0; u < unique_cnt; u++) {
-            int ls = unique_v[u];
-            int vs = (ls == 0) ? 0 : vr[ls - 1];
-            int ve = vr[ls];
-            int vertex_segs = ve - vs;
-            if (vertex_segs > FE_CACHE_ENTRIES) continue;   // 超限 → fallback HBM 二分
-            int fe_words = (vertex_segs + FE_SOA_ENTRIES_PER_WORD - 1) / FE_SOA_ENTRIES_PER_WORD;
-            int fe_base = fe_hbm_base + vs / FE_SOA_ENTRIES_PER_WORD;
-            for (int w = 0; w < fe_words; w++) {
+        int total_segs = vr[VERTEX_PER_PMA - 1];
+        if (cache_line >= 0 && total_segs > BS_FE_CACHE_SEGMENTS) {
+            cache_valid[cache_line] = false;
+            cache_loaded[cache_line] = false;
+            cache_line = -1;
+        }
+        if (cache_line >= 0 && (!cache_loaded[cache_line] ||
+                               cache_start[cache_line] != start_byte ||
+                               cache_segs[cache_line] != total_segs)) {
+            if (cache_loaded[cache_line] && cache_dirty[cache_line]) {
+                flush_fe_cache_line(hbm, data_off, cache_line, fe_cache,
+                                    cache_start[cache_line], cache_segs[cache_line]);
+                cache_dirty[cache_line] = false;
+            }
+            int words = fe_words_for(total_segs);
+            for (int w = 0; w < words; w++) {
                 #pragma HLS PIPELINE II=1
-                fe_cache[u][w] = hbm[fe_base + w];
+                fe_cache[cache_line][w] = hbm[fe_hbm_base + w];
             }
+            cache_loaded[cache_line] = true;
+            cache_dirty[cache_line] = false;
+            cache_start[cache_line] = start_byte;
+            cache_segs[cache_line] = total_segs;
         }
+        if (cache_line >= 0) cache_wave_updates[cache_line] += cnt;
 
         // Process edges — binary search on the per-segment first_edge entries:
         // result IS the exact segment (no fine search needed)
         bs_batch_t res;
         res.pma_idx = pma; res.op_mask = 0; res.count = cnt;
+        res.fe_cache_resident = (cache_line >= 0);
         res.start_byte = start_byte;
         res.range_word = range_word;
         res.edge_count_word = edge_count_word;
@@ -201,25 +297,18 @@ void bs_worker(
                     int vs = (ls == 0) ? 0 : vr[ls - 1];
                     int ve = vr[ls];
                     int vertex_segs = ve - vs;
-                    // 定位该 vertex 的缓存槽
-                    int slot_u = -1;
-                    for (int u = 0; u < unique_cnt; u++) {
-                        #pragma HLS UNROLL
-                        if (unique_v[u] == ls) slot_u = u;
-                    }
                     // 无符号半开区间 [0, vertex_segs): (lo+hi)>>1 直接移位, 避免带符号
                     // 除法链 (关键路径 ~2.5ns)。vertex_segs=0 → hi=0 → 循环不进入。
                     // seg_rel 语义: 找到相等段 → mid; 未找到 → 最后一个 < dst 的段 (lo-1)。
                     unsigned lo = 0, hi = (unsigned)vertex_segs;
                     int seg_rel = -1;
-                    int vs_word_base = vs >> 4;   // 缓存字基址 (循环不变量)
-                    if (slot_u >= 0) {
-                        // 片上二分 (缓存字 = 绝对字 (vs>>4) 起的相对偏移, 槽 = 绝对 entry % 16)
+                    if (cache_line >= 0) {
+                        // Whole-PMA FE cache uses absolute segment indices.
                         while (lo < hi) {
                             #pragma HLS PIPELINE II=1
                             unsigned mid = (lo + hi) >> 1;
                             int fe_idx = vs + (int)mid;
-                            int fe_val = (int)fe_cache[slot_u][(fe_idx >> 4) - vs_word_base]
+                            int fe_val = (int)fe_cache[cache_line][fe_idx >> 4]
                                                           .range((fe_idx & 0xF) * 32 + 31, (fe_idx & 0xF) * 32);
                             if (fe_val == e.dst) { seg_rel = (int)mid; break; }
                             else if (fe_val < e.dst) { lo = mid + 1; }
@@ -267,21 +356,10 @@ void insert_phase(
     hls::stream<bs_batch_t>& bs_in,
     hls::stream<rebalance_task_t>& task_fifo,
     hls::stream<ap_uint<32>>& redist_ack_in,
-    hls::stream<ap_uint<32>>& ack_out)
+    hls::stream<ap_uint<32>>& ack_out,
+    hls::stream<fe_cache_update_t>& fe_update_out)
 {
     int pending_cnt = 0;
-
-    // One owner-local complete-PMA image.  The cache contains data segments
-    // only; FE/VC/helper words stay out of the cache and are reconstructed on
-    // writeback.  Keeping ownership in this sequential phase avoids passing a
-    // shared URAM through DATAFLOW sub-functions.
-    ap_uint<512> pma_cache[FULL_PMA_CACHE_WORDS(BS_FULL_PMA_CACHE_SEGMENTS)];
-#pragma HLS bind_storage variable=pma_cache type=RAM_2P impl=URAM
-    int cached_pma = -1;
-    int cached_seg_count = 0;
-    int cached_data_base = 0;
-    bool cache_valid = false;
-    bool cache_dirty = false;
 
     while (true) {
         // --- read_nb: poll redistribution ACK every cycle ---
@@ -290,6 +368,9 @@ void insert_phase(
             int ack_pma = (int)ack_val;
             if (ack_pma != -1) {
                 pending_cnt--;
+                fe_cache_update_t inv;
+                inv.pma = ack_pma; inv.seg = -1; inv.first_edge = UNUSED_ICON;
+                fe_update_out.write(inv);
                 ack_out.write((ap_uint<32>)ack_pma);
             }
         }
@@ -298,6 +379,25 @@ void insert_phase(
         bs_batch_t b = bs_in.read();
 
         if (b.pma_idx == -1) { break; }
+        if (b.pma_idx == CACHE_WAVE_ACK) {
+            // A wave is complete only after all overflow redistribution ACKs
+            // have returned.  This makes the HBM image authoritative before
+            // task_reader starts the next wave's pre-expand reads.
+            while (pending_cnt > 0) {
+                if (!redist_ack_in.empty()) {
+                    int ack_pma = (int)redist_ack_in.read();
+                    if (ack_pma != -1) {
+                        pending_cnt--;
+                        fe_cache_update_t inv;
+                        inv.pma = ack_pma; inv.seg = -1; inv.first_edge = UNUSED_ICON;
+                        fe_update_out.write(inv);
+                        ack_out.write((ap_uint<32>)ack_pma);
+                    }
+                } else ap_wait();
+            }
+            ack_out.write((ap_uint<32>)CACHE_WAVE_ACK);
+            continue;
+        }
 
         int pma = b.pma_idx;
 
@@ -309,6 +409,7 @@ void insert_phase(
         int fe_words = fe_words_for(tseg);
         int vc_words = vc_words_for(tseg);
         int total_hlp_words = fe_words + vc_words;
+        int fe_hbm_base = hbase + HEADER_WORDS;
         int vc_hbm_base = hbase + HEADER_WORDS + fe_words;
 
         // Vertex ranges and edge counts from forwarded header
@@ -321,11 +422,19 @@ void insert_phase(
 
         // --- Process segment modifications ---
         int ec_delta[VERTEX_PER_PMA];
-        for (int v = 0; v < VERTEX_PER_PMA; v++) ec_delta[v] = 0;
+        for (int v = 0; v < VERTEX_PER_PMA; v++) 
+        {
+            #pragma HLS PIPELINE II=1
+            ec_delta[v] = 0;
+        }
 
         int seg_list[16], seg_cnt = 0;
         bool seg_overflow[16];
-        for (int i = 0; i < 16; i++) seg_overflow[i] = false;
+        for (int i = 0; i < 16; i++) 
+        {
+            #pragma HLS PIPELINE II=1
+            seg_overflow[i] = false;
+        }
 
         // bs_worker already resolved the EXACT segment → dedup only
         for (int i = 0; i < b.count; i++) {
@@ -360,38 +469,15 @@ void insert_phase(
         }
 
         int data_base = (boff + HEADER_BYTES + total_hlp_words * 64) / 64;
-        for (int si = 0; si < seg_cnt; si++) {
+        for (int si = 0; si < seg_cnt; si++) 
+        {
+            #pragma HLS PIPELINE II=1
             seg_bases[si] = data_base + seg_list[si] * SEG_WORDS_PER_SEG;
         }
-        // A miss loads the complete PMA as one contiguous HBM burst.  No
-        // helper words are copied; they are rebuilt from this image at flush.
-        bool full_cacheable = (tseg <= BS_FULL_PMA_CACHE_SEGMENTS);
-        if (full_cacheable && (!cache_valid || cached_pma != pma)) {
-            if (cache_valid && cache_dirty) {
-                for (int w = 0; w < cached_seg_count * SEG_WORDS_PER_SEG; w++) {
-#pragma HLS PIPELINE II=1
-                    hbm[cached_data_base + w] = pma_cache[w];
-                }
-                ap_wait();
-            }
-            cached_pma = pma;
-            cached_seg_count = tseg;
-            cached_data_base = data_base;
-            cache_valid = true;
-            cache_dirty = false;
-            for (int w = 0; w < cached_seg_count * SEG_WORDS_PER_SEG; w++) {
-#pragma HLS PIPELINE II=1
-                pma_cache[w] = hbm[cached_data_base + w];
-            }
-            ap_wait();
-        }
         for (int si = 0; si < seg_cnt; si++) {
-            int ts = seg_list[si];
             for (int w = 0; w < SEG_WORDS_PER_SEG; w++) {
 #pragma HLS PIPELINE II=1
-                seg_buf[si][w] = full_cacheable
-                    ? pma_cache[ts * SEG_WORDS_PER_SEG + w]
-                    : hbm[seg_bases[si] + w];
+                seg_buf[si][w] = hbm[seg_bases[si] + w];
             }
         }
 
@@ -399,7 +485,11 @@ void insert_phase(
         int  seg_dsts[16][16];
         int  seg_dst_cnt[16];
         #pragma HLS ARRAY_PARTITION variable=seg_dst_cnt complete
-        for (int i = 0; i < 16; i++) seg_dst_cnt[i] = 0;
+        for (int i = 0; i < 16; i++) 
+        {
+            #pragma HLS PIPELINE II=1
+            seg_dst_cnt[i] = 0;
+        }
 
         for (int i = 0; i < b.count; i++) {
             #pragma HLS PIPELINE II=1
@@ -419,16 +509,60 @@ void insert_phase(
                        seg_buf[si], seg_valid_buf[si], seg_overflow[si]);
         }
 
-        // --- Phase C1: commit modified segments to the complete PMA image. ---
+        // --- Phase C1: write through only the modified segments. ---
         for (int si = 0; si < seg_cnt; si++) {
             for (int w = 0; w < SEG_WORDS_PER_SEG; w++) {
 #pragma HLS PIPELINE II=1
-                if (full_cacheable)
-                    pma_cache[seg_list[si] * SEG_WORDS_PER_SEG + w] = seg_buf[si][w];
-                else
-                    hbm[seg_bases[si] + w] = seg_buf[si][w];
+                hbm[seg_bases[si] + w] = seg_buf[si][w];
             }
-            if (full_cacheable) cache_dirty = true;
+        }
+
+        // FE is write-through metadata.  Deduplicate FE words, patch each
+        // touched segment's first edge, and mirror it into any resident FE
+        // cache line through the feedback stream.
+        int fe_uniq[16], fe_seg_grp[16], fe_uniq_cnt = 0;
+        #pragma HLS ARRAY_PARTITION variable=fe_uniq complete
+        #pragma HLS ARRAY_PARTITION variable=fe_seg_grp complete
+        for (int si = 0; si < seg_cnt; si++) {
+            #pragma HLS UNROLL
+            int wix = seg_list[si] / FE_SOA_ENTRIES_PER_WORD;
+            int grp = -1;
+            for (int k = 0; k < 16; k++) {
+                #pragma HLS UNROLL
+                if (k < fe_uniq_cnt && fe_uniq[k] == wix) grp = k;
+            }
+            if (grp == -1) { fe_uniq[fe_uniq_cnt] = wix; grp = fe_uniq_cnt++; }
+            fe_seg_grp[si] = grp;
+        }
+        ap_uint<512> fe_new_word[16];
+        #pragma HLS ARRAY_PARTITION variable=fe_new_word complete
+        for (int k = 0; k < fe_uniq_cnt; k++) {
+            #pragma HLS PIPELINE II=1
+            fe_new_word[k] = hbm[fe_hbm_base + fe_uniq[k]];
+        }
+        for (int si = 0; si < seg_cnt; si++) {
+            #pragma HLS UNROLL
+            int first_edge = seg_valid_buf[si] > 0
+                ? (int)seg_buf[si][0].range(31, 0) : UNUSED_ICON;
+            int slot = seg_list[si] % FE_SOA_ENTRIES_PER_WORD;
+            fe_new_word[fe_seg_grp[si]].range(slot * 32 + 31, slot * 32)
+                = (ap_uint<32>)first_edge;
+        }
+        // Resident FE lines are kept dirty on chip until WAVE_END.  A PMA
+        // outside the FE cache still uses the direct HBM fallback.
+        if (!b.fe_cache_resident) {
+            for (int k = 0; k < fe_uniq_cnt; k++) {
+                #pragma HLS PIPELINE II=1
+                hbm[fe_hbm_base + fe_uniq[k]] = fe_new_word[k];
+            }
+        }
+        for (int si = 0; si < seg_cnt; si++) {
+            #pragma HLS PIPELINE II=1
+            fe_cache_update_t u;
+            u.pma = pma; u.seg = seg_list[si];
+            u.first_edge = seg_valid_buf[si] > 0
+                ? (int)seg_buf[si][0].range(31, 0) : UNUSED_ICON;
+            fe_update_out.write(u);
         }
 
         // --- Phase C2: VC RMW — 去重 VC word, 一次读 → 片上 patch → 一次写 ---
@@ -486,9 +620,7 @@ void insert_phase(
         hbm[wb_base + 2] = 0;
         hbm[wb_base + 3] = 0;
 
-        // Detect overflow before exposing any task to redistribution.  A
-        // complete-PMA cache must be committed first; otherwise redistribution
-        // can consume the task and read stale segment data from HBM.
+        // Detect overflow only after segment/FE/VC/header writes are issued.
         bool has_rebalance = false;
         for (int si = 0; si < seg_cnt; si++) {
             #pragma HLS PIPELINE II=1
@@ -496,10 +628,13 @@ void insert_phase(
             has_rebalance = true;
         }
 
-        if (full_cacheable && cache_valid && cache_dirty) {
-            for (int w = 0; w < cached_seg_count * SEG_WORDS_PER_SEG; w++) {
-#pragma HLS PIPELINE II=1
-                hbm[cached_data_base + w] = pma_cache[w];
+        // Redistribution consumes HBM immediately.  For an overflow batch,
+        // force the touched FE words through before publishing its task;
+        // ordinary resident-cache batches remain deferred until WAVE_END.
+        if (has_rebalance && b.fe_cache_resident) {
+            for (int k = 0; k < fe_uniq_cnt; k++) {
+                #pragma HLS PIPELINE II=1
+                hbm[fe_hbm_base + fe_uniq[k]] = fe_new_word[k];
             }
             ap_wait();
         }
@@ -517,10 +652,6 @@ void insert_phase(
                 t.range_word = b.range_word;
                 task_fifo.write(t);
             }
-            if (full_cacheable) {
-                cache_dirty = false;
-                cache_valid = false;
-            }
             // ACK marker → redistribution → redist_ack → forwarded upstream
             rebalance_task_t ack_task;
             ack_task.pma        = pma;
@@ -530,21 +661,8 @@ void insert_phase(
             task_fifo.write(ack_task);
             pending_cnt++;
         } else {
-            // No rebalance: commit the dirty cache before releasing the PMA
-            // lock via ACK. Keep the clean image resident for the next batch.
-            if (full_cacheable && cache_valid) cache_dirty = false;
             ack_out.write((ap_uint<32>)pma);
         }
-    }
-
-    // Flush the final complete PMA before stopping.  FE/VC reconstruction is
-    // intentionally kept in the writeback path, never resident in pma_cache.
-    if (cache_valid && cache_dirty) {
-        for (int w = 0; w < cached_seg_count * SEG_WORDS_PER_SEG; w++) {
-#pragma HLS PIPELINE II=1
-            hbm[cached_data_base + w] = pma_cache[w];
-        }
-        ap_wait();
     }
 
     // --- STOP: send STOP to redistribution, then drain pending table ---
@@ -559,9 +677,12 @@ void insert_phase(
         if (!redist_ack_in.empty()) {
             ap_uint<32> ack_val = redist_ack_in.read();
             int ack_pma = (int)ack_val;
-            if (ack_pma != -1) {
-                pending_cnt--;
-                ack_out.write((ap_uint<32>)ack_pma);
+                if (ack_pma != -1) {
+                    pending_cnt--;
+                    fe_cache_update_t inv;
+                    inv.pma = ack_pma; inv.seg = -1; inv.first_edge = UNUSED_ICON;
+                    fe_update_out.write(inv);
+                    ack_out.write((ap_uint<32>)ack_pma);
             }
         }
     }
@@ -599,14 +720,16 @@ extern "C"
 
         hls::stream<bs_batch_t> bs_out;
         #pragma HLS STREAM variable=bs_out depth=8
+        hls::stream<fe_cache_update_t> fe_update;
+        #pragma HLS STREAM variable=fe_update depth=64
 
         #pragma HLS DATAFLOW
 
         bs_worker(hbm_bs, pma_raw_data_start, pma_vecinfo_start / 64,
-                  edge_in, bs_out);
+                  edge_in, bs_out, fe_update);
 
         insert_phase(hbm_rw, pma_raw_data_start, pma_vecinfo_start / 64,
                      bs_out,
-                     task_out, redist_ack_in, ack_out);
+                     task_out, redist_ack_in, ack_out, fe_update);
     }
 }
