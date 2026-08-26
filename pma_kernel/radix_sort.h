@@ -119,6 +119,59 @@ static void sort_src_dst(int* buf_a, int* buf_b, int n) {
     // 最后 pass 为奇数索引 → 写 buf_a → 结果在 buf_a
 }
 
+// Packed variant used by task_reader.  The legacy int-triplet sorter above is
+// retained for the standalone insertion experiment, while the production
+// wave buffer stores src/dst as 32-bit fields and opcode as a 4-bit field.
+static void radix_pass_8bit_packed(
+    wave_edge_t* src_buf, wave_edge_t* dst_buf, int n, int shift) {
+    int hist[256];
+    #pragma HLS ARRAY_PARTITION variable=hist complete
+    for (int b = 0; b < 256; b++) hist[b] = 0;
+
+    for (int i = 0; i < n; i++) {
+        #pragma HLS PIPELINE II=1
+        ap_uint<64> key = ((ap_uint<64>)src_buf[i].src << 32) | src_buf[i].dst;
+        hist[(int)((key >> shift) & 0xFF)]++;
+    }
+
+    int off[256];
+    #pragma HLS ARRAY_PARTITION variable=off complete
+    int acc = 0;
+    for (int b = 0; b < 256; b++) { off[b] = acc; acc += hist[b]; }
+
+    for (int i = 0; i < n; i++) {
+        #pragma HLS PIPELINE II=1
+        ap_uint<64> key = ((ap_uint<64>)src_buf[i].src << 32) | src_buf[i].dst;
+        int bucket = (int)((key >> shift) & 0xFF);
+        int pos = off[bucket];
+        dst_buf[pos] = src_buf[i];
+        off[bucket]++;
+    }
+}
+
+static void sort_src_dst_packed(
+    wave_edge_t* buf_a, wave_edge_t* buf_b, int n) {
+    ap_uint<64> max_key = 0;
+    for (int i = 0; i < n; i++) {
+        #pragma HLS PIPELINE II=1
+        ap_uint<64> key = ((ap_uint<64>)buf_a[i].src << 32) | buf_a[i].dst;
+        if (key > max_key) max_key = key;
+    }
+    int passes = 0;
+    for (int shift = 0; shift < 64; shift += 8) {
+        #pragma HLS UNROLL
+        if (((max_key >> shift) & 0xFF) != 0) passes = shift / 8 + 1;
+    }
+    if (passes & 1) passes++;
+    if (passes > 8) passes = 8;
+    for (int pass = 0; pass < passes; pass++) {
+        if ((pass & 1) == 0)
+            radix_pass_8bit_packed(buf_a, buf_b, n, pass * 8);
+        else
+            radix_pass_8bit_packed(buf_b, buf_a, n, pass * 8);
+    }
+}
+
 // ---- In-segment bitonic sort by dst (for merge-insert groundwork) ----
 // Sorts edges buf[3i..3i+2] for i in [seg_start, seg_end) by dst ascending,
 // using tmp (≥ 256×3 ints) as scratch. max_size = segment size rounded up to

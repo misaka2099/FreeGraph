@@ -551,15 +551,15 @@ static void pma_redist_enlarge(
 // 正确性: begin 与 finish 之间 PMA 被 task_reader 锁住, 旧数据 (VEC_INFO/header/
 // segments) 不会变化; alloc_rsp 与 begin 的 fire 严格同序一一对应。
 struct pre_expand_ctx_t {
-    int pma;
+    pma_idx_u_t pma;
     bool is_init;
-    int new_total_segs;       // 新布局总段数
-    int new_fe_words;         // 新 FE helper 字数
-    int new_vc_words;         // 新 VC helper 字数
-    int new_helper_words;     // FE + VC 总字数
-    int new_pma_words;        // 新 PMA 总字数
-    int old_total_segs;       // 旧总段数 (ENLARGE FREE 用)
-    int old_helper_words;     // 旧 helper 字数 (ENLARGE FREE 用)
+    segment_idx_t new_total_segs;       // 新布局总段数
+    helper_word_count_t new_fe_words;   // 新 FE helper 字数
+    helper_word_count_t new_vc_words;   // 新 VC helper 字数
+    helper_word_count_t new_helper_words; // FE + VC 总字数
+    hbm_word_idx_t new_pma_words;       // 新 PMA 总字数
+    segment_idx_t old_total_segs;       // 旧总段数 (ENLARGE FREE 用)
+    helper_word_count_t old_helper_words; // 旧 helper 字数 (ENLARGE FREE 用)
     long long pma_byte_offset;  // 旧 PMA 字节偏移 (ENLARGE FREE 用)
     ap_uint<512> new_range_word;
     ap_uint<512> old_ec_word;   // 旧 header.edge_count (ENLARGE 搬移用)
@@ -575,11 +575,11 @@ static bool pre_expand_begin(
     hls::stream<ap_axiu<96,0,0,0>>& alloc_cmd,
     pre_expand_ctx_t& ctx)
 {
-    int pma_idx = cmd.pma;
+    pma_idx_u_t pma_idx = cmd.pma;
     VEC_INFO vi = vi_read(hbm, vi_wo, pma_idx);
     bool is_init = (vi == 0);
 
-    int old_tseg = VERTEX_PER_PMA;                   // INIT: 16 segs (1 per vertex)
+    segment_idx_t old_tseg = VERTEX_PER_PMA;         // INIT: 16 segs (1 per vertex)
     ap_uint<512> old_range_word = 0;
     ap_uint<512> old_ec_word = 0;
     long long pma_boff = 0;
@@ -591,13 +591,15 @@ static bool pre_expand_begin(
         old_ec_word    = hbm[hbase + 1];
         old_tseg = (int)old_range_word.range(15 * 32 + 31, 15 * 32);
     }
-    int old_hlp = hlp_total_words(old_tseg);
+    helper_word_count_t old_hlp = hlp_total_words(old_tseg);
 
     // New layout: vertex v gets 2x segments when it must grow (capacity doubled),
     // otherwise keeps old segment count. INIT (vi==0) allocates 1 + ceil(count/47).
     // ntseg accumulates in the same loop computing the range.
-    int ntseg = 0;
-    int nfe_words = 0, nvc_words = 0, nhlp = 0, npwords = 0, npbytes = 0;
+    segment_idx_t ntseg = 0;
+    helper_word_count_t nfe_words = 0, nvc_words = 0, nhlp = 0;
+    hbm_word_idx_t npwords = 0;
+    ap_uint<32> npbytes = 0;
 
     // ---- Step 1: per-vertex grow decision + new vertex_range (cumulative) ----
     // 按 vertex 粒度判断: 现有边数 + 本次插入数 > 现有容量 (旧 segment × 47)
@@ -689,19 +691,19 @@ static void pre_expand_finish(
     ap_uint<512> edge_buffer[MAX_ONCHIP_SEG_WORDS],
     const pre_expand_ctx_t& ctx)
 {
-    int pma_idx = ctx.pma;
+    pma_idx_u_t pma_idx = ctx.pma;
     bool is_init = ctx.is_init;
-    int ntseg = ctx.new_total_segs;
-    int nfe_words = ctx.new_fe_words;
-    int nvc_words = ctx.new_vc_words;
-    int nhlp = ctx.new_helper_words;
-    int npwords = ctx.new_pma_words;
-    int old_tseg = ctx.old_total_segs;
-    int old_hlp = ctx.old_helper_words;
+    segment_idx_t ntseg = ctx.new_total_segs;
+    helper_word_count_t nfe_words = ctx.new_fe_words;
+    helper_word_count_t nvc_words = ctx.new_vc_words;
+    helper_word_count_t nhlp = ctx.new_helper_words;
+    hbm_word_idx_t npwords = ctx.new_pma_words;
+    segment_idx_t old_tseg = ctx.old_total_segs;
+    helper_word_count_t old_hlp = ctx.old_helper_words;
     long long pma_boff = ctx.pma_byte_offset;
     ap_uint<512> old_ec_word = ctx.old_ec_word;
     ap_uint<512> new_range_word = ctx.new_range_word;
-    int npbytes = npwords * 64;
+    ap_uint<32> npbytes = npwords * 64;
 
     // ---- Step 2: read alloc response (主循环已 poll 非空, 不阻塞) ----
     ap_uint<64> arsp = alloc_rsp.read().data;
@@ -838,11 +840,11 @@ void redistribution_phase(
     // same batch still carry the pre-enlarge forwarded header. They are remapped
     // to the new layout (segments at/after the enlarged vertex's old end shift
     // by delta). Cleared by the trailing -2 ACK marker of the batch.
-    int remap_pma = -1;
-    int remap_old_start = 0;
-    int remap_boundary = 0;      // old vertex_end of the enlarged vertex
-    int remap_delta = 0;         // segments added by the enlarge (0 = no state)
-    int remap_new_start = 0;     // new absolute start byte
+    pma_idx_t remap_pma = -1;
+    ap_uint<32> remap_old_start = 0;
+    segment_idx_t remap_boundary = 0; // old vertex_end of the enlarged vertex
+    ap_uint<22> remap_delta = 0;      // segments added by the enlarge (0 = no state)
+    ap_uint<32> remap_new_start = 0;  // new absolute start byte
     ap_uint<512> remap_range_word = 0;
 
     // alloc 流水化: 在飞 pre_expand ctx 队列 (begin 已 fire alloc, 等 rsp 后 finish)。
@@ -850,9 +852,9 @@ void redistribution_phase(
     #define PRE_EXPAND_CTX_DEPTH 16
     pre_expand_ctx_t ctx_fifo[PRE_EXPAND_CTX_DEPTH];
     #pragma HLS bind_storage variable=ctx_fifo type=RAM_2P impl=BRAM
-    int ctx_head = 0;
-    int ctx_tail = 0;
-    int ctx_count = 0;
+    ap_uint<5> ctx_head = 0;
+    ap_uint<5> ctx_tail = 0;
+    ap_uint<5> ctx_count = 0;
 
     while (true) {
         // ---- pre_expand: alloc 流水化 (begin fire + finish 搬移) ----
@@ -889,8 +891,8 @@ void redistribution_phase(
         if (ctx_count > 0) { ap_wait(); continue; }
         if (task_fifo.empty()) { ap_wait(); continue; }
         rebalance_task_t task = task_fifo.read();
-        int payload = task.payload;
-        int pm  = task.pma;
+        ap_int<22> payload = task.payload;
+        pma_idx_u_t pm  = task.pma;
         if (payload == -1) {  // STOP
             // Signal alloc_access that redistribution is done with allocations
             ap_axiu<96,0,0,0> scmd;
@@ -909,9 +911,9 @@ void redistribution_phase(
         }
 
         // Remap tasks that predate an ENLARGE of the same PMA
-        long long task_start_byte = task.start_byte;
-        ap_uint<512> task_range_word = task.range_word;
-        int task_seg = payload;
+        ap_uint<32> task_start_byte = task.start_byte;
+        ap_uint<512> task_range_word = 0;
+        segment_idx_t task_seg = payload;
         if (remap_delta > 0 && pm == remap_pma && task_start_byte == remap_old_start) {
             task_start_byte = remap_new_start;
             task_range_word = remap_range_word;
@@ -920,21 +922,25 @@ void redistribution_phase(
             remap_delta = 0;   // different layout context → drop stale state
         }
 
-        // Use the (possibly remapped) forwarded header — no VEC_INFO/header HBM reads
+        // Normal overflow tasks re-read header[0] from HBM.  Only a same-PMA
+        // ENLARGE remap reuses the cached range word; keeping this 512-bit
+        // value out of rebalance_task_t removes a high-fanout AXIS path.
         long long pma_boff = task_start_byte - data_off;
         long long hbase = pma_boff / 64;
-        int total_segs = (int)task_range_word.range(15 * 32 + 31, 15 * 32);
+        if (task_range_word == 0)
+            task_range_word = hbm[hbase];
+        segment_idx_t total_segs = task_range_word.range(15 * 32 + 31, 15 * 32);
         if (total_segs == 0) continue;
-        int fe_words = fe_words_for(total_segs);
+        helper_word_count_t fe_words = fe_words_for(total_segs);
         long long fe_hbm_base = hbase + HEADER_WORDS;
         long long vc_hbm_base = fe_hbm_base + fe_words;
         int total_hlp    = fe_words + vc_words_for(total_segs);
 
         // Vertex ranges from forwarded header
-        int vertex_range[VERTEX_PER_PMA];
+        segment_idx_t vertex_range[VERTEX_PER_PMA];
         for (int v = 0; v < VERTEX_PER_PMA; v++) {
             #pragma HLS UNROLL
-            vertex_range[v] = (int)task_range_word.range(v * 32 + 31, v * 32);
+            vertex_range[v] = task_range_word.range(v * 32 + 31, v * 32);
         }
 
         // Find owner vertex of the overflow segment
@@ -942,13 +948,13 @@ void redistribution_phase(
         int owner_vertex = -1;
         for (int v = 0; v < VERTEX_PER_PMA; v++) {
             #pragma HLS UNROLL
-            int vertex_start = (v == 0) ? 0 : vertex_range[v - 1];
+            int vertex_start = (v == 0) ? 0 : (int)vertex_range[v - 1];
             if (overflow_seg >= vertex_start && overflow_seg < vertex_range[v])
                 owner_vertex = v;
         }
         if (owner_vertex < 0) continue;
 
-        int vertex_start = (owner_vertex == 0) ? 0 : vertex_range[owner_vertex - 1];
+        int vertex_start = (owner_vertex == 0) ? 0 : (int)vertex_range[owner_vertex - 1];
         int vertex_end   = vertex_range[owner_vertex];
         int vertex_segs  = vertex_end - vertex_start;
 

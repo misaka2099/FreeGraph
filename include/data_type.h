@@ -76,7 +76,43 @@ struct PMA_UPDATE_MESSAGE
     PMA_UPDATE_OPCODE opcode;
     int last;
 };
+
+// Compact token for the BS AXIS path.  The task reader emits one token at a
+// time and uses last to delimit each batch, so the merge path can retain the
+// legacy command layout while BS avoids carrying padding/control fields.
+struct bs_update_token_t
+{
+    ap_uint<32> src;
+    ap_uint<32> dst;
+    ap_uint<4> opcode;
+    ap_uint<1> last;
+};
 #define MAX_PMA_NUM 1000000
+
+// Narrow on-chip index/value types.  These types are deliberately kept
+// separate from the 32-bit HBM image fields and PMA_UPDATE_MESSAGE, whose
+// layout is part of the external data format.  PMA IDs are below 1,000,000;
+// segment IDs use the same 21-bit range as bs_result_t.  A signed PMA/segment
+// marker is used only where -1/-2 are protocol sentinels.
+using pma_idx_u_t = ap_uint<20>;
+using pma_idx_t = ap_int<21>;
+using segment_idx_t = ap_uint<21>;
+using hbm_word_idx_t = ap_uint<26>;   // 32-bit byte offset divided by 64
+using valid_count_t = ap_uint<6>;     // 0..63 entries in a segment
+using batch_count_t = ap_uint<5>;     // 0..16 tokens/commands
+using local_vertex_t = ap_uint<4>;    // 0..15 within a PMA
+using vertex_id_t = ap_uint<32>;      // HBM edge/first-edge value
+using helper_word_count_t = ap_uint<18>; // ceil(2^21 / 16)
+
+// Task-reader's in-flight wave entry.  src/dst remain 32-bit vertex IDs, but
+// the opcode is only the 0..8 PMA_UPDATE_OPCODE range.  Keeping it separate
+// from the vertex fields avoids storing every wave edge as a 96-bit int
+// triplet in URAM.
+struct wave_edge_t {
+    vertex_id_t src;
+    vertex_id_t dst;
+    ap_uint<4> opcode;
+};
 
 // #define OUT_DIRECTION 0
 // #define IN_DIRECTION 1
@@ -314,8 +350,7 @@ struct cmd_batch_full_t {
 // Forwarded header from pma_gate avoids redundant HBM reads in insert_phase
 struct bs_batch_t {
     int pma_idx;
-    long long start_byte;        // forwarded: PMA absolute HBM byte offset (64-bit)
-    ap_uint<512> range_word;     // forwarded: header[0] — vertex ranges + total_segs
+    ap_uint<32> start_byte;       // PMA absolute HBM byte offset (<4 GiB image)
     ap_uint<512> edge_count_word;// forwarded: header[1] — per-vertex edge counts
     int target_seg[16];          // absolute segment index for each op
     int dst[16];                 // destination vertex
@@ -323,6 +358,19 @@ struct bs_batch_t {
     ap_uint<16> op_mask;         // bit i: 0=insert_edge, 1=delete_edge
     int count;                   // number of ops (1..16)
     bool fe_cache_resident;      // worker found a resident FE line for this PMA
+};
+
+// Phase 1->2 narrow stream item. One item is emitted per edge and `last`
+// terminates the current batch. Keeping the 1024-bit PMA header out of this
+// FIFO avoids a very wide, shallow RAM and its high-fanout address network.
+struct bs_result_t {
+    ap_int<21> pma_idx;
+    ap_uint<32> start_byte;
+    ap_uint<21> target_seg;
+    ap_uint<32> dst;
+    ap_uint<4> local_src;
+    ap_uint<1> fe_cache_resident;
+    ap_uint<1> last;
 };
 
 // Phase 2→3: Modification summary for rebalance decision
@@ -343,25 +391,25 @@ struct insert_summary_t {
 // Sent BEFORE a PMA's edge segment is flushed; redistribution grows the PMA
 // (INIT allocate / ENLARGE) so inserts fit without runtime ENLARGE.
 struct pre_expand_cmd_t {
-    int pma;                     // PMA index (global)
-    int count[VERTEX_PER_PMA];   // edges per local vertex for this PMA this wave
+    pma_idx_u_t pma;              // PMA index (global)
+    ap_uint<14> count[VERTEX_PER_PMA]; // <= WAVE_CAPACITY edges per wave
 };
 
 // Rebalance task: bs_insert → redistribution (overflowed segment / ACK / STOP).
 // Carries forwarded header to avoid redundant VEC_INFO/header HBM reads.
 // payload: seg (>=0) overflow segment, -1 = STOP, -2 = ACK marker.
 struct rebalance_task_t {
-    int pma;                     // PMA index
-    int payload;                 // segment index (>=0), -1=STOP, -2=ACK marker
+    pma_idx_u_t pma;              // PMA index
+    ap_int<22> payload;            // segment index, -1=STOP, -2=ACK marker
     long long start_byte;        // forwarded: PMA absolute HBM byte offset (64-bit)
     ap_uint<512> range_word;     // forwarded: header[0] — vertex ranges + total_segs
 };
 
 // BS insert -> FE cache write-through update.
 struct fe_cache_update_t {
-    int pma;
-    int seg;
-    int first_edge;
+    pma_idx_u_t pma;
+    ap_int<22> seg;
+    vertex_id_t first_edge;
 };
 
 // ---- Gate 路由策略 (task_reader 按 PMA 决策: 走 merge 还是走 bs) ----

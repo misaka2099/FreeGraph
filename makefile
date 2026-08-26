@@ -106,6 +106,13 @@ $(MERGE_BS_XCLBIN): $(MERGE_BS_ALL_XO)
 	@echo "---- Merge+bs link done: $@ ----"
 host_merge_bs: host.cpp
 	g++ -std=c++17 -DUSE_STANDALONE_MODE -DUSE_MERGE_BS_PATH $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
+
+# ---- Update-only host for the merge+BS image ----
+# The update-only xclbin omits read/check CUs, so compile the matching host
+# with HOST_VERIFY_ONLY_IMAGE and require --host-verify at runtime.
+host_merge_bs_update_only: host_update_only.cpp
+	g++ -std=c++17 -DHOST_VERIFY_ONLY_IMAGE -DUSE_STANDALONE_MODE -DUSE_MERGE_BS_PATH $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
+
 bfs: subdirs_bfs $(BFS_XCLBIN)
 subdirs_bfs:
 	$(MAKE) -C memkernel all TARGET=$(TARGET)

@@ -271,6 +271,18 @@ void set_lock(hls::stream<lock_req_t>& lock_req_out, int pma_idx)
     lock_req_out.write(req);
     ap_wait();
 }
+
+static inline bs_update_token_t make_bs_token(const PMA_UPDATE_MESSAGE &m)
+{
+    #pragma HLS INLINE
+    bs_update_token_t t;
+    t.src = (ap_uint<32>)m.src;
+    t.dst = (ap_uint<32>)m.dst;
+    t.opcode = (ap_uint<4>)m.opcode;
+    t.last = (ap_uint<1>)m.last;
+    return t;
+}
+
 static void task_reader_main(
     int worker_id,
     ap_uint<512>* hbm_gate,
@@ -278,7 +290,7 @@ static void task_reader_main(
     int pma_vecinfo_start,
     hls::stream<PMA_UPDATE_MESSAGE>& online_in,
     hls::stream<pre_expand_cmd_t>& pre_expand_out,
-    hls::stream<PMA_UPDATE_MESSAGE>& edge_out_bs,
+    hls::stream<bs_update_token_t>& edge_out_bs,
     hls::stream<PMA_UPDATE_MESSAGE>& edge_out_merge,
     hls::stream<lock_req_t>& lock_req_out,
     hls::stream<ap_uint<1>>& lock_rsp_in,
@@ -289,10 +301,10 @@ static void task_reader_main(
     // Online edges land here; wave closes on wave full (8192) / STOP / FLUSH.
     // The wave is radix-sorted by src (= pma<<4 | vertex) so per-PMA segments
     // become contiguous; per-vertex counts fall out of a linear scan.
-    int wave_buffer[WAVE_CAPACITY * 3];
-    int radix_tmp[WAVE_CAPACITY * 3];   // sort_src_dst 的 ping-pong 伙伴
-    int seperations[WAVE_CAPACITY];
-    int seperation_cursors[WAVE_CAPACITY];
+    wave_edge_t wave_buffer[WAVE_CAPACITY];
+    wave_edge_t radix_tmp[WAVE_CAPACITY];  // sort_src_dst 的 ping-pong 伙伴
+    ap_uint<14> seperations[WAVE_CAPACITY];
+    ap_uint<14> seperation_cursors[WAVE_CAPACITY];
     bool pre_expand_checked[WAVE_CAPACITY];
     ap_uint<512> separation_counts[WAVE_CAPACITY];
     bool merge_path[WAVE_CAPACITY];          // 每 PMA 路由决策: true=merge, false=bs
@@ -323,9 +335,9 @@ static void task_reader_main(
                 flush = true;
             }
             else {
-                wave_buffer[wave_count * 3 + 0] = msg.src;
-                wave_buffer[wave_count * 3 + 1] = msg.dst;
-                wave_buffer[wave_count * 3 + 2] = msg.opcode;
+                wave_buffer[wave_count].src = msg.src;
+                wave_buffer[wave_count].dst = msg.dst;
+                wave_buffer[wave_count].opcode = msg.opcode;
                 wave_count++;
             }
         }
@@ -334,14 +346,14 @@ static void task_reader_main(
         if (wave_count > 0)
         {
             // ===== 排序: src, dst 字典序升序 (排序后同 PMA 连续成段, 段内 dst 升序) =====
-            sort_src_dst(wave_buffer, radix_tmp, wave_count);
+            sort_src_dst_packed(wave_buffer, radix_tmp, wave_count);
             int current_pma = -1;
             int current_vc[16];
             #pragma HLS ARRAY_PARTITION variable=current_vc complete
             int seperation_count = 0;
             for (int i = 0 ; i < wave_count; i++)
             {
-                int src = wave_buffer[i * 3 + 0];
+                int src = wave_buffer[i].src;
                 int pma_idx = src >> 4;
                 if (pma_idx != current_pma)
                 {
@@ -401,10 +413,10 @@ static void task_reader_main(
             int remaining = wave_count;
 
             // Select deterministic per-route cache-admission candidates.
-            int bs_top_pma[BS_CACHE_HINTS_PER_WAVE];
-            int bs_top_value[BS_CACHE_HINTS_PER_WAVE];
-            int merge_top_pma[MERGE_CACHE_HINTS_PER_WAVE];
-            int merge_top_value[MERGE_CACHE_HINTS_PER_WAVE];
+            pma_idx_t bs_top_pma[BS_CACHE_HINTS_PER_WAVE];
+            ap_uint<14> bs_top_value[BS_CACHE_HINTS_PER_WAVE];
+            pma_idx_t merge_top_pma[MERGE_CACHE_HINTS_PER_WAVE];
+            ap_uint<14> merge_top_value[MERGE_CACHE_HINTS_PER_WAVE];
             #pragma HLS ARRAY_PARTITION variable=bs_top_pma complete
             #pragma HLS ARRAY_PARTITION variable=bs_top_value complete
             #pragma HLS ARRAY_PARTITION variable=merge_top_pma complete
@@ -420,9 +432,9 @@ static void task_reader_main(
                 merge_top_value[k] = -1;
             }
             for (int i = 0; i < seperation_count; i++) {
-                int begin = i == 0 ? 0 : seperations[i - 1];
+                ap_uint<14> begin = i == 0 ? ap_uint<14>(0) : seperations[i - 1];
                 int value = seperations[i] - begin;
-                int pma = wave_buffer[begin * 3] >> 4;
+                pma_idx_u_t pma = wave_buffer[begin].src >> 4;
                 if (merge_path[i]) {
                     for (int k = 0; k < MERGE_CACHE_HINTS_PER_WAVE; k++) {
                         if (value > merge_top_value[k] ||
@@ -460,7 +472,7 @@ static void task_reader_main(
                 if (bs_top_pma[k] < 0) continue;
                 cache_cmd.src = bs_top_pma[k];
                 cache_cmd.dst = bs_top_value[k];
-                edge_out_bs.write(cache_cmd);
+                edge_out_bs.write(make_bs_token(cache_cmd));
             }
             for (int k = 0; k < MERGE_CACHE_HINTS_PER_WAVE; k++) {
                 if (merge_top_pma[k] < 0) continue;
@@ -480,7 +492,7 @@ static void task_reader_main(
                 for (int i = 0; i < seperation_count; i++)
                 {
                     if (seperation_cursors[i] >= seperations[i]) continue;
-                    int pma_idx = wave_buffer[seperation_cursors[i] * 3 + 0] >> 4;
+                    pma_idx_u_t pma_idx = wave_buffer[seperation_cursors[i]].src >> 4;
                     if (!pre_expand_checked[i]) {
                         // The same round-robin loop performs the gate check.
                         // A busy PMA is skipped; other separations continue.
@@ -514,19 +526,21 @@ static void task_reader_main(
                     set_lock(lock_req_out, pma_idx);
                     // Strict cross-process order: lock commit -> edges.
                     ap_wait();
-                    int start = seperation_cursors[i];
-                    int end = seperations[i];
-                    int chunk_end = merge_path[i] ? end : (start + 16 < end ? start + 16 : end);
+                    ap_uint<14> start = seperation_cursors[i];
+                    ap_uint<14> end = seperations[i];
+                    ap_uint<14> bs_end = start + ap_uint<14>(16);
+                    ap_uint<14> chunk_end = merge_path[i]
+                        ? end : (bs_end < end ? bs_end : end);
                     bool to_merge = merge_path[i];
                     for (int j = start; j < chunk_end; j++)
                     {
-                        int src = wave_buffer[j * 3 + 0];
-                        int dst = wave_buffer[j * 3 + 1];
-                        int opcode = wave_buffer[j * 3 + 2];
+                        int src = wave_buffer[j].src;
+                        int dst = wave_buffer[j].dst;
+                        int opcode = (int)wave_buffer[j].opcode;
                         PMA_UPDATE_MESSAGE msg;
                         msg.src = src; msg.dst = dst; msg.opcode = (PMA_UPDATE_OPCODE)opcode; msg.last = (j == chunk_end - 1);
                         if (to_merge) edge_out_merge.write(msg);
-                        else          edge_out_bs.write(msg);
+                        else          edge_out_bs.write(make_bs_token(msg));
                         // edge_out_bs.write(msg);
                     }
                     remaining -= (chunk_end - start);
@@ -541,7 +555,7 @@ static void task_reader_main(
             wave_end.dst = 0;
             wave_end.opcode = PMA_UPDATE_WAVE_END;
             wave_end.last = 1;
-            edge_out_bs.write(wave_end);
+            edge_out_bs.write(make_bs_token(wave_end));
             edge_out_merge.write(wave_end);
             bool bs_done = false;
             bool merge_done = false;
@@ -571,7 +585,7 @@ static void task_reader_main(
     PMA_UPDATE_MESSAGE stop_msg;
     stop_msg.src = -1; stop_msg.dst = -1;
     stop_msg.opcode = PMA_UPDATE_STOP; stop_msg.last = 1;
-    edge_out_bs.write(stop_msg);
+    edge_out_bs.write(make_bs_token(stop_msg));
     edge_out_merge.write(stop_msg);
     // 通知锁表管理进程退出 (所有真 ack 已消费, 无剩余锁)。
     // 此后的 STOP ack (-1) 无人消费也无妨: 无任何进程等待它。
@@ -595,7 +609,7 @@ extern "C"
         int pma_vecinfo_start,
         hls::stream<PMA_UPDATE_MESSAGE>& online_in,
         hls::stream<pre_expand_cmd_t>& pre_expand_out,
-        hls::stream<PMA_UPDATE_MESSAGE>& edge_out_bs,
+        hls::stream<bs_update_token_t>& edge_out_bs,
         hls::stream<PMA_UPDATE_MESSAGE>& edge_out_merge,
         hls::stream<ap_uint<32>>& pre_ack_in,
         hls::stream<ap_uint<32>>& ack_in_bs,
