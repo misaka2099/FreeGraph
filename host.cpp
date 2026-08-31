@@ -386,6 +386,8 @@ int main(int argc, char** argv)
     run_merge_pipeline_kernels.reserve(merge_pipeline_kernels.size());
     for (auto &k : merge_pipeline_kernels) run_merge_pipeline_kernels.emplace_back(k);
 #endif
+    xrt::run run_router_stream(update_message_router_stream_kernel);
+    bool update_stop_sent = false;
     std::cout << "task_reader / redistribution kernels are launched..." << std::endl;
 #endif
     std::cout << "PMA insert edge kernels are launched..." << std::endl;
@@ -1011,17 +1013,14 @@ int main(int argc, char** argv)
         return count;
     };
 
-    // --- Standalone (split): start generator+router+3 类型内核+alloc_access, wait for completion ---
+    // Router and workers remain active across FLUSH barriers.  Each generator
+    // invocation waits for the three worker completion ACKs via the router.
     auto run_update_batch = [&](int gen_edge_count, const std::string& label, bool last) -> double {
         auto phase_start = std::chrono::high_resolution_clock::now();
 
         // 参数已在初始化阶段 set (worker_id/offsets/bitmap_offset 每批不变), 无需重设。
 
-        // Start generator + router stream for online updates.
-        // 每批都启动: 中间批次 (last=0) generator 发 FLUSH_CACHE (router 广播 + ACK),
-        // 最后批次 (last=1) 发 STOP (router 转发 + ACK) — 两者都被 ACK, 不会卡死。
         xrt::run run_generator(update_message_generator_kernel);
-        xrt::run run_router_stream(update_message_router_stream_kernel);
         bo_src.sync(XCL_BO_SYNC_BO_TO_DEVICE);
         bo_dst.sync(XCL_BO_SYNC_BO_TO_DEVICE);
         bo_opcode.sync(XCL_BO_SYNC_BO_TO_DEVICE);
@@ -1031,35 +1030,13 @@ int main(int argc, char** argv)
         run_generator.set_arg(3, bo_opcode);
         run_generator.set_arg(4, static_cast<int>(last));
         run_generator.start();
-        run_router_stream.start();
-
-        // Start alloc_access kernels, then task_reader + bs_insert (+merge) + redistribution
-        for (auto &r : run_alloc_access_kernels) { r.start(); }
-        for (auto &r : run_task_reader_kernels) { r.start(); }
-        for (auto &r : run_pma_insert_edge_kernels) { r.start(); }
-#if defined(USE_MERGE_BS_PATH)
-        for (auto &r : run_merge_pipeline_kernels) { r.start(); }
-#endif
-        for (auto &r : run_redistribution_kernels) { r.start(); }
-
-        // Wait for generator (finishes after sending STOP + receiving ACK from router)
         run_generator.wait();
-        // Wait for router stream (exits after forwarding STOP to all workers + ACK)
-        run_router_stream.wait();
-        // Wait for workers (STOP 链: task_reader → bs_insert/merge_pipeline → redistribution 依次收尾)
-        for (auto &r : run_task_reader_kernels) { r.wait(); }
-        for (auto &r : run_pma_insert_edge_kernels) { r.wait(); }
-#if defined(USE_MERGE_BS_PATH)
-        for (auto &r : run_merge_pipeline_kernels) { r.wait(); }
-#endif
-        for (auto &r : run_redistribution_kernels) { r.wait(); }
-        // Wait for alloc_access (receives STOP from redistribution)
-        for (auto &r : run_alloc_access_kernels) { r.wait(); }
+        if (last) update_stop_sent = true;
 
         auto phase_end = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> elapsed = phase_end - phase_start;
         std::cout << label << " edges=" << gen_edge_count
-                  << ", time=" << elapsed.count() << " s (split standalone)" << std::endl;
+                  << ", time=" << elapsed.count() << " s (persistent split)" << std::endl;
         return elapsed.count();
     };
 #else
@@ -1148,9 +1125,17 @@ int main(int argc, char** argv)
 
     // 2. Start Long-Running (Keep Alive) Kernels
 #ifdef USE_STANDALONE_MODE
-    // Standalone: insert_edge + alloc_access started per-batch (not keep-alive)
-    // Read pipeline is started lazily by ensure_read_pipeline_started() when
-    // verification actually requests a read.
+    // Start the complete consumer chain before the router so its three output
+    // streams are ready before generator sends the first command.
+    for (auto &r : run_alloc_access_kernels) { r.start(); }
+    for (auto &r : run_redistribution_kernels) { r.start(); }
+    for (auto &r : run_pma_insert_edge_kernels) { r.start(); }
+#if defined(USE_MERGE_BS_PATH)
+    for (auto &r : run_merge_pipeline_kernels) { r.start(); }
+#endif
+    for (auto &r : run_task_reader_kernels) { r.start(); }
+    run_router_stream.start();
+    // Read pipeline remains lazy and starts only for verification.
 #else
     for (auto &r : run_alloc_access_kernels) { r.start(); }
     for (auto &r : run_pma_insert_edge_kernels) { r.start(); }
@@ -1210,16 +1195,15 @@ int main(int argc, char** argv)
     };
 #endif
 #ifdef USE_STANDALONE_MODE
-    // Standalone: 通过 generator→router_stream→worker 发 STOP (last=1)。
-    // task_reader 的收波循环阻塞等 STOP — 任何模式下都必须发, 否则 worker 卡死。
+    // Send STOP through the already-running persistent pipeline.
     auto send_stop_to_workers = [&]() {
         auto run_g = xrt::run(update_message_generator_kernel);
         run_g.set_arg(0, 0); run_g.set_arg(1, bo_src);
         run_g.set_arg(2, bo_dst); run_g.set_arg(3, bo_opcode);
         run_g.set_arg(4, 1);  // last=1
-        auto run_r = xrt::run(update_message_router_stream_kernel);
-        run_g.start(); run_r.start();
-        run_g.wait(); run_r.wait();
+        run_g.start();
+        run_g.wait();
+        update_stop_sent = true;
     };
 #endif
     if (kBaseGraphReadOnlyTest)
@@ -1389,9 +1373,7 @@ int main(int argc, char** argv)
         }
     }
 #ifdef USE_STANDALONE_MODE
-    // 无增量批次 (纯 base 图): else 分支的循环未执行, 未发过 STOP — 补发,
-    // 否则 worker 的 task_reader 收波循环 (online_in.read) 永远等不到 STOP。
-    if (operations.empty()) send_stop_to_workers();
+    if (!update_stop_sent) send_stop_to_workers();
 #endif
 
     std::cout << "Waiting for long-running kernels to finish..." << std::endl;
@@ -1406,8 +1388,14 @@ int main(int argc, char** argv)
         r.wait();
     }
 #else
-    // Standalone: insert_edge + alloc_access already exited per-batch;
-    // nothing extra to wait on here.
+    run_router_stream.wait();
+    for (auto &r : run_task_reader_kernels) { r.wait(); }
+    for (auto &r : run_pma_insert_edge_kernels) { r.wait(); }
+#if defined(USE_MERGE_BS_PATH)
+    for (auto &r : run_merge_pipeline_kernels) { r.wait(); }
+#endif
+    for (auto &r : run_redistribution_kernels) { r.wait(); }
+    for (auto &r : run_alloc_access_kernels) { r.wait(); }
 #endif
     // for (auto &r : run_pma_insert_vertex_kernels)
     // {

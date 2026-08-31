@@ -58,7 +58,7 @@ typedef ap_uint<34> lock_req_t;
 // 协议:
 //   lock_req_in: pma_idx (≥0) = 加锁请求; -1 = 主进程收尾 (所有锁已清) → 退出
 //   unlock_out:  已解锁的 pma_idx (与 ack 一一对应)
-//   ack == -1 (STOP 收尾标记) 直接丢弃, 无对应锁 (否则 unlock_pma 越界写)。
+//   ack == -1 (STOP 收尾标记) 转为 stop_done 事件, 不访问锁表。
 // 深度不变量: unlock_out 深度 (256) 必须 ≥ 主进程阻塞期间可能到达的在飞 ack 数上界
 //   ≈ edge FIFO (2 批) + bs_out (8) + 3 个 ack FIFO (16×3) + task_in (64) ≈ 122。
 //   若增大上述任一 FIFO 深度, 需同步放大 unlock_out。
@@ -69,6 +69,8 @@ static void lock_manager(
     hls::stream<lock_req_t>& lock_req_in,
     hls::stream<ap_uint<1>>& lock_rsp_out,
     hls::stream<ap_uint<1>>& wave_done_out,
+    hls::stream<ap_uint<1>>& stop_done_out,
+    hls::stream<ap_uint<1>>& manager_done_out,
     // hls::stream<ap_uint<32>>& completion_out,
     int worker_id)
 {
@@ -126,6 +128,8 @@ static void lock_manager(
         } else if (ack_rr == 1 && ack_in_bs.read_nb(v)) {
             if ((int)v == CACHE_WAVE_ACK) {
                 wave_done_out.write((ap_uint<1>)0);
+            } else if ((int)v == -1) {
+                stop_done_out.write((ap_uint<1>)0);
             } else if ((int)v != -1) {
                 pma_idx = (int)v;
                 have_table_op = true;
@@ -135,6 +139,8 @@ static void lock_manager(
         } else if (ack_rr == 2 && ack_in_merge.read_nb(v)) {
             if ((int)v == CACHE_WAVE_ACK) {
                 wave_done_out.write((ap_uint<1>)1);
+            } else if ((int)v == -1) {
+                stop_done_out.write((ap_uint<1>)1);
             } else if ((int)v != -1) {
                 pma_idx = (int)v;
                 have_table_op = true;
@@ -143,7 +149,10 @@ static void lock_manager(
             busy = true;
         }
         ack_rr = (ack_rr + 1) % 3;
-        if (stop_manager && lock_num == 0) break;
+        if (stop_manager && lock_num == 0) {
+            manager_done_out.write((ap_uint<1>)1);
+            break;
+        }
         if (have_table_op) {
             int local_pma = pma_idx / CHANNEL_NUM;
             int lock_word = local_pma / 8;
@@ -211,6 +220,32 @@ static void gate_read_pma_vertex_counts(
             sum += vcv;
         }
         vertex_counts[v] = sum;
+    }
+}
+
+// Read the two header words needed by the analytical Update Path Selection
+// policy: current valid edge count E and allocated segment count S.
+static void gate_read_pma_stats(
+    ap_uint<512>* hbm_gate, int data_off, int vi_wo, int pma_idx,
+    int &current_edges, int &segment_count)
+{
+    int wi = pma_idx / 8, si = pma_idx % 8;
+    ap_uint<512> w = hbm_gate[vi_wo + wi];
+    VEC_INFO vi;
+    vi.range(63, 0) = w.range(si * 64 + 63, si * 64);
+    if (vi == 0) {
+        current_edges = 0;
+        segment_count = 0;
+        return;
+    }
+    int hbase = ((int)vi.range(31, 0) - data_off) / 64;
+    ap_uint<512> range_word = hbm_gate[hbase];
+    ap_uint<512> edge_count_word = hbm_gate[hbase + 1];
+    segment_count = (int)range_word.range(15 * 32 + 31, 15 * 32);
+    current_edges = 0;
+    for (int v = 0; v < VERTEX_PER_PMA; v++) {
+        #pragma HLS UNROLL
+        current_edges += (int)edge_count_word.range(v * 32 + 31, v * 32);
     }
 }
 
@@ -283,6 +318,37 @@ static inline bs_update_token_t make_bs_token(const PMA_UPDATE_MESSAGE &m)
     return t;
 }
 
+static inline void send_router_ack(hls::stream<WHOLE_ACK>& ack_to_router, int worker_id)
+{
+    #pragma HLS INLINE
+    WHOLE_ACK ack = {};
+    ack.data = worker_id;
+    ack.keep = -1;
+    ack.strb = -1;
+    ack.last = 1;
+    ack_to_router.write(ack);
+}
+
+// Drain the external AXIS input independently from the wave-processing state
+// machine.  The main task-reader loop spends long intervals sorting a wave,
+// waiting for downstream acknowledgements, and accessing HBM.  If it owns the
+// external stream directly, those intervals deassert online_in_TREADY and can
+// leave a FLUSH command stuck at the router output.  This relay keeps the
+// external stream flowing and preserves command order in a bounded FIFO.
+static void receive_online_commands(
+    hls::stream<PMA_UPDATE_MESSAGE>& online_in,
+    hls::stream<PMA_UPDATE_MESSAGE>& online_fifo)
+{
+    bool stop = false;
+    while (!stop) {
+        #pragma HLS PIPELINE II=1
+        PMA_UPDATE_MESSAGE msg = online_in.read();
+        online_fifo.write(msg);
+        if (msg.opcode == PMA_UPDATE_STOP)
+            stop = true;
+    }
+}
+
 static void task_reader_main(
     int worker_id,
     ap_uint<512>* hbm_gate,
@@ -294,7 +360,10 @@ static void task_reader_main(
     hls::stream<PMA_UPDATE_MESSAGE>& edge_out_merge,
     hls::stream<lock_req_t>& lock_req_out,
     hls::stream<ap_uint<1>>& lock_rsp_in,
-    hls::stream<ap_uint<1>>& wave_done_in
+    hls::stream<ap_uint<1>>& wave_done_in,
+    hls::stream<ap_uint<1>>& stop_done_in,
+    hls::stream<ap_uint<1>>& manager_done_in,
+    hls::stream<WHOLE_ACK>& ack_to_router
 ) {
 
     // ---- Wave buffer: edges of the current wave (before processing) ----
@@ -323,7 +392,7 @@ static void task_reader_main(
         // ===== 收集阶段: online 收进 wave_buffer, 收满 8192 / FLUSH / STOP 即退出 =====
         // 收满 8192 直接阻塞 (wave_buffer 只有一份, 处理完当前波才能继续收)。
         int wave_count = 0;
-        COLLET_EDGE_LOOP:
+        COLLECT_EDGE_LOOP:
         while (!online_done && !flush && wave_count < WAVE_CAPACITY)
         {
             #pragma HLS PIPELINE II=1
@@ -360,13 +429,19 @@ static void task_reader_main(
                     if (current_pma != -1)
                     {
                         seperations[seperation_count] = i;
-                        // 决策: 本次 wave 该 PMA 的新边总数 > 阈值 → merge, 否则 bs
+                        // Analytical Update Path Selection (design.tex), not a
+                        // fixed update-count threshold.
                         int pma_edges = 0;
                         for (int v = 0; v < 16; v++) {
                             #pragma HLS UNROLL
                             pma_edges += current_vc[v];
                         }
-                        merge_path[seperation_count] = decide_merge_path(current_pma, pma_edges);
+                        int current_edges = 0, segment_count = 0;
+                        gate_read_pma_stats(hbm_gate, pma_raw_data_start,
+                                            pma_vecinfo_start, current_pma,
+                                            current_edges, segment_count);
+                        merge_path[seperation_count] = decide_merge_path(
+                            current_pma, pma_edges, current_edges, segment_count);
                         seperation_count++;
                         // 阻塞写安全: 锁表管理进程独立消费 ack, 本进程的写阻塞不再
                         // 引发 ack 反压闭环 (旧架构死锁的根因, 见 lock_manager 注释)。
@@ -394,7 +469,12 @@ static void task_reader_main(
                     #pragma HLS UNROLL
                     pma_edges += current_vc[v];
                 }
-                merge_path[seperation_count] = decide_merge_path(current_pma, pma_edges);
+                int current_edges = 0, segment_count = 0;
+                gate_read_pma_stats(hbm_gate, pma_raw_data_start,
+                                    pma_vecinfo_start, current_pma,
+                                    current_edges, segment_count);
+                merge_path[seperation_count] = decide_merge_path(
+                    current_pma, pma_edges, current_edges, segment_count);
                 seperation_count++;
                 ap_uint<512> count_word = 0;
                 for (int v = 0; v < VERTEX_PER_PMA; v++) {
@@ -528,7 +608,7 @@ static void task_reader_main(
                     ap_wait();
                     ap_uint<14> start = seperation_cursors[i];
                     ap_uint<14> end = seperations[i];
-                    ap_uint<14> bs_end = start + ap_uint<14>(16);
+                    ap_uint<14> bs_end = start + ap_uint<14>(BS_MAX_CMD_NUM);
                     ap_uint<14> chunk_end = merge_path[i]
                         ? end : (bs_end < end ? bs_end : end);
                     bool to_merge = merge_path[i];
@@ -566,8 +646,14 @@ static void task_reader_main(
             }
         }
         ap_wait();
-        // FLUSH barrier 已过: 复位, 下一轮收波继续收 FLUSH 后的 online
-        if (flush) flush = false;
+        // FLUSH is complete only here: for a non-empty wave both BS and merge
+        // have returned CACHE_WAVE_ACK, which also means BS has drained all
+        // redistribution work.  An empty worker has no state from this batch
+        // to drain and can acknowledge immediately.
+        if (flush) {
+            send_router_ack(ack_to_router, worker_id);
+            flush = false;
+        }
         if (online_done) break;
         // 收尾 ACK (最后一波的批可能仍在飞) — 否则 inflight 不降 → 死循环
         // poll_completions(completion_in, inflight_pma_count);
@@ -587,12 +673,25 @@ static void task_reader_main(
     stop_msg.opcode = PMA_UPDATE_STOP; stop_msg.last = 1;
     edge_out_bs.write(make_bs_token(stop_msg));
     edge_out_merge.write(stop_msg);
-    // 通知锁表管理进程退出 (所有真 ack 已消费, 无剩余锁)。
-    // 此后的 STOP ack (-1) 无人消费也无妨: 无任何进程等待它。
-    // write_nb + ap_wait 自旋: 即使 lock_req 暂时满, 管理器终会消费, 不会死锁。
+    // Wait until both downstream paths have really stopped.  The BS stop ACK
+    // is emitted only after redistribution has forwarded STOP to alloc_access,
+    // so this pair covers the whole worker pipeline rather than merely the
+    // task_reader input boundary.
+    bool bs_stopped = false;
+    bool merge_stopped = false;
+    while (!bs_stopped || !merge_stopped) {
+        ap_uint<1> route = stop_done_in.read();
+        if (route == 0) bs_stopped = true;
+        else            merge_stopped = true;
+    }
+
+    // All real ACKs have now been consumed.  Stop the lock manager and wait
+    // for its explicit completion before acknowledging STOP to the router.
     lock_req_t stop_req = 0;
     stop_req[33] = 1;
     while (!lock_req_out.write_nb(stop_req)) { ap_wait(); }
+    (void)manager_done_in.read();
+    send_router_ack(ack_to_router, worker_id);
 }
 
 // ---- Top-level ----
@@ -613,7 +712,8 @@ extern "C"
         hls::stream<PMA_UPDATE_MESSAGE>& edge_out_merge,
         hls::stream<ap_uint<32>>& pre_ack_in,
         hls::stream<ap_uint<32>>& ack_in_bs,
-        hls::stream<ap_uint<32>>& ack_in_merge)
+        hls::stream<ap_uint<32>>& ack_in_merge,
+        hls::stream<WHOLE_ACK>& ack_to_router)
     {
         #pragma HLS INTERFACE m_axi port=hbm_gate offset=slave bundle=gmem0 max_read_burst_length=256
         #pragma HLS INTERFACE s_axilite port=worker_id bundle=control
@@ -628,25 +728,38 @@ extern "C"
         #pragma HLS INTERFACE axis port=pre_ack_in
         #pragma HLS INTERFACE axis port=ack_in_bs
         #pragma HLS INTERFACE axis port=ack_in_merge
+        #pragma HLS INTERFACE axis port=ack_to_router
 
         // 内部通道: lock_req (main → manager, 深度 16 足够: main 提交慢, manager 消费快)
         //           unlock (manager → main, 深度 256: 主进程阻塞期间的 ack 缓冲垫, 见
         //           lock_manager 注释的深度不变量)
         hls::stream<lock_req_t> lock_req;
+        // Front-end command buffer.  A batch in this design is at most one
+        // wave plus its barrier; 64 entries covers the small-batch case that
+        // exposed the router/reader handshake issue while retaining ordering.
+        hls::stream<PMA_UPDATE_MESSAGE> online_fifo;
         hls::stream<ap_uint<1>> lock_rsp;
         hls::stream<ap_uint<1>> wave_done;
+        hls::stream<ap_uint<1>> stop_done;
+        hls::stream<ap_uint<1>> manager_done;
         // hls::stream<ap_uint<32>> completion;
         #pragma HLS STREAM variable=lock_req depth=16
+        #pragma HLS STREAM variable=online_fifo depth=64
+        #pragma HLS BIND_STORAGE variable=online_fifo type=fifo impl=bram
         #pragma HLS STREAM variable=lock_rsp depth=16
         #pragma HLS STREAM variable=wave_done depth=4
+        #pragma HLS STREAM variable=stop_done depth=4
+        #pragma HLS STREAM variable=manager_done depth=2
         // #pragma HLS STREAM variable=completion depth=256
 
         #pragma HLS DATAFLOW
 
-        lock_manager(pre_ack_in, ack_in_bs, ack_in_merge, lock_req, lock_rsp, wave_done,
-                     worker_id);
+        receive_online_commands(online_in, online_fifo);
+        lock_manager(pre_ack_in, ack_in_bs, ack_in_merge, lock_req, lock_rsp,
+                     wave_done, stop_done, manager_done, worker_id);
         task_reader_main(worker_id, hbm_gate, pma_raw_data_start, pma_vecinfo_start / 64,
-                         online_in, pre_expand_out, edge_out_bs, edge_out_merge,
-                         lock_req, lock_rsp, wave_done);
+                         online_fifo, pre_expand_out, edge_out_bs, edge_out_merge,
+                         lock_req, lock_rsp, wave_done, stop_done, manager_done,
+                         ack_to_router);
     }
 }

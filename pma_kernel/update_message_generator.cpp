@@ -9,58 +9,48 @@ extern "C"
         int *src,
         int *dst,
         int *opcode,
-        // int *src_to_change,
-        // double *attr_to_change,
-        // int src_attr_change_num,
         int last,
         hls::stream<PMA_UPDATE_MESSAGE> &cmd_to_router,
-        hls::stream<WHOLE_ACK> &ack_from_router
-        // hls::stream<VERTEX_ATTR_STREAM_TYPE> &attr_to_pma
-        // hls::stream<CLEAR_ICON> &clear_message_to_router
-    )
+        hls::stream<WHOLE_ACK> &ack_from_router)
     {
         #pragma HLS INTERFACE s_axilite port=op_num
         #pragma HLS INTERFACE m_axi port=src bundle=gmem0
         #pragma HLS INTERFACE m_axi port=dst bundle=gmem1
-        // #pragma HLS INTERFACE m_axi port=src_to_change bundle=gmem2
-        // #pragma HLS INTERFACE m_axi port=attr_to_change bundle=gmem3
-        // #pragma HLS INTERFACE s_axilite port=src_attr_change_num
         #pragma HLS INTERFACE s_axilite port=return
         #pragma HLS INTERFACE axis port=cmd_to_router depth=64
         #pragma HLS INTERFACE axis port=ack_from_router depth=64
-       
-        for (int i = 0 ; i < op_num ; i++)
-        {
+
+        for (int i = 0; i < op_num; i++) {
             #pragma HLS PIPELINE II=1
             PMA_UPDATE_MESSAGE msg{};
             msg.src = src[i];
             msg.dst = dst[i];
-            // msg.opcode = opcode[i]; // opcode stored in high 32 bits
-            switch (opcode[i]) 
-            {
-                case PMA_UPDATE_INSERT_EDGE:
-                    msg.opcode = PMA_UPDATE_INSERT_EDGE;
-                    break;
-                case PMA_UPDATE_DELETE_EDGE:
-                    msg.opcode = PMA_UPDATE_DELETE_EDGE;
-                    break;
-                default:
-                    msg.opcode = PMA_UPDATE_INSERT_EDGE; // default to insert edge if unknown opcode
+            switch (opcode[i]) {
+            case PMA_UPDATE_INSERT_EDGE: msg.opcode = PMA_UPDATE_INSERT_EDGE; break;
+            case PMA_UPDATE_DELETE_EDGE: msg.opcode = PMA_UPDATE_DELETE_EDGE; break;
+            default: msg.opcode = PMA_UPDATE_INSERT_EDGE; break;
             }
             msg.last = 0;
             cmd_to_router.write(msg);
         }
-        HERE
-        // 中间批次 (last=0) 发 FLUSH_CACHE (批间 barrier, router 广播 + ACK);
-        // 最后批次 (last=1) 发 STOP (router 转发 + ACK + 退出)。
-        if (last) {
-            cmd_to_router.write({.src=-1, .dst=-1, .opcode = PMA_UPDATE_STOP, .last = 1});
-        } else {
-            cmd_to_router.write({.src=-1, .dst=-1, .opcode = PMA_UPDATE_FLUSH_CACHE, .last = 0});
+
+        // Control records use synthetic PMA bases 0,16,32. The router uses
+        // exactly the same src>>4 demux for data and control records.
+        ap_uint<3> ack_mask = 0;
+        PMA_UPDATE_OPCODE barrier = last ? PMA_UPDATE_STOP : PMA_UPDATE_FLUSH_CACHE;
+        for (int worker = 0; worker < CHANNEL_NUM; worker++) {
+            PMA_UPDATE_MESSAGE ctrl{};
+            ctrl.src = worker * VERTEX_PER_PMA;
+            ctrl.dst = -1;
+            ctrl.opcode = barrier;
+            ctrl.last = last;
+            cmd_to_router.write(ctrl);
         }
-        // Wait for ACK from router indicating the barrier/STOP was processed
-        WHOLE_ACK ack_pkt;
-        // blocking read to ensure router processed the whole batch
-        ack_from_router.read(ack_pkt);
+
+        while (ack_mask != ((1 << CHANNEL_NUM) - 1)) {
+            WHOLE_ACK ack_pkt = ack_from_router.read();
+            unsigned worker = (unsigned)ack_pkt.data;
+            if (worker < CHANNEL_NUM) ack_mask[worker] = 1;
+        }
     }
 }

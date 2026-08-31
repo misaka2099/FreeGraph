@@ -99,7 +99,7 @@ using pma_idx_t = ap_int<21>;
 using segment_idx_t = ap_uint<21>;
 using hbm_word_idx_t = ap_uint<26>;   // 32-bit byte offset divided by 64
 using valid_count_t = ap_uint<6>;     // 0..63 entries in a segment
-using batch_count_t = ap_uint<5>;     // 0..16 tokens/commands
+using batch_count_t = ap_uint<9>;     // 0..256 tokens/commands
 using local_vertex_t = ap_uint<4>;    // 0..15 within a PMA
 using vertex_id_t = ap_uint<32>;      // HBM edge/first-edge value
 using helper_word_count_t = ap_uint<18>; // ceil(2^21 / 16)
@@ -162,7 +162,15 @@ struct INTRA_PMA_UPDATE_MESSAGE
 
 #define MAX_COMMAND_BUFFER_LENGTH 16
 #define MAX_COMMAND_BUFFER_NUM 128
-#define MAX_CMD_NUM 16
+#ifndef MAX_CMD_NUM
+// Maximum number of narrow tokens in one last-delimited BS batch.
+#define MAX_CMD_NUM 256
+#endif
+#ifndef BS_MAX_CMD_NUM
+// BS dispatch is intentionally limited to 16 commands because insert_phase
+// uses 16-entry per-segment staging arrays.
+#define BS_MAX_CMD_NUM 16
+#endif
 
 // --- Pyramid Cache Configuration ---
 #define LARGE_LINES   2
@@ -418,19 +426,46 @@ struct fe_cache_update_t {
 //   bs    = 16 边一批 issue (last=1 在每批末边), 一批处理后跳下一个 PMA
 #define GATE_POLICY_BS_ONLY    0
 #define GATE_POLICY_MERGE_ONLY 1
-#define GATE_POLICY_COUNT_GT16 2
+#define GATE_POLICY_ANALYTICAL 2
+#define GATE_POLICY_COUNT_GT16 3 // legacy fixed-threshold policy
 #ifndef GATE_POLICY
-#define GATE_POLICY GATE_POLICY_COUNT_GT16
+#define GATE_POLICY GATE_POLICY_ANALYTICAL
 #endif
 
-// user-define 决策函数: 输入该 PMA 本次 wave 的新边数。
-// 扩展点: 可在 task_reader 内用 gate m_axi (hbm_gate) 读 VEC_INFO/header/VC,
-// 把顶点现边数也传入, 实现更精细的启发式 (见 task_reader gate_read_pma_vertex_counts)。
-// 返回 true = 走 merge, false = 走 bs。
-static inline bool decide_merge_path(int pma_idx, int pma_wave_edges) {
+static inline unsigned long long gate_ceil_log2(unsigned long long x) {
+    unsigned long long p = 1;
+    unsigned long long r = 0;
+    while (p < x) { p <<= 1; ++r; }
+    return r;
+}
+
+static inline unsigned long long gate_hbm_cost(unsigned long long x) {
+    if (x == 0) return 0;
+    unsigned long long beats = (x + 15) / 16;
+    return beats + (beats + 255) / 256; // c_axis = 1
+}
+
+// Update Path Selection from design.tex. E=current valid edges, U=wave
+// updates, S=segments. Return true=merge, false=BS.
+static inline bool decide_merge_path(int pma_idx, int pma_wave_edges,
+                                     int current_edges, int segment_count) {
+    (void)pma_idx;
     switch (GATE_POLICY) {
         case GATE_POLICY_BS_ONLY:     return false;
         case GATE_POLICY_MERGE_ONLY:  return true;
+        case GATE_POLICY_ANALYTICAL: {
+            unsigned long long E = current_edges < 0 ? 0 : (unsigned)current_edges;
+            unsigned long long U = pma_wave_edges < 0 ? 0 : (unsigned)pma_wave_edges;
+            unsigned long long S = segment_count > 0 ? (unsigned)segment_count : 1;
+            unsigned long long d = (E + S - 1) / S;
+            unsigned long long c_bs = U * gate_ceil_log2(S)
+                + 2 * U * gate_hbm_cost(SEGMENT_SIZE)
+                + U * (2 * ((d + 1) / 2) + 1)
+                + U * gate_ceil_log2(E + 1);
+            unsigned long long c_merge = gate_hbm_cost(E)
+                + 2 * (E + U) + gate_hbm_cost(E + U);
+            return c_merge < c_bs;
+        }
         case GATE_POLICY_COUNT_GT16:  return pma_wave_edges > 16;
         default:                      return false;
     }

@@ -718,17 +718,22 @@ void insert_phase(
     stop_task.start_byte = 0;
     task_fifo.write(stop_task);
 
-    while (pending_cnt > 0) {
-        if (!redist_ack_in.empty()) {
-            ap_uint<32> ack_val = redist_ack_in.read();
-            pma_idx_t ack_pma = (pma_idx_t)ack_val;
-                if (ack_pma != -1) {
-                    pending_cnt--;
-                    fe_cache_update_t inv;
-                    inv.pma = ack_pma; inv.seg = -1; inv.first_edge = UNUSED_ICON;
-                    fe_update_out.write(inv);
-                    ack_out.write((ap_uint<32>)ack_pma);
-            }
+    // Do not acknowledge STOP upstream until redistribution has consumed its
+    // STOP and returned -1.  The old pending_cnt-only loop could finish at
+    // zero before that final response arrived, making task_reader/router report
+    // completion while redistribution was still running.
+    bool redistribution_stopped = false;
+    while (!redistribution_stopped) {
+        ap_uint<32> ack_val = redist_ack_in.read();
+        pma_idx_t ack_pma = (pma_idx_t)ack_val;
+        if (ack_pma == -1) {
+            redistribution_stopped = true;
+        } else {
+            if (pending_cnt > 0) pending_cnt--;
+            fe_cache_update_t inv;
+            inv.pma = ack_pma; inv.seg = -1; inv.first_edge = UNUSED_ICON;
+            fe_update_out.write(inv);
+            ack_out.write((ap_uint<32>)ack_pma);
         }
     }
 

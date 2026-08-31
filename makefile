@@ -104,6 +104,35 @@ $(MERGE_BS_XCLBIN): $(MERGE_BS_ALL_XO)
 	@echo "---- Linking merge+bs system to create $(MERGE_BS_XCLBIN) ----"
 	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --kernel_frequency=150 --save-temps --config system_merge_bs.cfg -o $@ $^
 	@echo "---- Merge+bs link done: $@ ----"
+
+# ---- Update-only merge+BS image (host verification image) ----
+# This image omits the read/check pipeline and contains only the update path.
+# The formula target uses task_reader's analytical Update Path Selection
+# policy (GATE_POLICY=2 by default).
+UPDATE_ONLY_PMA_XO_FILES := $(addprefix $(PMA_KERNEL_DIR)/, task_reader_kernel.xo bs_insert_kernel.xo merge_pipeline.xo redistribution_kernel.xo update_message_generator.xo update_message_router_stream.xo)
+UPDATE_ONLY_ALL_XO := $(MEM_XO_FILES) $(UPDATE_ONLY_PMA_XO_FILES)
+UPDATE_ONLY_FORMULA_XCLBIN := $(TARGET)_merge_bs_update_only_formula.xclbin
+UPDATE_ONLY_XCLBIN := $(TARGET)_merge_bs_update_only.xclbin
+
+.PHONY: merge_bs_update_only merge_bs_update_only_formula subdirs_merge_bs_update_only
+merge_bs_update_only: subdirs_merge_bs_update_only $(UPDATE_ONLY_XCLBIN)
+merge_bs_update_only_formula: subdirs_merge_bs_update_only $(UPDATE_ONLY_FORMULA_XCLBIN)
+
+subdirs_merge_bs_update_only:
+	$(MAKE) -C memkernel alloc_access_kernel.xo TARGET=$(TARGET)
+	$(MAKE) -C pma_kernel task_reader_kernel.xo bs_insert_kernel.xo merge_pipeline.xo redistribution_kernel.xo TARGET=$(TARGET) GATE_POLICY=$(GATE_POLICY)
+	$(MAKE) -C pma_kernel update_message_generator.xo update_message_router_stream.xo TARGET=$(TARGET)
+
+$(UPDATE_ONLY_XCLBIN): $(UPDATE_ONLY_ALL_XO) system_merge_bs_update_only.cfg
+	@echo "---- Linking update-only system to create $@ ----"
+	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --kernel_frequency=150 --save-temps --config system_merge_bs_update_only.cfg -o $@ $(UPDATE_ONLY_ALL_XO)
+	@echo "---- Update-only link done: $@ ----"
+
+$(UPDATE_ONLY_FORMULA_XCLBIN): $(UPDATE_ONLY_ALL_XO) system_merge_bs_update_only.cfg
+	@echo "---- Linking formula update-only system to create $@ ----"
+	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --kernel_frequency=150 --save-temps --config system_merge_bs_update_only.cfg -o $@ $(UPDATE_ONLY_ALL_XO)
+	@echo "---- Formula update-only link done: $@ ----"
+
 host_merge_bs: host.cpp
 	g++ -std=c++17 -DUSE_STANDALONE_MODE -DUSE_MERGE_BS_PATH $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
 

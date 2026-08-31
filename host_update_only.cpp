@@ -204,7 +204,7 @@ int main(int argc, char** argv)
     std::cout << "Initialization (File Read & Graph Build) time: " << elapsed_init.count() << " s" << std::endl;
 
     auto xclbin = xrt::xclbin(xclbin_name);
-    auto device = xrt::device(0);
+    auto device = xrt::device(1);
 
     auto uuid = device.load_xclbin(xclbin);
     std::cout << "device name:     " << device.get_info<xrt::info::device::name>() << "\n";
@@ -231,10 +231,6 @@ int main(int argc, char** argv)
     auto update_message_generator_kernel = xrt::kernel(device, uuid, "update_message_generator");
 #ifndef USE_STANDALONE_MODE
     auto update_message_router_kernel = xrt::kernel(device, uuid, "update_message_router");
-#endif
-#ifdef USE_STANDALONE_MODE
-    auto update_message_router_stream_kernel = xrt::kernel(device, uuid,
-        "update_message_router_stream:{update_message_router_stream_1}");
 #endif
     auto try_add_kernel = [&](std::vector<xrt::kernel> &kernels, const std::string &name) -> bool {
         try {
@@ -409,6 +405,34 @@ int main(int argc, char** argv)
     std::cout << "alloc_access kernels are launched..." << std::endl;
     std::cout << "Kernels are created..." << std::endl;
 
+#ifdef USE_STANDALONE_MODE
+    // In hw_emu, perform one complete STOP/verify/restart cycle per batch so
+    // host-side BO readback happens only after update workers have terminated.
+    bool update_workers_started = false;
+    auto start_update_workers = [&]() {
+        if (update_workers_started) return;
+        for (auto &r : run_alloc_access_kernels) r.start();
+        for (auto &r : run_redistribution_kernels) r.start();
+        for (auto &r : run_pma_insert_edge_kernels) r.start();
+#if defined(USE_MERGE_BS_PATH)
+        for (auto &r : run_merge_pipeline_kernels) r.start();
+#endif
+        for (auto &r : run_task_reader_kernels) r.start();
+        update_workers_started = true;
+    };
+    auto wait_update_workers = [&]() {
+        if (!update_workers_started) return;
+        for (auto &r : run_task_reader_kernels) r.wait();
+        for (auto &r : run_pma_insert_edge_kernels) r.wait();
+#if defined(USE_MERGE_BS_PATH)
+        for (auto &r : run_merge_pipeline_kernels) r.wait();
+#endif
+        for (auto &r : run_redistribution_kernels) r.wait();
+        for (auto &r : run_alloc_access_kernels) r.wait();
+        update_workers_started = false;
+    };
+#endif
+
     auto start_buffer = std::chrono::high_resolution_clock::now();
     // === m_axi HBM layout per channel ===
     constexpr size_t PMA_DATA_SIZE   = 440 * 1024 * 1024;  // 每 m_axi 端口 2 个 HBM 通道 (2×220MB)
@@ -463,6 +487,36 @@ int main(int argc, char** argv)
     }
     for (int ch = 0; ch < CHANNEL_NUM; ++ch)
         bitmap_ptrs.push_back(bo_bitmap[ch].map<BYTE*>());
+#endif
+
+#ifdef USE_STANDALONE_MODE
+    // alloc_access keeps its bitmap on-chip and does not write it back at
+    // STOP. Rebuild the bitmap from live PMA vecinfo before the next restart.
+    auto rebuild_bitmap_from_vecinfo = [&](int current_max_vertex) {
+        for (int ch = 0; ch < CHANNEL_NUM; ++ch)
+            std::memset(bitmap_ptrs[ch], 0, BM_SIZE);
+        const int pma_limit = std::min(
+            MAX_PMA_NUM,
+            (current_max_vertex + VERTEX_PER_PMA) / VERTEX_PER_PMA);
+        for (int pma_idx = 0; pma_idx < pma_limit; ++pma_idx) {
+            const int ch = pma_idx % CHANNEL_NUM;
+            const VEC_INFO vi = vec_info_ptrs[ch][pma_idx];
+            const uint64_t start = (uint64_t)(uint32_t)vi.range(31, 0);
+            const uint64_t len = (uint64_t)(uint32_t)vi.range(63, 32);
+            if (len == 0 || start >= PMA_DATA_SIZE || len > PMA_DATA_SIZE - start)
+                continue;
+            const uint64_t first_block = start / INIT_VEC_LEN_IN_BYTE;
+            const uint64_t block_count =
+                (len + INIT_VEC_LEN_IN_BYTE - 1) / INIT_VEC_LEN_IN_BYTE;
+            for (uint64_t b = 0; b < block_count; ++b) {
+                const uint64_t block = first_block + b;
+                if (block >= ALLOC_BITMAP_TOTAL_BLOCKS) break;
+                bitmap_ptrs[ch][block >> 3] |= (BYTE)(1u << (block & 7));
+            }
+        }
+        for (int ch = 0; ch < CHANNEL_NUM; ++ch)
+            ch_bufs[ch].sync(XCL_BO_SYNC_BO_TO_DEVICE, BM_SIZE, pma_bm_start);
+    };
 #endif
 
     std::cout << "[DBG] L327: hbm_base_addresses mapped, ch0=" << (void*)hbm_base_addresses[0] << " vi=" << (void*)vec_info_ptrs[0] << " bm=" << (void*)bitmap_ptrs[0] << std::endl;
@@ -1038,17 +1092,19 @@ int main(int argc, char** argv)
         return count;
     };
 
-    // --- Standalone (split): start generator+router+3 类型内核+alloc_access, wait for completion ---
+    // --- Standalone: launch one generator invocation per batch.  Each batch
+    // ends with STOP so host verification can read HBM after worker exit. ---
     auto run_update_batch = [&](int gen_edge_count, const std::string& label, bool last) -> double {
         auto phase_start = std::chrono::high_resolution_clock::now();
 
+        start_update_workers();
+
         // 参数已在初始化阶段 set (worker_id/offsets/bitmap_offset 每批不变), 无需重设。
 
-        // Start generator + router stream for online updates.
-        // 每批都启动: 中间批次 (last=0) generator 发 FLUSH_CACHE (router 广播 + ACK),
-        // 最后批次 (last=1) 发 STOP (router 转发 + ACK) — 两者都被 ACK, 不会卡死。
+        // Middle batches end in FLUSH; the final batch ends in STOP.  In both
+        // cases generator.wait() returns only after router has collected one
+        // completion ACK from every worker.
         xrt::run run_generator(update_message_generator_kernel);
-        xrt::run run_router_stream(update_message_router_stream_kernel);
         bo_src.sync(XCL_BO_SYNC_BO_TO_DEVICE);
         bo_dst.sync(XCL_BO_SYNC_BO_TO_DEVICE);
         bo_opcode.sync(XCL_BO_SYNC_BO_TO_DEVICE);
@@ -1056,37 +1112,18 @@ int main(int argc, char** argv)
         run_generator.set_arg(1, bo_src);
         run_generator.set_arg(2, bo_dst);
         run_generator.set_arg(3, bo_opcode);
-        run_generator.set_arg(4, static_cast<int>(last));
+        // Stop every batch so host verification can read HBM only after all
+        // update workers have exited; the next batch restarts them.
+        run_generator.set_arg(4, 1);
         run_generator.start();
-        run_router_stream.start();
 
-        // Start alloc_access kernels, then task_reader + bs_insert (+merge) + redistribution
-        for (auto &r : run_alloc_access_kernels) { r.start(); }
-        for (auto &r : run_task_reader_kernels) { r.start(); }
-        for (auto &r : run_pma_insert_edge_kernels) { r.start(); }
-#if defined(USE_MERGE_BS_PATH)
-        for (auto &r : run_merge_pipeline_kernels) { r.start(); }
-#endif
-        for (auto &r : run_redistribution_kernels) { r.start(); }
-
-        // Wait for generator (finishes after sending STOP + receiving ACK from router)
+        // ACK now represents a completed FLUSH/STOP across all three workers,
+        // so this wait is also the per-batch durability barrier.
         run_generator.wait();
-        // Wait for router stream (exits after forwarding STOP to all workers + ACK)
-        run_router_stream.wait();
-        // Wait for workers (STOP 链: task_reader → bs_insert/merge_pipeline → redistribution 依次收尾)
-        for (auto &r : run_task_reader_kernels) { r.wait(); }
-        for (auto &r : run_pma_insert_edge_kernels) { r.wait(); }
-#if defined(USE_MERGE_BS_PATH)
-        for (auto &r : run_merge_pipeline_kernels) { r.wait(); }
-#endif
-        for (auto &r : run_redistribution_kernels) { r.wait(); }
-        // Wait for alloc_access (receives STOP from redistribution)
-        for (auto &r : run_alloc_access_kernels) { r.wait(); }
-
         auto phase_end = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> elapsed = phase_end - phase_start;
         std::cout << label << " edges=" << gen_edge_count
-                  << ", time=" << elapsed.count() << " s (split standalone)" << std::endl;
+                  << ", time=" << elapsed.count() << " s (persistent split)" << std::endl;
         return elapsed.count();
     };
 #else
@@ -1175,9 +1212,7 @@ int main(int argc, char** argv)
 
     // 2. Start Long-Running (Keep Alive) Kernels
 #ifdef USE_STANDALONE_MODE
-    // Standalone: insert_edge + alloc_access started per-batch (not keep-alive)
-    // Read pipeline is started lazily by ensure_read_pipeline_started() when
-    // verification actually requests a read.
+    // Update workers are started lazily for each batch by run_update_batch().
 #else
     for (auto &r : run_alloc_access_kernels) { r.start(); }
     for (auto &r : run_pma_insert_edge_kernels) { r.start(); }
@@ -1236,19 +1271,6 @@ int main(int argc, char** argv)
         run_update_message_generator_kernel.wait();
     };
 #endif
-#ifdef USE_STANDALONE_MODE
-    // Standalone: 通过 generator→router_stream→worker 发 STOP (last=1)。
-    // task_reader 的收波循环阻塞等 STOP — 任何模式下都必须发, 否则 worker 卡死。
-    auto send_stop_to_workers = [&]() {
-        auto run_g = xrt::run(update_message_generator_kernel);
-        run_g.set_arg(0, 0); run_g.set_arg(1, bo_src);
-        run_g.set_arg(2, bo_dst); run_g.set_arg(3, bo_opcode);
-        run_g.set_arg(4, 1);  // last=1
-        auto run_r = xrt::run(update_message_router_stream_kernel);
-        run_g.start(); run_r.start();
-        run_g.wait(); run_r.wait();
-    };
-#endif
     if (kBaseGraphReadOnlyTest)
     {
         if (!Graph.empty())
@@ -1262,10 +1284,6 @@ int main(int argc, char** argv)
         // No incremental updates in this mode; send an explicit stop to update pipeline.
 #ifndef USE_STANDALONE_MODE
         send_update_stop_only();
-#else
-        // Standalone: 总是发 STOP 关闭 worker 的 online 流 —
-        // task_reader 的收波循环 (online_in.read) 阻塞等 STOP, 不发则死锁。
-        send_stop_to_workers();
 #endif
     }
     else
@@ -1307,6 +1325,12 @@ int main(int argc, char** argv)
             bool last = (idx == operations.size());
             double update_time = run_update_batch(edge_count, "ts_" + std::to_string(current_ts), last);
             incremental_phase_s += update_time;
+
+#ifdef USE_STANDALONE_MODE
+            // The generator has received all three STOP ACKs. Wait for the
+            // corresponding XRT runs to finish before BO readback/verification.
+            wait_update_workers();
+#endif
 
             std::cout << "Waiting 5s after update batch..." << std::endl;
             std::this_thread::sleep_for(std::chrono::microseconds(100));
@@ -1411,16 +1435,14 @@ int main(int argc, char** argv)
                         std::cout << "=== END PMA " << pma_idx << " ===" << std::endl;
                     }
                 }
+#ifdef USE_STANDALONE_MODE
+                if (!last)
+                    rebuild_bitmap_from_vecinfo(current_max_vertex);
+#endif
                 batch_idx++;
             }
         }
     }
-#ifdef USE_STANDALONE_MODE
-    // 无增量批次 (纯 base 图): else 分支的循环未执行, 未发过 STOP — 补发,
-    // 否则 worker 的 task_reader 收波循环 (online_in.read) 永远等不到 STOP。
-    if (operations.empty()) send_stop_to_workers();
-#endif
-
     std::cout << "Waiting for long-running kernels to finish..." << std::endl;
 #ifndef USE_STANDALONE_MODE
     run_update_message_router_kernel.wait();
@@ -1433,8 +1455,7 @@ int main(int argc, char** argv)
         r.wait();
     }
 #else
-    // Standalone: insert_edge + alloc_access already exited per-batch;
-    // nothing extra to wait on here.
+    wait_update_workers();
 #endif
     // for (auto &r : run_pma_insert_vertex_kernels)
     // {
