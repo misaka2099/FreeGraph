@@ -105,6 +105,35 @@ $(MERGE_BS_XCLBIN): $(MERGE_BS_ALL_XO)
 	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --kernel_frequency=150 --save-temps --config system_merge_bs.cfg -o $@ $^
 	@echo "---- Merge+bs link done: $@ ----"
 
+# ---- Two-BS shared-redistribution system ----
+TWO_BS_PMA_XO_FILES := $(addprefix $(PMA_KERNEL_DIR)/, task_reader_kernel.xo bs_insert_kernel.xo redistribution_kernel.xo update_message_generator.xo update_message_router_stream.xo pma_read_router_kernel.xo pma_read_worker_kernel.xo pma_read_merger_kernel.xo check_kernel.xo)
+TWO_BS_ALL_XO := $(MEM_XO_FILES) $(TWO_BS_PMA_XO_FILES)
+TWO_BS_XCLBIN := $(TARGET)_2bs.xclbin
+
+.PHONY: 2bs subdirs_2bs
+2bs: subdirs_2bs $(TWO_BS_XCLBIN)
+subdirs_2bs:
+	$(MAKE) -C memkernel alloc_access_kernel.xo TARGET=$(TARGET)
+	$(MAKE) -C pma_kernel task_reader_kernel.xo bs_insert_kernel.xo redistribution_kernel.xo TARGET=$(TARGET)
+	$(MAKE) -C pma_kernel update_message_generator.xo update_message_router_stream.xo pma_read_router_kernel.xo pma_read_worker_kernel.xo pma_read_merger_kernel.xo check_kernel.xo TARGET=$(TARGET)
+$(TWO_BS_XCLBIN): subdirs_2bs system_2bs.cfg
+	$(VPP) -l -g -t $(TARGET) $(INCLUDES) -I$(abspath pma_kernel) --platform $(PLATFORM) --kernel_frequency=150 --save-temps --config system_2bs.cfg -o $@ $(TWO_BS_ALL_XO)
+
+# ---- Two-BS update-only system ----
+TWO_BS_UPDATE_ONLY_PMA_XO_FILES := $(addprefix $(PMA_KERNEL_DIR)/, task_reader_kernel.xo bs_insert_kernel.xo redistribution_kernel.xo update_message_generator.xo update_message_router_stream.xo)
+TWO_BS_UPDATE_ONLY_ALL_XO := $(MEM_XO_FILES) $(TWO_BS_UPDATE_ONLY_PMA_XO_FILES)
+TWO_BS_UPDATE_ONLY_XCLBIN := $(TARGET)_2bs_update_only.xclbin
+
+.PHONY: 2bs_update_only subdirs_2bs_update_only
+2bs_update_only: subdirs_2bs_update_only $(TWO_BS_UPDATE_ONLY_XCLBIN)
+subdirs_2bs_update_only:
+	$(MAKE) -C memkernel alloc_access_kernel.xo TARGET=$(TARGET)
+	$(MAKE) -C pma_kernel task_reader_kernel.xo bs_insert_kernel.xo redistribution_kernel.xo TARGET=$(TARGET)
+	$(MAKE) -C pma_kernel update_message_generator.xo update_message_router_stream.xo TARGET=$(TARGET)
+$(TWO_BS_UPDATE_ONLY_XCLBIN): subdirs_2bs_update_only system_2bs_update_only.cfg
+	$(VPP) -l -g -t $(TARGET) $(INCLUDES) -I$(abspath pma_kernel) --platform $(PLATFORM) --kernel_frequency=150 --save-temps --config system_2bs_update_only.cfg -o $@ $(TWO_BS_UPDATE_ONLY_ALL_XO)
+
+
 # ---- Update-only merge+BS image (host verification image) ----
 # This image omits the read/check pipeline and contains only the update path.
 # The formula target uses task_reader's analytical Update Path Selection
@@ -139,8 +168,10 @@ host_merge_bs: host.cpp
 # ---- Update-only host for the merge+BS image ----
 # The update-only xclbin omits read/check CUs, so compile the matching host
 # with HOST_VERIFY_ONLY_IMAGE and require --host-verify at runtime.
+host_2bs_update_only: host_update_only.cpp
+	g++ -std=c++17 -DHOST_VERIFY_ONLY_IMAGE -DUSE_STANDALONE_MODE -DUSE_2BS_PATH -DHOST_SKIP_AP_CTRL_NONE_ROUTER -I/home/sail/lyf/pma_demo/stream_2bs/include -I/opt/xilinx/xrt/include -L/opt/xilinx/xrt/lib -I/home/tools/Vitis_HLS/2022.2/include -o host_2bs_update_only host_update_only.cpp -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
 host_merge_bs_update_only: host_update_only.cpp
-	g++ -std=c++17 -DHOST_VERIFY_ONLY_IMAGE -DUSE_STANDALONE_MODE -DUSE_MERGE_BS_PATH $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
+	g++ -std=c++17 -DHOST_VERIFY_ONLY_IMAGE -DUSE_STANDALONE_MODE -DHOST_SKIP_AP_CTRL_NONE_ROUTER -DUSE_MERGE_BS_PATH $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
 
 bfs: subdirs_bfs $(BFS_XCLBIN)
 subdirs_bfs:
@@ -173,6 +204,8 @@ dummy_system:
 	$(MAKE) $(DUMMY_XCLBIN)
 host: host.cpp
 	g++ -std=c++17 $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
+host_2bs: host.cpp
+	g++ -std=c++17 -DUSE_STANDALONE_MODE -DUSE_2BS_PATH -I/home/sail/lyf/pma_demo/stream_2bs/include -I/opt/xilinx/xrt/include -L/opt/xilinx/xrt/lib -I/home/tools/Vitis_HLS/2022.2/include -o host_2bs host.cpp -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
 host_standalone: host.cpp
 	g++ -std=c++17 -DUSE_STANDALONE_MODE $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
 host_merge: host.cpp

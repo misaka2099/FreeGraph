@@ -97,6 +97,18 @@ struct bs_update_token_t
 using pma_idx_u_t = ap_uint<20>;
 using pma_idx_t = ap_int<21>;
 using segment_idx_t = ap_uint<21>;
+
+// The two BS workers own alternating PMAs within each channel.  Do not write
+// this as ((int)pma / CHANNEL_NUM) % 2: Vivado HLS 2022.2 lowers that signed
+// expression incorrectly for CHANNEL_NUM=3.  The worker period is six PMAs,
+// so an unsigned modulo directly selects the second half of each period.
+static inline ap_uint<1> pma_bs_worker(pma_idx_u_t pma)
+{
+    #pragma HLS INLINE
+    ap_uint<3> phase = (ap_uint<3>)(pma % (CHANNEL_NUM * 2));
+    return (phase >= CHANNEL_NUM) ? (ap_uint<1>)1 : (ap_uint<1>)0;
+}
+
 using hbm_word_idx_t = ap_uint<26>;   // 32-bit byte offset divided by 64
 using valid_count_t = ap_uint<6>;     // 0..63 entries in a segment
 using batch_count_t = ap_uint<9>;     // 0..256 tokens/commands
@@ -403,12 +415,15 @@ struct pre_expand_cmd_t {
     ap_uint<14> count[VERTEX_PER_PMA]; // <= WAVE_CAPACITY edges per wave
 };
 
-// Rebalance task: bs_insert → redistribution (overflowed segment / ACK / STOP).
-// Carries forwarded header to avoid redundant VEC_INFO/header HBM reads.
-// payload: seg (>=0) overflow segment, -1 = STOP, -2 = ACK marker.
+#define REBALANCE_PAYLOAD_CAPACITY 16
+
+// Rebalance task: bs_insert → redistribution.
+// One task represents one PMA update batch and carries all segments affected
+// by that batch. payload_count==0 is the STOP task.
 struct rebalance_task_t {
     pma_idx_u_t pma;              // PMA index
-    ap_int<22> payload;            // segment index, -1=STOP, -2=ACK marker
+    ap_uint<5> payload_count;      // 1..16 segments; 0=STOP
+    segment_idx_t payload[REBALANCE_PAYLOAD_CAPACITY];
     long long start_byte;        // forwarded: PMA absolute HBM byte offset (64-bit)
     ap_uint<512> range_word;     // forwarded: header[0] — vertex ranges + total_segs
 };

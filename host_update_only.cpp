@@ -14,12 +14,22 @@
 #include <xrt/xrt_kernel.h>
 #include <xrt/xrt_bo.h>
 #include <unordered_set>
+#include <unordered_map>
 #include <fstream>
 #include <random>
 bool final_match = true;
+#ifdef USE_2BS_PATH
+#define HOST_BS_BASE(ch) ((ch) * 2)
+#else
+#define HOST_BS_BASE(ch) (ch)
+#endif
 // The split host supports only the ONLINE generator -> router -> worker path.
 // USE_STANDALONE_MODE is supplied by the split-host build targets.
-
+#ifdef USE_2BS_PATH
+#define HOST_BS_COUNT (CHANNEL_NUM * 2)
+#else
+#define HOST_BS_COUNT CHANNEL_NUM
+#endif
 const bool kBaseGraphReadOnlyTest = false;
 const bool kVertexOnlyTest = false;
 const bool kShuffleSameTimestampOps = true; // Set to true to enable shuffling of operations with the same timestamp
@@ -204,7 +214,7 @@ int main(int argc, char** argv)
     std::cout << "Initialization (File Read & Graph Build) time: " << elapsed_init.count() << " s" << std::endl;
 
     auto xclbin = xrt::xclbin(xclbin_name);
-    auto device = xrt::device(1);
+    auto device = xrt::device(0 );
 
     auto uuid = device.load_xclbin(xclbin);
     std::cout << "device name:     " << device.get_info<xrt::info::device::name>() << "\n";
@@ -229,7 +239,7 @@ int main(int argc, char** argv)
     auto pma_read_merger_kernel = xrt::kernel(device, uuid, "pma_read_merger_kernel:{pma_read_merger_kernel_1}");
 #endif
     auto update_message_generator_kernel = xrt::kernel(device, uuid, "update_message_generator");
-#ifndef USE_STANDALONE_MODE
+#if !defined(USE_STANDALONE_MODE) && !defined(HOST_SKIP_AP_CTRL_NONE_ROUTER)
     auto update_message_router_kernel = xrt::kernel(device, uuid, "update_message_router");
 #endif
     auto try_add_kernel = [&](std::vector<xrt::kernel> &kernels, const std::string &name) -> bool {
@@ -254,14 +264,14 @@ int main(int argc, char** argv)
     //     }
     // }
     std::vector<xrt::kernel> pma_insert_edge_kernels;
-    pma_insert_edge_kernels.reserve(CHANNEL_NUM);
+    pma_insert_edge_kernels.reserve(HOST_BS_COUNT);
 #ifdef USE_STANDALONE_MODE
     // Split mode: 3 内核类型 per channel (task_reader / bs_insert / redistribution)
     std::vector<xrt::kernel> task_reader_kernels;
     std::vector<xrt::kernel> bs_insert_kernels;
     std::vector<xrt::kernel> redistribution_kernels;
     task_reader_kernels.reserve(CHANNEL_NUM);
-    bs_insert_kernels.reserve(CHANNEL_NUM);
+    bs_insert_kernels.reserve(HOST_BS_COUNT);
     redistribution_kernels.reserve(CHANNEL_NUM);
 #if defined(USE_MERGE_BS_PATH)
     std::vector<xrt::kernel> merge_pipeline_kernels;
@@ -271,11 +281,16 @@ int main(int argc, char** argv)
         if (!try_add_kernel(task_reader_kernels, "task_reader_kernel:{task_reader_kernel_" + std::to_string(i) + "}")) break;
 #if defined(USE_MERGE_BS_PATH)
         if (!try_add_kernel(bs_insert_kernels, "bs_insert_kernel:{bs_insert_kernel_" + std::to_string(i) + "}")) break;
-        if (!try_add_kernel(merge_pipeline_kernels, "merge_pipeline:{merge_pipeline_" + std::to_string(i) + "}")) break;
 #elif defined(USE_MERGE_PATH)
         if (!try_add_kernel(bs_insert_kernels, "merge_pipeline:{merge_pipeline_" + std::to_string(i) + "}")) break;
 #else
+#if defined(USE_2BS_PATH)
+        for (int bs = 0; bs < 2; ++bs) {
+            if (!try_add_kernel(bs_insert_kernels, "bs_insert_kernel:{bs_insert_kernel_" + std::to_string((i - 1) * 2 + bs + 1) + "}")) break;
+        }
+#else
         if (!try_add_kernel(bs_insert_kernels, "bs_insert_kernel:{bs_insert_kernel_" + std::to_string(i) + "}")) break;
+#endif
 #endif
         if (!try_add_kernel(redistribution_kernels, "redistribution_kernel:{redistribution_kernel_" + std::to_string(i) + "}")) break;
     }
@@ -302,6 +317,19 @@ int main(int argc, char** argv)
         }
     }
     std::cout << "[DBG] L233: Kernels loaded successfully." << std::endl;
+#ifdef USE_STANDALONE_MODE
+    std::cout << "[DBG] loaded counts: task_reader=" << task_reader_kernels.size()
+              << " bs_insert=" << bs_insert_kernels.size()
+              << " redistribution=" << redistribution_kernels.size()
+              << " alloc_access=" << alloc_access_kernels.size() << std::endl;
+    if (task_reader_kernels.size() < static_cast<size_t>(CHANNEL_NUM) ||
+        bs_insert_kernels.size() < static_cast<size_t>(HOST_BS_COUNT) ||
+        redistribution_kernels.size() < static_cast<size_t>(CHANNEL_NUM) ||
+        alloc_access_kernels.size() < static_cast<size_t>(CHANNEL_NUM)) {
+        std::cerr << "Kernel loading incomplete before launch; aborting." << std::endl;
+        return 1;
+    }
+#endif
 #ifdef HOST_VERIFY_ONLY_IMAGE
     if (!host_verify) {
         std::cerr << "This update-only image requires --host-verify." << std::endl;
@@ -364,7 +392,7 @@ int main(int argc, char** argv)
     }
     auto run_pma_read_merger_kernel = xrt::run(pma_read_merger_kernel);
 #endif
-#ifndef USE_STANDALONE_MODE
+#if !defined(USE_STANDALONE_MODE) && !defined(HOST_SKIP_AP_CTRL_NONE_ROUTER)
     auto run_update_message_router_kernel = xrt::run(update_message_router_kernel);
     std::cout << "Update message router kernel is launched..." << std::endl;
 #endif
@@ -447,7 +475,7 @@ int main(int argc, char** argv)
     // --- One BO per channel — all 3 m_axi ports share the same bank ---
     std::vector<xrt::bo> ch_bufs; ch_bufs.reserve(CHANNEL_NUM);
     for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
-        auto& k = pma_insert_edge_kernels[ch];
+        auto& k = pma_insert_edge_kernels[HOST_BS_BASE(ch)];
         std::cout << "[DBG] L290: ch=" << ch
                   << " gid0=" << k.group_id(0) << " gid1=" << k.group_id(1) << std::endl;
         ch_bufs.emplace_back(device, CHANNEL_TOTAL, k.group_id(0));
@@ -600,7 +628,7 @@ int main(int argc, char** argv)
 #if defined(USE_MERGE_BS_PATH)
         // bs_insert: hbm_bs, hbm_rw (同 channel bank)
         {
-            auto& run = run_pma_insert_edge_kernels[ch];
+            auto& run = run_pma_insert_edge_kernels[HOST_BS_BASE(ch)];
             int a = 0;
             run.set_arg(a++, ch_bufs[ch]);  // hbm_bs
             run.set_arg(a++, ch_bufs[ch]);  // hbm_rw
@@ -628,7 +656,7 @@ int main(int argc, char** argv)
 #else
         // 插入内核: bs_insert (hbm_bs/hbm_rw) 或 merge_pipeline (hbm_pma/hbm_buffer)
         {
-            auto& run = run_pma_insert_edge_kernels[ch];
+            auto& run = run_pma_insert_edge_kernels[HOST_BS_BASE(ch)];
             int a = 0;
             run.set_arg(a++, ch_bufs[ch]);  // hbm_pma (merge) / hbm_bs (bs)
 #ifdef USE_MERGE_PATH
@@ -639,11 +667,26 @@ int main(int argc, char** argv)
             run.set_arg(a++, pma_raw_data_start);
             run.set_arg(a++, pma_vecinfo_start);
         }
-        // task_reader: 纯流, 只有 worker_id 标量
+        // task_reader: worker_id + gate m_axi
         {
             auto& run = run_task_reader_kernels[ch];
-            run.set_arg(0, ch);             // worker_id
+            run.set_arg(0, ch);
+            if (HOST_BS_COUNT > CHANNEL_NUM) {
+                run.set_arg(1, ch_bufs[ch]);
+                run.set_arg(2, pma_raw_data_start);
+                run.set_arg(3, pma_vecinfo_start);
+            }
         }
+#if defined(USE_2BS_PATH)
+        {
+            auto& run = run_pma_insert_edge_kernels[HOST_BS_BASE(ch) + 1];
+            int a = 0;
+            run.set_arg(a++, ch_bufs[ch]);
+            run.set_arg(a++, ch_bufs[ch]);
+            run.set_arg(a++, pma_raw_data_start);
+            run.set_arg(a++, pma_vecinfo_start);
+        }
+#endif
 #endif
         // redistribution: hbm_red, hbm_buffer_for_red + 标量
         {
@@ -658,7 +701,7 @@ int main(int argc, char** argv)
         }
         std::cout << "[DBG] L373: split kernels args set for " << CHANNEL_NUM << " channels" << std::endl;
 #else
-        auto& run = run_pma_insert_edge_kernels[ch];
+        auto& run = run_pma_insert_edge_kernels[HOST_BS_BASE(ch)];
         int a = 0;
         run.set_arg(a++, ch_bufs[ch]);  // hbm_gate
         run.set_arg(a++, ch_bufs[ch]);  // hbm_bs
@@ -703,6 +746,94 @@ int main(int argc, char** argv)
 #else
     bool read_pipeline_started = false;
 #endif
+
+    // Host-side layout diagnostics.  This is intentionally called after the
+    // device BOs are synchronized, so the dump describes the exact HBM image
+    // used by host verification at the first failing timestamp.
+    auto dump_device_layout = [&](const std::string& reason, int current_max_vertex) {
+        const int pma_limit = std::min(
+            MAX_PMA_NUM,
+            (std::max(current_max_vertex, base_max_vertex) + VERTEX_PER_PMA)
+                / VERTEX_PER_PMA);
+        std::unordered_map<uint64_t, std::vector<int>> start_owners;
+
+        std::cout << "[HOST_DUMP] reason=" << reason
+                  << " pma_limit=" << pma_limit
+                  << " channel_num=" << CHANNEL_NUM
+                  << " bs_worker_num=2" << std::endl;
+
+        // Print the packed VEC_INFO words, including empty slots.  This makes
+        // slot-level corruption visible instead of only printing active PMAs.
+        for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
+            const int word_limit = (pma_limit + 7) / 8;
+            for (int wi = 0; wi < word_limit; ++wi) {
+                std::cout << "[HOST_DUMP][VI_WORD] ch=" << ch
+                          << " word=" << wi;
+                for (int slot = 0; slot < 8; ++slot) {
+                    const int pma_idx = wi * 8 + slot;
+                    if (pma_idx >= pma_limit) break;
+                    const uint64_t raw = static_cast<uint64_t>(
+                        vec_info_ptrs[ch][pma_idx]);
+                    std::cout << " pma=" << pma_idx
+                              << ":0x" << std::hex << raw << std::dec;
+                }
+                std::cout << std::endl;
+            }
+        }
+
+        for (int pma_idx = 0; pma_idx < pma_limit; ++pma_idx) {
+            const int ch = pma_idx % CHANNEL_NUM;
+            const int local_pma = pma_idx / CHANNEL_NUM;
+            const int bs_id = local_pma % 2;
+            const VEC_INFO vi = vec_info_ptrs[ch][pma_idx];
+            const uint64_t start = static_cast<uint32_t>(vi.range(31, 0));
+            const uint64_t len = static_cast<uint32_t>(vi.range(63, 32));
+            if (len == 0) continue;
+
+            const bool in_range = start < PMA_DATA_SIZE &&
+                len <= static_cast<uint64_t>(PMA_DATA_SIZE) - start;
+            std::cout << "[HOST_DUMP][VI] pma=" << pma_idx
+                      << " ch=" << ch
+                      << " local_pma=" << local_pma
+                      << " bs=" << (bs_id + 1)
+                      << " vi_word=" << (pma_idx / 8)
+                      << " vi_slot=" << (pma_idx % 8)
+                      << " start=" << start
+                      << " len=" << len
+                      << " end=" << (start + len)
+                      << " valid=" << (in_range ? 1 : 0);
+
+            if (!in_range) {
+                std::cout << " INVALID_RANGE" << std::endl;
+                continue;
+            }
+
+            const uint64_t key = (static_cast<uint64_t>(ch) << 32) | start;
+            start_owners[key].push_back(pma_idx);
+
+            PMA_HEADER header{};
+            memcpy(&header, hbm_base_addresses[ch] + start, sizeof(PMA_HEADER));
+            const int total_segs = header.vertex_range[VERTEX_PER_PMA - 1];
+            long long edge_sum = 0;
+            for (int v = 0; v < VERTEX_PER_PMA; ++v)
+                edge_sum += header.edge_count[v];
+            std::cout << " total_segs=" << total_segs
+                      << " edge_sum=" << edge_sum
+                      << " range0=" << header.vertex_range[0]
+                      << " range15=" << header.vertex_range[VERTEX_PER_PMA - 1]
+                      << std::endl;
+        }
+
+        for (const auto& entry : start_owners) {
+            if (entry.second.size() < 2) continue;
+            const int ch = static_cast<int>(entry.first >> 32);
+            const uint64_t start = entry.first & 0xffffffffULL;
+            std::cout << "[HOST_DUMP][DUPLICATE_START] ch=" << ch
+                      << " start=" << start << " pmas=";
+            for (int pma_idx : entry.second) std::cout << " " << pma_idx;
+            std::cout << std::endl;
+        }
+    };
 
     auto verify_graph = [&](const std::vector<std::vector<int>>& expected_graph, int current_max_vertex, const std::string& label, bool last) -> double {
         std::cout << "Verifying " << label << "..." << std::endl;
@@ -1211,7 +1342,7 @@ int main(int argc, char** argv)
     }
 
     // 2. Start Long-Running (Keep Alive) Kernels
-#ifdef USE_STANDALONE_MODE
+#if defined(USE_STANDALONE_MODE) || defined(HOST_SKIP_AP_CTRL_NONE_ROUTER)
     // Update workers are started lazily for each batch by run_update_batch().
 #else
     for (auto &r : run_alloc_access_kernels) { r.start(); }
@@ -1425,6 +1556,9 @@ int main(int argc, char** argv)
                         // Sync HBM + vecinfo back from device
                         for (int ch = 0; ch < CHANNEL_NUM; ++ch) { ch_bufs[ch].sync(XCL_BO_SYNC_BO_FROM_DEVICE); }
 
+                        dump_device_layout("mismatch_after_ts_" + std::to_string(current_ts),
+                                           current_max_vertex);
+
                         VEC_INFO vi = vec_info_ptrs[ch][pma_idx];
                         int start = (int)vi.range(31, 0);
                         int len   = (int)vi.range(63, 32);
@@ -1444,7 +1578,7 @@ int main(int argc, char** argv)
         }
     }
     std::cout << "Waiting for long-running kernels to finish..." << std::endl;
-#ifndef USE_STANDALONE_MODE
+#if !defined(USE_STANDALONE_MODE) && !defined(HOST_SKIP_AP_CTRL_NONE_ROUTER)
     run_update_message_router_kernel.wait();
     for (auto &r : run_pma_insert_edge_kernels)
     {
@@ -1490,45 +1624,7 @@ int main(int argc, char** argv)
     }
     // all buffers synced via insert_bufs[].rw above
 
-    std::cout << "First 100 vecinfo entries (owner channel + value):" << std::endl;
-    // int printed_pma = 0;
-    // for (int pma_idx = 0; pma_idx < 100; ++pma_idx)
-    // {
-    //     int ch = pma_idx % CHANNEL_NUM;
-    //     VEC_INFO vec = vec_info_ptrs[ch][pma_idx];
-    //     int start = vec.range(31, 0);
-    //     int len = vec.range(63, 32);
-    //     std::cout << "PMA " << pma_idx
-    //               << " (ch=" << ch << ") vecinfo start=" << start
-    //               << " len=" << len << std::endl;
-
-    //     if (vec != 0)
-    //     {
-    //         print_pma(pma_idx, vec_info_ptrs[ch], hbm_base_addresses[ch]);
-    //         printed_pma++;
-    //     }
-    // }
-
-    // std::cout << "\nVecInfo cross-channel view (first 32 PMA idx):" << std::endl;
-    // for (int pma_idx = 0; pma_idx < 32; ++pma_idx)
-    // {
-    //     std::cout << "PMA " << pma_idx << ": ";
-    //     for (int ch = 0; ch < CHANNEL_NUM; ++ch)
-    //     {
-    //         VEC_INFO vec = vec_info_ptrs[ch][pma_idx];
-    //         int start = vec.range(31, 0);
-    //         int len = vec.range(63, 32);
-    //         std::cout << "[ch=" << ch << " start=" << start << " len=" << len << "]";
-    //         if (ch != CHANNEL_NUM - 1)
-    //         {
-    //             std::cout << " ";
-    //         }
-    //     }
-    //     std::cout << std::endl;
-    // }
-
-    // std::cout << "Printed PMA payload for " << printed_pma
-    //           << " non-zero vecinfo entries (within first 100 PMAs)." << std::endl;
+    dump_device_layout("final", max_vertex_idx);
     if (final_match)
     {
         std::cout << "FINAL RESULT: MATCH!" << std::endl;

@@ -368,7 +368,7 @@ void bs_worker(
 // fine search is needed here. Modified segments are read, patched via seg_insert,
 // written back, and their valid_count is RMW-updated in the SoA VC area.
 // Overflowed segments are pushed to task_fifo for deferred redistribution.
-// ACKs are sent by redistribution_phase after all tasks are processed.
+// Redistribution returns one PMA ACK after each overflow task is processed.
 
 void insert_phase(
     ap_uint<512>* hbm,
@@ -689,22 +689,25 @@ void insert_phase(
 
         if (has_rebalance) {
             // Only now publish overflow tasks: redistribution must observe the
-            // fully committed PMA image.
+            // fully committed PMA image.  Each overflow task is acknowledged
+            // independently.  Pack all affected segments into one task for
+            // this PMA batch; redistribution returns one ACK after the array
+            // has been processed.
+            rebalance_task_t t;
+            t.pma = pma;
+            t.payload_count = 0;
+            t.start_byte = start_byte;
+            t.range_word = range_word;
+            for (int pi = 0; pi < REBALANCE_PAYLOAD_CAPACITY; pi++) {
+                #pragma HLS PIPELINE II=1
+                t.payload[pi] = 0;
+            }
             for (int si = 0; si < seg_cnt; si++) {
                 #pragma HLS PIPELINE II=1
                 if (!seg_overflow[si]) continue;
-                rebalance_task_t t;
-                t.pma        = pma;
-                t.payload    = seg_list[si];
-                t.start_byte = start_byte;
-                task_fifo.write(t);
+                t.payload[t.payload_count++] = seg_list[si];
             }
-            // ACK marker → redistribution → redist_ack → forwarded upstream
-            rebalance_task_t ack_task;
-            ack_task.pma        = pma;
-            ack_task.payload    = -2;
-            ack_task.start_byte = 0;
-            task_fifo.write(ack_task);
+            task_fifo.write(t);
             pending_cnt++;
         } else {
             ack_out.write((ap_uint<32>)pma);
@@ -714,8 +717,13 @@ void insert_phase(
     // --- STOP: send STOP to redistribution, then drain pending table ---
     rebalance_task_t stop_task;
     stop_task.pma        = 0;
-    stop_task.payload    = -1;
+    stop_task.payload_count = 0;
+    for (int pi = 0; pi < REBALANCE_PAYLOAD_CAPACITY; pi++) {
+        #pragma HLS PIPELINE II=1
+        stop_task.payload[pi] = 0;
+    }
     stop_task.start_byte = 0;
+    stop_task.range_word = 0;
     task_fifo.write(stop_task);
 
     // Do not acknowledge STOP upstream until redistribution has consumed its

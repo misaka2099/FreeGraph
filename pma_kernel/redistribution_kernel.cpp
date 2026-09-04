@@ -44,9 +44,42 @@ static VEC_INFO vi_read(ap_uint<512>* hbm, long long vi_word_off, int pma_idx)
 static void vi_write(ap_uint<512>* hbm, long long vi_word_off, int pma_idx, VEC_INFO vi)
 {
     int wi = pma_idx / 8, si = pma_idx % 8;
-    ap_uint<512> w = hbm[vi_word_off + wi];
-    w.range(si * 64 + 63, si * 64) = vi.range(63, 0);
-    hbm[vi_word_off + wi] = w;
+    {
+#pragma HLS protocol fixed
+        // VEC_INFO shares one 512-bit word with seven other PMA entries.
+        // Keep the RMW and its completion in one fixed AXI protocol region
+        // before the caller publishes pre_ack to the BS workers.
+        ap_uint<512> w = hbm[vi_word_off + wi];
+        ap_wait();
+        w.range(si * 64 + 63, si * 64) = vi.range(63, 0);
+        hbm[vi_word_off + wi] = w;
+        // AXI write response can take up to 68 scheduler states on HBM.
+        // Keep the complete write/response transaction inside this fixed
+        // protocol region before pre_ack is published.
+        ap_wait_n(70);
+    }
+}
+
+// Publish a pre-expand VEC_INFO and its handoff ACK as one fixed protocol
+// region.  The ACK is the visibility handoff to task_reader/BS: it must not
+// be emitted between the VEC_INFO write and completion of that write.
+static void vi_write_pre_ack(
+    ap_uint<512>* hbm, long long vi_word_off, int pma_idx, VEC_INFO vi,
+    hls::stream<ap_uint<32>>& pre_ack_out)
+{
+    int wi = pma_idx / 8, si = pma_idx % 8;
+    {
+#pragma HLS protocol fixed
+        // VEC_INFO shares one 512-bit word with seven other PMA entries.
+        // Keep the RMW, AXI completion wait, and the handoff ACK in the same
+        // fixed protocol region.
+        ap_uint<512> w = hbm[vi_word_off + wi];
+        ap_wait();
+        w.range(si * 64 + 63, si * 64) = vi.range(63, 0);
+        hbm[vi_word_off + wi] = w;
+        ap_wait_n(70);
+        pre_ack_out.write((ap_uint<32>)pma_idx);
+    }
 }
 
 // Read a valid_count entry (1:1 per segment, 16 entries per 512-bit word)
@@ -62,7 +95,7 @@ static inline int hbm_vc_read(ap_uint<512>* hbm, long long vc_hbm_base, int seg)
 static inline int density_capacity(int seg_cnt) { return seg_cnt * 47; }
 
 // ---- Alloc command helpers (inline alloc_merger) ----
-// redistribution 是唯一 alloc 源 (pre_expand ENLARGE/INIT + rebalance ENLARGE),
+// redistribution 是唯一 alloc 源 (pre_expand ENLARGE/INIT),
 // 所以不再需要独立 merger 进程: 直接把命令包装成 ap_axiu 写 alloc_access,
 // ALLOC (opcode=1) 同步读回 response; FREE (opcode=2) fire-and-forget。
 
@@ -687,6 +720,7 @@ static void pre_expand_finish(
     long long data_off, long long vi_wo,
     hls::stream<ap_axiu<96,0,0,0>>& alloc_cmd,
     hls::stream<ap_axiu<64,0,0,0>>& alloc_rsp,
+    hls::stream<ap_uint<32>>& pre_ack_out,
     ap_uint<512> onchip_buffer[MAX_ONCHIP_SEG_WORDS],
     ap_uint<512> edge_buffer[MAX_ONCHIP_SEG_WORDS],
     const pre_expand_ctx_t& ctx)
@@ -798,35 +832,45 @@ static void pre_expand_finish(
     VEC_INFO nvi = 0;
     nvi.range(31, 0)  = (ap_uint<32>)(nstart + data_off);
     nvi.range(63, 32) = (ap_uint<32>)npbytes;
-    vi_write(hbm, vi_wo, pma_idx, nvi);
+    vi_write_pre_ack(hbm, vi_wo, pma_idx, nvi, pre_ack_out);
 }
 
 // ---- Redistribution main loop ----
-// Task types (in payload[31:0]):
-//   -1 (0xFFFFFFFF): STOP — also signals alloc_access via alloc_cmd_stream
-//   -2 (0xFFFFFFFE): ACK marker
-//   seg (>=0):       overflow segment — owner vertex checked:
-//                    vertex_total > capacity → ENLARGE (alloc new space, move PMA)
-//                    else → power-of-2 group expansion + collect/redistribute
+// Task types:
+//   payload_count == 0: STOP — also signals alloc_access via alloc_cmd_stream
+//   payload_count > 0:  payload[] contains the affected overflow segments;
+//                        each is handled by power-of-2 group expansion and
+//                        collect/redistribute; this path never allocates.
 //
 // pre_expand_in has priority: task_reader is blocked waiting for the ACK, so
 // pre-expands must be serviced before rebalance tasks. This is what keeps the
 // cross-kernel "先扩后插" invariant: bs_insert's overflow task for PMA X can
 // only arrive after task_reader dispatched X's edges, which only happens after
 // this kernel's pre_ack for X.
+static void send_redist_ack_by_pma(
+    pma_idx_u_t pm,
+    hls::stream<ap_uint<32>>& redist_ack_out_1,
+    hls::stream<ap_uint<32>>& redist_ack_out_2)
+{
+    ap_uint<1> bs_id = pma_bs_worker(pm);
+    if (bs_id == 0) redist_ack_out_1.write((ap_uint<32>)pm);
+    else            redist_ack_out_2.write((ap_uint<32>)pm);
+}
+
 void redistribution_phase(
     ap_uint<512>* hbm,
     ap_uint<512>* hbm_edge_buffer,
     long long data_off, long long vi_wo,
-    hls::stream<rebalance_task_t>& task_fifo,
-    hls::stream<ap_uint<32>>& redist_ack_out,
+    hls::stream<rebalance_task_t>& task_in_1,
+    hls::stream<rebalance_task_t>& task_in_2,
+    hls::stream<ap_uint<32>>& redist_ack_out_1,
+    hls::stream<ap_uint<32>>& redist_ack_out_2,
     hls::stream<pre_expand_cmd_t>& pre_expand_in,
     hls::stream<ap_uint<32>>& pre_ack_out,
     hls::stream<ap_axiu<96,0,0,0>>& alloc_cmd_stream,
     hls::stream<ap_axiu<64,0,0,0>>& alloc_rsp_stream)
 {
-    // Single shared instance of the chunked helpers for all callers
-    // (pre_expand_finish, pma_redist_enlarge, rebalance path)
+    // Single shared instance of the chunked helpers for both branches.
     #pragma HLS allocation function instances=collect_edge_to_buffer limit=1
     #pragma HLS allocation function instances=redistribute_edge_from_hbm limit=1
 
@@ -836,17 +880,6 @@ void redistribution_phase(
     ap_uint<512> edge_buffer[MAX_ONCHIP_SEG_WORDS];
     #pragma HLS bind_storage variable=edge_buffer type=RAM_2P impl=URAM
 
-    // Enlarge remap state: when ENLARGE moves a PMA, the remaining tasks of the
-    // same batch still carry the pre-enlarge forwarded header. They are remapped
-    // to the new layout (segments at/after the enlarged vertex's old end shift
-    // by delta). Cleared by the trailing -2 ACK marker of the batch.
-    pma_idx_t remap_pma = -1;
-    ap_uint<32> remap_old_start = 0;
-    segment_idx_t remap_boundary = 0; // old vertex_end of the enlarged vertex
-    ap_uint<22> remap_delta = 0;      // segments added by the enlarge (0 = no state)
-    ap_uint<32> remap_new_start = 0;  // new absolute start byte
-    ap_uint<512> remap_range_word = 0;
-
     // alloc 流水化: 在飞 pre_expand ctx 队列 (begin 已 fire alloc, 等 rsp 后 finish)。
     // 深度须 ≥ 期望同时在飞的 alloc 数 (受 pre_expand_in FIFO 深度约束)。
     #define PRE_EXPAND_CTX_DEPTH 16
@@ -855,76 +888,93 @@ void redistribution_phase(
     ap_uint<5> ctx_head = 0;
     ap_uint<5> ctx_tail = 0;
     ap_uint<5> ctx_count = 0;
+    unsigned task_rr = 0;
+    bool stop_seen[2] = {false, false};
 
     while (true) {
-        // ---- pre_expand: alloc 流水化 (begin fire + finish 搬移) ----
-        // Pre-expansion commands have priority: task_reader is blocked waiting
-        // for the ACK, so they must be serviced before rebalance tasks.
-        // (a) 有新 cmd 且 ctx 队列有空位 → begin + fire alloc (不阻塞), 入队。
-        //     多个 PMA 的 alloc 同时 in-flight → alloc 延迟彼此重叠。
-        if (ctx_count < PRE_EXPAND_CTX_DEPTH && !pre_expand_in.empty()) {
+        // ================================================================
+        // Branch A: pre_expand_in -- this path always performs PMA expansion.
+        // Keep alloc request/response ordering through ctx_fifo.  No task
+        // branch is entered while an expansion response is outstanding.
+        // ================================================================
+        if (ctx_count > 0) {
+            if (!alloc_rsp_stream.empty()) {
+                pre_expand_finish(hbm, hbm_edge_buffer, data_off, vi_wo,
+                                  alloc_cmd_stream, alloc_rsp_stream,
+                                  pre_ack_out,
+                                  onchip_buffer, edge_buffer,
+                                  ctx_fifo[ctx_head]);
+                ctx_head = (ctx_head + 1) % PRE_EXPAND_CTX_DEPTH;
+                ctx_count--;
+            } else {
+                ap_wait();
+            }
+            continue;
+        }
+        if (!pre_expand_in.empty()) {
             pre_expand_cmd_t cmd = pre_expand_in.read();
             pre_expand_ctx_t begin_ctx;
-            if (pre_expand_begin(hbm, data_off, vi_wo, cmd, alloc_cmd_stream, begin_ctx)) {
+            // pre_expand_in is generated only for commands that need growth;
+            // retain the no-op ACK as a defensive fallback.
+            if (pre_expand_begin(hbm, data_off, vi_wo,
+                                 cmd, alloc_cmd_stream, begin_ctx)) {
                 ctx_fifo[ctx_tail] = begin_ctx;
                 ctx_tail = (ctx_tail + 1) % PRE_EXPAND_CTX_DEPTH;
                 ctx_count++;
             } else {
-                pre_ack_out.write((ap_uint<32>)cmd.pma);   // 无需扩容, 立即解锁
+                pre_ack_out.write((ap_uint<32>)cmd.pma);
             }
             continue;
         }
-        // (b) 队头 alloc rsp 已到 → finish (搬移) + 解锁。rsp 与 ctx 同序,
-        //     队头即最早 fire 的 alloc。
-        if (ctx_count > 0 && !alloc_rsp_stream.empty()) {
-            pre_expand_finish(hbm, hbm_edge_buffer, data_off, vi_wo,
-                              alloc_cmd_stream, alloc_rsp_stream,
-                              onchip_buffer, edge_buffer,
-                              ctx_fifo[ctx_head]);
-            pre_ack_out.write((ap_uint<32>)ctx_fifo[ctx_head].pma);
-            ctx_head = (ctx_head + 1) % PRE_EXPAND_CTX_DEPTH;
-            ctx_count--;
-            continue;
+
+        // ================================================================
+        // Branch B: task_in_1/task_in_2 -- no PMA expansion on this path.
+        // The two FIFOs are only arbitration inputs; one task object is used
+        // and processed to completion before polling the next worker.
+        // ================================================================
+        // Task-level nonblocking round-robin arbitration.  Each loop polls one
+        // preferred FIFO and, if empty, the other FIFO.  No FIFO is allowed to
+        // block the other worker; after every poll/processed task the
+        // preferred worker changes.
+        rebalance_task_t task;
+        int task_source = -1;
+        if (task_rr == 0) {
+            if (!stop_seen[0] && task_in_1.read_nb(task)) task_source = 0;
+            else if (!stop_seen[1] && task_in_2.read_nb(task)) task_source = 1;
+        } else {
+            if (!stop_seen[1] && task_in_2.read_nb(task)) task_source = 1;
+            else if (!stop_seen[0] && task_in_1.read_nb(task)) task_source = 0;
         }
-        // 有在飞 pre_expand (等 rsp) 时不碰 rebalance — rebalance 的 alloc 会
-        // 打乱 alloc_rsp 与 ctx 队列的顺序对应。pre_expand 优先 (task_reader 阻塞)。
-        if (ctx_count > 0) { ap_wait(); continue; }
-        if (task_fifo.empty()) { ap_wait(); continue; }
-        rebalance_task_t task = task_fifo.read();
-        ap_int<22> payload = task.payload;
+        if (task_source < 0) { ap_wait(); continue; }
+        // Switch only after successfully selecting a task.  If both FIFOs
+        // are empty, keep the current round-robin position unchanged.
+        task_rr = (unsigned)((task_source + 1) % 2);
         pma_idx_u_t pm  = task.pma;
-        if (payload == -1) {  // STOP
-            // Signal alloc_access that redistribution is done with allocations
-            ap_axiu<96,0,0,0> scmd;
-            scmd.data = 0;              // opcode=STOP (bits [95:64] = 0)
-            scmd.last = 1;
-            scmd.keep = 0xFFF;
-            alloc_cmd_stream.write(scmd);
-            ap_uint<32> stop_ack = (ap_uint<32>)(-1);
-            redist_ack_out.write(stop_ack);
-            break;
-        }
-        if (payload == -2) {  // ACK marker: batch done → enlarge remap state stale
-            if (pm == remap_pma) remap_delta = 0;
-            redist_ack_out.write((ap_uint<32>)pm);
+        if (task.payload_count == 0) {  // STOP from one of the two BS workers
+            stop_seen[task_source] = true;
+            if (stop_seen[0] && stop_seen[1]) {
+                ap_axiu<96,0,0,0> scmd;
+                scmd.data = 0;
+                scmd.last = 1;
+                scmd.keep = 0xFFF;
+                alloc_cmd_stream.write(scmd);
+                redist_ack_out_1.write((ap_uint<32>)-1);
+                redist_ack_out_2.write((ap_uint<32>)-1);
+                break;
+            }
             continue;
         }
-
-        // Remap tasks that predate an ENLARGE of the same PMA
+        // One task may contain several affected segments.  Process the array
+        // serially on this single redistribution core, then return one ACK
+        // for the whole PMA task.
+        for (int payload_i = 0;
+             payload_i < task.payload_count;
+             payload_i++) {
+        // task payloads are emitted only after the PMA header has been
+        // committed by bs_insert.  This branch never performs ENLARGE.
         ap_uint<32> task_start_byte = task.start_byte;
-        ap_uint<512> task_range_word = 0;
-        segment_idx_t task_seg = payload;
-        if (remap_delta > 0 && pm == remap_pma && task_start_byte == remap_old_start) {
-            task_start_byte = remap_new_start;
-            task_range_word = remap_range_word;
-            if (task_seg >= remap_boundary) task_seg += remap_delta;
-        } else if (pm != remap_pma || task_start_byte != remap_old_start) {
-            remap_delta = 0;   // different layout context → drop stale state
-        }
-
-        // Normal overflow tasks re-read header[0] from HBM.  Only a same-PMA
-        // ENLARGE remap reuses the cached range word; keeping this 512-bit
-        // value out of rebalance_task_t removes a high-fanout AXIS path.
+        ap_uint<512> task_range_word = task.range_word;
+        segment_idx_t task_seg = task.payload[payload_i];
         long long pma_boff = task_start_byte - data_off;
         long long hbase = pma_boff / 64;
         if (task_range_word == 0)
@@ -958,58 +1008,37 @@ void redistribution_phase(
         int vertex_end   = vertex_range[owner_vertex];
         int vertex_segs  = vertex_end - vertex_start;
 
-        // Vertex total edges (direct HBM VC reads) → ENLARGE vs redistribute decision
-        int vertex_total = 0;
-        for (int s = vertex_start; s < vertex_end; s++) {
-            #pragma HLS PIPELINE II=1
-            vertex_total += hbm_vc_read(hbm, vc_hbm_base, s);
+        if (vertex_segs <= 1) continue;
+
+        // SEGMENT_REBALANCE: power-of-2 group expansion around overflow segment
+        int left, right, total;
+        find_redistribution_range(hbm, vc_hbm_base,
+                                  vertex_start, vertex_end, overflow_seg,
+                                  left, right, total);
+
+        // --- Redistribute group [left, right) via collect + redistribute ---
+        int group_size     = right - left;
+        int segment_words  = group_size * SEG_WORDS_PER_SEG;
+        long long segment_base =
+            (pma_boff + HEADER_BYTES + (long long)total_hlp * 64 +
+             (long long)left * SEG_BYTES) / 64;
+
+        // 1) Collect valid edges from segments [left, right) → hbm_edge_buffer
+        int collected_edges = 0;
+        collect_edge_to_buffer(hbm, hbm_edge_buffer,
+            segment_base, segment_base + segment_words, collected_edges,
+            onchip_buffer, edge_buffer);
+
+        // 2) Redistribute edges evenly → hbm (also updates VC + FE helpers inline)
+        redistribute_edge_from_hbm(hbm, hbm_edge_buffer,
+            segment_base, segment_base + segment_words, collected_edges,
+            0,  // edge_offset: read from start of hbm_buffer
+            left, vc_hbm_base, fe_hbm_base,
+            onchip_buffer, edge_buffer);
+
         }
-
-        if (vertex_total > density_capacity(vertex_segs)) {
-            // ENLARGE: whole vertex over capacity → grow the PMA
-            long long new_start = 0;
-            ap_uint<512> new_range = 0;
-            pma_redist_enlarge(hbm, hbm_edge_buffer, data_off, vi_wo, pm,
-                               task_start_byte, task_range_word,
-                               owner_vertex, vertex_segs,
-                               alloc_cmd_stream, alloc_rsp_stream,
-                               onchip_buffer, edge_buffer,
-                               new_start, new_range);
-
-            // Record layout change so remaining same-batch tasks get remapped
-            remap_pma = pm;
-            remap_old_start = task_start_byte;
-            remap_boundary = vertex_end;
-            remap_delta = (vertex_segs <= 4) ? 3 * vertex_segs : vertex_segs;
-            remap_new_start = new_start;
-            remap_range_word = new_range;
-        } else {
-            if (vertex_segs <= 1) continue;
-
-            // SEGMENT_REBALANCE: power-of-2 group expansion around overflow segment
-            int left, right, total;
-            find_redistribution_range(hbm, vc_hbm_base,
-                                      vertex_start, vertex_end, overflow_seg,
-                                      left, right, total);
-
-            // --- Redistribute group [left, right) via collect + redistribute ---
-            int group_size     = right - left;
-            int segment_words  = group_size * SEG_WORDS_PER_SEG;
-            long long segment_base   = (pma_boff + HEADER_BYTES + (long long)total_hlp * 64 + (long long)left * SEG_BYTES) / 64;
-
-            // 1) Collect valid edges from segments [left, right) → hbm_edge_buffer
-            int collected_edges = 0;
-            collect_edge_to_buffer(hbm, hbm_edge_buffer,
-                segment_base, segment_base + segment_words, collected_edges,
-                onchip_buffer, edge_buffer);
-
-            // 2) Redistribute edges evenly → hbm (also updates VC + FE helpers inline)
-            redistribute_edge_from_hbm(hbm, hbm_edge_buffer,
-                segment_base, segment_base + segment_words, collected_edges,
-                0,  // edge_offset: read from start of hbm_buffer
-                left, vc_hbm_base, fe_hbm_base,
-                onchip_buffer, edge_buffer);
-        }
+        // The array is complete, so return one PMA ACK directly.
+        send_redist_ack_by_pma(pm, redist_ack_out_1, redist_ack_out_2);
     }
 }
 
@@ -1024,9 +1053,11 @@ extern "C"
         long long pma_vecinfo_start,
         long long bitmap_offset,
         hls::stream<pre_expand_cmd_t>& pre_expand_in,
-        hls::stream<rebalance_task_t>& task_in,
+        hls::stream<rebalance_task_t>& task_in_1,
+        hls::stream<rebalance_task_t>& task_in_2,
         hls::stream<ap_uint<32>>& pre_ack_out,
-        hls::stream<ap_uint<32>>& redist_ack_out,
+        hls::stream<ap_uint<32>>& redist_ack_out_1,
+        hls::stream<ap_uint<32>>& redist_ack_out_2,
         hls::stream<ap_axiu<96,0,0,0>>& alloc_cmd_stream,
         hls::stream<ap_axiu<64,0,0,0>>& alloc_rsp_stream,
         hls::stream<ap_axiu<ALLOC_BITMAP_STORAGE_WORD_BITS,0,0,0>>& bitmap_init)
@@ -1041,9 +1072,11 @@ extern "C"
         #pragma HLS INTERFACE s_axilite port=bitmap_offset bundle=control
         #pragma HLS INTERFACE s_axilite port=return bundle=control
         #pragma HLS INTERFACE axis port=pre_expand_in
-        #pragma HLS INTERFACE axis port=task_in
+        #pragma HLS INTERFACE axis port=task_in_1
+        #pragma HLS INTERFACE axis port=task_in_2
         #pragma HLS INTERFACE axis port=pre_ack_out
-        #pragma HLS INTERFACE axis port=redist_ack_out
+        #pragma HLS INTERFACE axis port=redist_ack_out_1
+        #pragma HLS INTERFACE axis port=redist_ack_out_2
         #pragma HLS INTERFACE axis port=alloc_cmd_stream
         #pragma HLS INTERFACE axis port=alloc_rsp_stream
         #pragma HLS INTERFACE axis port=bitmap_init
@@ -1055,7 +1088,8 @@ extern "C"
 
         redistribution_phase(hbm_red, hbm_buffer_for_red,
                              pma_raw_data_start, pma_vecinfo_start / 64,
-                             task_in, redist_ack_out,
+                             task_in_1, task_in_2,
+                             redist_ack_out_1, redist_ack_out_2,
                              pre_expand_in, pre_ack_out,
                              alloc_cmd_stream, alloc_rsp_stream);
     }

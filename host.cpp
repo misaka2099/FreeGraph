@@ -19,7 +19,11 @@
 bool final_match = true;
 // The split host supports only the ONLINE generator -> router -> worker path.
 // USE_STANDALONE_MODE is supplied by the split-host build targets.
-
+#ifdef USE_2BS_PATH
+#define HOST_BS_COUNT (CHANNEL_NUM * 2)
+#else
+#define HOST_BS_COUNT CHANNEL_NUM
+#endif
 const bool kBaseGraphReadOnlyTest = false;
 const bool kVertexOnlyTest = false;
 const bool kShuffleSameTimestampOps = true; // Set to true to enable shuffling of operations with the same timestamp
@@ -273,14 +277,19 @@ int main(int argc, char** argv)
         if (!try_add_kernel(task_reader_kernels, "task_reader_kernel:{task_reader_kernel_" + std::to_string(i) + "}")) break;
 #if defined(USE_MERGE_BS_PATH)
         if (!try_add_kernel(bs_insert_kernels, "bs_insert_kernel:{bs_insert_kernel_" + std::to_string(i) + "}")) break;
-        if (!try_add_kernel(merge_pipeline_kernels, "merge_pipeline:{merge_pipeline_" + std::to_string(i) + "}")) break;
 #elif defined(USE_MERGE_PATH)
         if (!try_add_kernel(bs_insert_kernels, "merge_pipeline:{merge_pipeline_" + std::to_string(i) + "}")) break;
+#else
+#if defined(USE_2BS_PATH)
+        for (int bs = 0; bs < 2; ++bs) {
+            if (!try_add_kernel(bs_insert_kernels, "bs_insert_kernel:{bs_insert_kernel_" + std::to_string((i - 1) * 2 + bs + 1) + "}")) break;
+        }
 #else
         if (!try_add_kernel(bs_insert_kernels, "bs_insert_kernel:{bs_insert_kernel_" + std::to_string(i) + "}")) break;
 #endif
         if (!try_add_kernel(redistribution_kernels, "redistribution_kernel:{redistribution_kernel_" + std::to_string(i) + "}")) break;
     }
+#endif
     // pma_insert_edge_kernels 别名 bs_insert (主 worker, 用于 HBM BO 的 group_id)
     pma_insert_edge_kernels = bs_insert_kernels;
 #else
@@ -311,7 +320,7 @@ int main(int argc, char** argv)
               << " channels=" << CHANNEL_NUM << std::endl;
     if (pma_read_worker_kernels.size() < static_cast<size_t>(CHANNEL_NUM) ||
         task_reader_kernels.size() < static_cast<size_t>(CHANNEL_NUM) ||
-        bs_insert_kernels.size() < static_cast<size_t>(CHANNEL_NUM) ||
+        bs_insert_kernels.size() < static_cast<size_t>(HOST_BS_COUNT) ||
         redistribution_kernels.size() < static_cast<size_t>(CHANNEL_NUM) ||
         alloc_access_kernels.size() < static_cast<size_t>(CHANNEL_NUM)
 #if defined(USE_MERGE_BS_PATH)
@@ -386,7 +395,9 @@ int main(int argc, char** argv)
     run_merge_pipeline_kernels.reserve(merge_pipeline_kernels.size());
     for (auto &k : merge_pipeline_kernels) run_merge_pipeline_kernels.emplace_back(k);
 #endif
+#if !defined(USE_2BS_PATH)
     xrt::run run_router_stream(update_message_router_stream_kernel);
+#endif
     bool update_stop_sent = false;
     std::cout << "task_reader / redistribution kernels are launched..." << std::endl;
 #endif
@@ -577,6 +588,21 @@ int main(int argc, char** argv)
         {
             auto& run = run_task_reader_kernels[ch];
             run.set_arg(0, ch);             // worker_id
+            if (HOST_BS_COUNT > CHANNEL_NUM) {
+                run.set_arg(1, ch_bufs[ch]);
+                run.set_arg(2, pma_raw_data_start);
+                run.set_arg(3, pma_vecinfo_start);
+            }
+        }
+#endif
+#if defined(USE_2BS_PATH)
+        {
+            auto& run = run_pma_insert_edge_kernels[ch + CHANNEL_NUM];
+            int a = 0;
+            run.set_arg(a++, ch_bufs[ch]);
+            run.set_arg(a++, ch_bufs[ch]);
+            run.set_arg(a++, pma_raw_data_start);
+            run.set_arg(a++, pma_vecinfo_start);
         }
 #endif
         // redistribution: hbm_red, hbm_buffer_for_red + 标量
@@ -1134,7 +1160,9 @@ int main(int argc, char** argv)
     for (auto &r : run_merge_pipeline_kernels) { r.start(); }
 #endif
     for (auto &r : run_task_reader_kernels) { r.start(); }
+#if !defined(USE_2BS_PATH)
     run_router_stream.start();
+#endif
     // Read pipeline remains lazy and starts only for verification.
 #else
     for (auto &r : run_alloc_access_kernels) { r.start(); }
@@ -1388,7 +1416,9 @@ int main(int argc, char** argv)
         r.wait();
     }
 #else
+#if !defined(USE_2BS_PATH)
     run_router_stream.wait();
+#endif
     for (auto &r : run_task_reader_kernels) { r.wait(); }
     for (auto &r : run_pma_insert_edge_kernels) { r.wait(); }
 #if defined(USE_MERGE_BS_PATH)
