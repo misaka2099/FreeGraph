@@ -8,7 +8,7 @@
 
 VPP ?= v++
 PLATFORM ?= /opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm
-INCLUDES := -I/home/sail/lyf/pma_demo/stream/include
+INCLUDES := -I$(abspath ../include)
 
 # Target can be hw_emu or hw
 TARGET ?= sw_emu

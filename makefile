@@ -1,8 +1,9 @@
 VPP ?= v++
-include ./ReGraph/global_para.mk
-PLATFORM ?= /xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm
-INCLUDES := -I/home/sail/lyf/pma_demo/stream/include
+PLATFORM ?= /opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm
+INCLUDES := -I$(abspath include)
 TARGET ?= sw_emu
+# Gate 路由策略 (data_type.h decide_merge_path): 0=全走 bs, 1=全走 merge, 2=新边数>16 走 merge
+GATE_POLICY ?= 2
 MEMKERNEL_DIR := ./memkernel
 PMA_KERNEL_DIR := ./pma_kernel
 REGRAPH_KERNEL_DIR := ./ReGraph/xokernels
@@ -18,7 +19,6 @@ WHOLE_SYSTEM_XCLBIN := $(TARGET)_whole_system.xclbin
 WHOLE_SYSTEM_XO_FILE := $(MEM_XO_FILES) $(WHOLE_PMA_XO_FILES) $(REGRAPH_XO_FILES)
 CONFIG_FILES := system.cfg
 all: subdirs $(XCLBIN_FILE)
-
 # Compilation-time algorithm selection (default bfs). Usage: `make whole_host ALGO=pr` or `ALGO=cc`
 ALGO ?= bfs
 ifeq ($(ALGO),pr)
@@ -59,6 +59,120 @@ $(XCLBIN_FILE): $(ALL_XO_FILES)
 BFS_PMA_XO_FILES := $(addprefix $(PMA_KERNEL_DIR)/, update_message_generator.xo update_message_router.xo pma_insert_edge.xo pma_read_router_kernel.xo pma_read_worker_kernel.xo pma_read_merger_kernel.xo bfs_kernel.xo)
 BFS_ALL_XO_FILES = $(MEM_XO_FILES) $(BFS_PMA_XO_FILES)
 BFS_XCLBIN := bfs_$(TARGET).xclbin
+
+# ---- Split mode: pma_insert_edge_standalone 拆成 3 内核 (task_reader / bs_insert / redistribution), online-only ----
+SPLIT_PMA_XO_FILES := $(addprefix $(PMA_KERNEL_DIR)/, task_reader_kernel.xo bs_insert_kernel.xo redistribution_kernel.xo update_message_generator.xo update_message_router_stream.xo pma_read_router_kernel.xo pma_read_worker_kernel.xo pma_read_merger_kernel.xo check_kernel.xo)
+SPLIT_ALL_XO := $(MEM_XO_FILES) $(SPLIT_PMA_XO_FILES)
+SPLIT_XCLBIN := $(TARGET)_split.xclbin
+split: subdirs_split $(SPLIT_XCLBIN)
+subdirs_split:
+	$(MAKE) -C memkernel all TARGET=$(TARGET)
+	$(MAKE) -C pma_kernel task_reader_kernel.xo bs_insert_kernel.xo redistribution_kernel.xo TARGET=$(TARGET)
+	$(MAKE) -C pma_kernel update_message_generator.xo update_message_router_stream.xo pma_read_router_kernel.xo pma_read_worker_kernel.xo pma_read_merger_kernel.xo check_kernel.xo TARGET=$(TARGET)
+$(SPLIT_XCLBIN): $(SPLIT_ALL_XO)
+	@echo "---- Linking split system to create $(SPLIT_XCLBIN) ----"
+	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --kernel_frequency=150 --save-temps --config system_split.cfg -o $@ $^
+	@echo "---- Split link done: $@ ----"
+
+# ---- Merge mode: 插入流程用 merge 归并替换 bs (task_reader / merge_pipeline / redistribution) ----
+MERGE_PMA_XO_FILES := $(addprefix $(PMA_KERNEL_DIR)/, task_reader_kernel.xo merge_pipeline.xo redistribution_kernel.xo update_message_generator.xo update_message_router_stream.xo pma_read_router_kernel.xo pma_read_worker_kernel.xo pma_read_merger_kernel.xo check_kernel.xo)
+MERGE_ALL_XO := $(MEM_XO_FILES) $(MERGE_PMA_XO_FILES)
+MERGE_XCLBIN := $(TARGET)_merge.xclbin
+merge: subdirs_merge $(MERGE_XCLBIN)
+subdirs_merge:
+	$(MAKE) -C memkernel all TARGET=$(TARGET)
+	$(MAKE) -C pma_kernel task_reader_kernel.xo merge_pipeline.xo redistribution_kernel.xo TARGET=$(TARGET)
+	$(MAKE) -C pma_kernel update_message_generator.xo update_message_router_stream.xo pma_read_router_kernel.xo pma_read_worker_kernel.xo pma_read_merger_kernel.xo check_kernel.xo TARGET=$(TARGET)
+$(MERGE_XCLBIN): $(MERGE_ALL_XO)
+	@echo "---- Linking merge system to create $(MERGE_XCLBIN) ----"
+	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --kernel_frequency=150 --save-temps --config system_merge.cfg -o $@ $^
+	@echo "---- Merge link done: $@ ----"
+
+# ---- Merge+BS 整合系统: task_reader gate 路由 (decide_merge_path), bs+merge 双路径 ----
+# 三个测试策略用 GATE_POLICY 编译开关 (0=全 bs, 1=全 merge, 2=新边数>16 走 merge, 默认)。
+# 旧 system_merge.cfg / system_split.cfg 已被整合系统取代: task_reader 现在双 edge 流,
+# 单流 cfg 不再可用。
+MERGE_BS_PMA_XO_FILES := $(addprefix $(PMA_KERNEL_DIR)/, task_reader_kernel.xo bs_insert_kernel.xo merge_pipeline.xo redistribution_kernel.xo update_message_generator.xo update_message_router_stream.xo pma_read_router_kernel.xo pma_read_worker_kernel.xo pma_read_merger_kernel.xo check_kernel.xo)
+MERGE_BS_ALL_XO := $(MEM_XO_FILES) $(MERGE_BS_PMA_XO_FILES)
+MERGE_BS_XCLBIN := $(TARGET)_merge_bs.xclbin
+merge_bs: subdirs_merge_bs $(MERGE_BS_XCLBIN)
+subdirs_merge_bs:
+	$(MAKE) -C memkernel alloc_access_kernel.xo TARGET=$(TARGET)
+	$(MAKE) -C pma_kernel task_reader_kernel.xo bs_insert_kernel.xo merge_pipeline.xo redistribution_kernel.xo TARGET=$(TARGET) GATE_POLICY=$(GATE_POLICY)
+	$(MAKE) -C pma_kernel update_message_generator.xo update_message_router_stream.xo pma_read_router_kernel.xo pma_read_worker_kernel.xo pma_read_merger_kernel.xo check_kernel.xo TARGET=$(TARGET)
+$(MERGE_BS_XCLBIN): $(MERGE_BS_ALL_XO)
+	@echo "---- Linking merge+bs system to create $(MERGE_BS_XCLBIN) ----"
+	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --kernel_frequency=150 --save-temps --config system_merge_bs.cfg -o $@ $^
+	@echo "---- Merge+bs link done: $@ ----"
+
+# ---- Two-BS shared-redistribution system ----
+TWO_BS_PMA_XO_FILES := $(addprefix $(PMA_KERNEL_DIR)/, task_reader_kernel.xo bs_insert_kernel.xo redistribution_kernel.xo update_message_generator.xo update_message_router_stream.xo pma_read_router_kernel.xo pma_read_worker_kernel.xo pma_read_merger_kernel.xo check_kernel.xo)
+TWO_BS_ALL_XO := $(MEM_XO_FILES) $(TWO_BS_PMA_XO_FILES)
+TWO_BS_XCLBIN := $(TARGET)_2bs.xclbin
+
+.PHONY: 2bs subdirs_2bs
+2bs: subdirs_2bs $(TWO_BS_XCLBIN)
+subdirs_2bs:
+	$(MAKE) -C memkernel alloc_access_kernel.xo TARGET=$(TARGET)
+	$(MAKE) -C pma_kernel task_reader_kernel.xo bs_insert_kernel.xo redistribution_kernel.xo TARGET=$(TARGET)
+	$(MAKE) -C pma_kernel update_message_generator.xo update_message_router_stream.xo pma_read_router_kernel.xo pma_read_worker_kernel.xo pma_read_merger_kernel.xo check_kernel.xo TARGET=$(TARGET)
+$(TWO_BS_XCLBIN): subdirs_2bs system_2bs.cfg
+	$(VPP) -l -g -t $(TARGET) $(INCLUDES) -I$(abspath pma_kernel) --platform $(PLATFORM) --kernel_frequency=150 --save-temps --config system_2bs.cfg -o $@ $(TWO_BS_ALL_XO)
+
+# ---- Two-BS update-only system ----
+TWO_BS_UPDATE_ONLY_PMA_XO_FILES := $(addprefix $(PMA_KERNEL_DIR)/, task_reader_kernel.xo bs_insert_kernel.xo redistribution_kernel.xo update_message_generator.xo update_message_router_stream.xo)
+TWO_BS_UPDATE_ONLY_ALL_XO := $(MEM_XO_FILES) $(TWO_BS_UPDATE_ONLY_PMA_XO_FILES)
+TWO_BS_UPDATE_ONLY_XCLBIN := $(TARGET)_2bs_update_only.xclbin
+
+.PHONY: 2bs_update_only subdirs_2bs_update_only
+2bs_update_only: subdirs_2bs_update_only $(TWO_BS_UPDATE_ONLY_XCLBIN)
+subdirs_2bs_update_only:
+	$(MAKE) -C memkernel alloc_access_kernel.xo TARGET=$(TARGET)
+	$(MAKE) -C pma_kernel task_reader_kernel.xo bs_insert_kernel.xo redistribution_kernel.xo TARGET=$(TARGET)
+	$(MAKE) -C pma_kernel update_message_generator.xo update_message_router_stream.xo TARGET=$(TARGET)
+$(TWO_BS_UPDATE_ONLY_XCLBIN): subdirs_2bs_update_only system_2bs_update_only.cfg
+	$(VPP) -l -g -t $(TARGET) $(INCLUDES) -I$(abspath pma_kernel) --platform $(PLATFORM) --kernel_frequency=150 --save-temps --config system_2bs_update_only.cfg -o $@ $(TWO_BS_UPDATE_ONLY_ALL_XO)
+
+
+# ---- Update-only merge+BS image (host verification image) ----
+# This image omits the read/check pipeline and contains only the update path.
+# The formula target uses task_reader's analytical Update Path Selection
+# policy (GATE_POLICY=2 by default).
+UPDATE_ONLY_PMA_XO_FILES := $(addprefix $(PMA_KERNEL_DIR)/, task_reader_kernel.xo bs_insert_kernel.xo merge_pipeline.xo redistribution_kernel.xo update_message_generator.xo update_message_router_stream.xo)
+UPDATE_ONLY_ALL_XO := $(MEM_XO_FILES) $(UPDATE_ONLY_PMA_XO_FILES)
+UPDATE_ONLY_FORMULA_XCLBIN := $(TARGET)_merge_bs_update_only_formula.xclbin
+UPDATE_ONLY_XCLBIN := $(TARGET)_merge_bs_update_only.xclbin
+
+.PHONY: merge_bs_update_only merge_bs_update_only_formula subdirs_merge_bs_update_only
+merge_bs_update_only: subdirs_merge_bs_update_only $(UPDATE_ONLY_XCLBIN)
+merge_bs_update_only_formula: subdirs_merge_bs_update_only $(UPDATE_ONLY_FORMULA_XCLBIN)
+
+subdirs_merge_bs_update_only:
+	$(MAKE) -C memkernel alloc_access_kernel.xo TARGET=$(TARGET)
+	$(MAKE) -C pma_kernel task_reader_kernel.xo bs_insert_kernel.xo merge_pipeline.xo redistribution_kernel.xo TARGET=$(TARGET) GATE_POLICY=$(GATE_POLICY)
+	$(MAKE) -C pma_kernel update_message_generator.xo update_message_router_stream.xo TARGET=$(TARGET)
+
+$(UPDATE_ONLY_XCLBIN): $(UPDATE_ONLY_ALL_XO) system_merge_bs_update_only.cfg
+	@echo "---- Linking update-only system to create $@ ----"
+	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --kernel_frequency=150 --save-temps --config system_merge_bs_update_only.cfg -o $@ $(UPDATE_ONLY_ALL_XO)
+	@echo "---- Update-only link done: $@ ----"
+
+$(UPDATE_ONLY_FORMULA_XCLBIN): $(UPDATE_ONLY_ALL_XO) system_merge_bs_update_only.cfg
+	@echo "---- Linking formula update-only system to create $@ ----"
+	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --kernel_frequency=150 --save-temps --config system_merge_bs_update_only.cfg -o $@ $(UPDATE_ONLY_ALL_XO)
+	@echo "---- Formula update-only link done: $@ ----"
+
+host_merge_bs: host.cpp
+	g++ -std=c++17 -DUSE_STANDALONE_MODE -DUSE_MERGE_BS_PATH $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
+
+# ---- Update-only host for the merge+BS image ----
+# The update-only xclbin omits read/check CUs, so compile the matching host
+# with HOST_VERIFY_ONLY_IMAGE and require --host-verify at runtime.
+host_2bs_update_only: host_update_only.cpp
+	g++ -std=c++17 -DHOST_VERIFY_ONLY_IMAGE -DUSE_STANDALONE_MODE -DUSE_2BS_PATH -DHOST_SKIP_AP_CTRL_NONE_ROUTER -I/home/sail/lyf/pma_demo/stream_2bs/include -I/opt/xilinx/xrt/include -L/opt/xilinx/xrt/lib -I/home/tools/Vitis_HLS/2022.2/include -o host_2bs_update_only host_update_only.cpp -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
+host_merge_bs_update_only: host_update_only.cpp
+	g++ -std=c++17 -DHOST_VERIFY_ONLY_IMAGE -DUSE_STANDALONE_MODE -DHOST_SKIP_AP_CTRL_NONE_ROUTER -DUSE_MERGE_BS_PATH $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
+
 bfs: subdirs_bfs $(BFS_XCLBIN)
 subdirs_bfs:
 	$(MAKE) -C memkernel all TARGET=$(TARGET)
@@ -90,6 +204,12 @@ dummy_system:
 	$(MAKE) $(DUMMY_XCLBIN)
 host: host.cpp
 	g++ -std=c++17 $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
+host_2bs: host.cpp
+	g++ -std=c++17 -DUSE_STANDALONE_MODE -DUSE_2BS_PATH -I/home/sail/lyf/pma_demo/stream_2bs/include -I/opt/xilinx/xrt/include -L/opt/xilinx/xrt/lib -I/home/tools/Vitis_HLS/2022.2/include -o host_2bs host.cpp -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
+host_standalone: host.cpp
+	g++ -std=c++17 -DUSE_STANDALONE_MODE $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
+host_merge: host.cpp
+	g++ -std=c++17 -DUSE_STANDALONE_MODE -DUSE_MERGE_PATH $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
 real_host: real_host.cpp
 	g++ -std=c++17 $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
 test_host: test_host.cpp
@@ -114,6 +234,25 @@ test_hbm_build_time: test_hbm_build_time.cpp
 # ---- BFS Host ----
 bfs_host: bfs_host.cpp
 	g++ -std=c++17 $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
+
+# ---- Read pipeline + ReGraph compute (regraph_read) ----
+# 只含读管线 + ReGraph 计算链: 无 router/merger/insert/check。
+# edgeReader 直接驱动 CHANNEL_NUM 个 pma_read_worker_kernel。
+READ_REGRAPH_XO_FILES := $(PMA_KERNEL_DIR)/pma_read_worker_kernel.xo \
+	$(REGRAPH_KERNEL_DIR)/edgeReader.xo $(REGRAPH_KERNEL_DIR)/littleKernelScatterGather.xo \
+	$(REGRAPH_KERNEL_DIR)/kernelLittleGSMerger.xo $(REGRAPH_KERNEL_DIR)/kernelApply.xo \
+	$(REGRAPH_KERNEL_DIR)/kernelHBMWrapper.xo
+READ_REGRAPH_XCLBIN := $(TARGET)_regraph_read.xclbin
+regraph_read: subdirs_regraph_read $(READ_REGRAPH_XCLBIN)
+subdirs_regraph_read:
+	$(MAKE) -C pma_kernel pma_read_worker_kernel.xo TARGET=$(TARGET)
+	$(MAKE) -C ReGraph -f makekernel.mk xokernels/edgeReader.xo xokernels/littleKernelScatterGather.xo xokernels/kernelLittleGSMerger.xo xokernels/kernelApply.xo xokernels/kernelHBMWrapper.xo TARGET=$(TARGET) WHOLE_HOST_DEFINES="$(WHOLE_HOST_DEFINES)" ALGO=$(ALGO)
+$(READ_REGRAPH_XCLBIN): $(READ_REGRAPH_XO_FILES)
+	@echo "---- Linking read-pipeline + ReGraph system to create $@ ----"
+	$(VPP) -l -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) --kernel_frequency=150 --save-temps --config regraph_read_system.cfg -o $@ $^
+	@echo "---- Link done: $@ ----"
+regraph_read_host: regraph_read_host.cpp
+	g++ -std=c++17 $(INCLUDES) -I${XILINX_XRT}/include -L${XILINX_XRT}/lib -I${XILINX_VITIS_HLS}/include -DLITTLE_KERNEL_DST_BUFFER_SIZE=$(LITTLE_KERNEL_DST_BUFFER_SIZE) -o $@ $^ -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl -g
 
 clean:
 	$(MAKE) -C memkernel clean

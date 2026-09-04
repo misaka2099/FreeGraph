@@ -31,7 +31,11 @@ extern "C"
 
         if (mode == 1) {  // COO mode — scan all vertices
             READ_COMMAND_STREAM cmd;
-            cmd.data = PMA_GET_ALL_OUT_EDGE_COO;
+            cmd.data.range(31, 0)  = PMA_GET_ALL_OUT_EDGE_COO;
+            cmd.data.range(63, 32) = (ap_uint<32>)-1;   // src_start: 不限
+            cmd.data.range(95, 64) = (ap_uint<32>)-1;   // src_end: 不限
+            cmd.data.range(127, 96)  = (ap_uint<32>)-1; // dst_start: 不限
+            cmd.data.range(159, 128) = (ap_uint<32>)-1; // dst_end: 不限
             cmd.last = 0;
             #pragma HLS protocol fixed
             ap_wait();
@@ -101,8 +105,9 @@ extern "C"
             #pragma HLS protocol fixed
             ap_wait();
             // Read completion packet from merger via data_to_coo_stream;
-            // edge count has already been written to *num_edges by merger via m_axi.
+            // merger sends total_edge_count as the data field.
             ap_axiu<64,0,0,0> completion = data_to_coo_stream.read();
+            *num_edges = (int)completion.data;
         }
         if (last)
             cmd_to_read.write({.data = PMA_STOP, .last = 1});

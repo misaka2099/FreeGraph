@@ -17,10 +17,17 @@
 #include <fstream>
 #include <random>
 bool final_match = true;
+// The split host supports only the ONLINE generator -> router -> worker path.
+// USE_STANDALONE_MODE is supplied by the split-host build targets.
+#ifdef USE_2BS_PATH
+#define HOST_BS_COUNT (CHANNEL_NUM * 2)
+#else
+#define HOST_BS_COUNT CHANNEL_NUM
+#endif
 const bool kBaseGraphReadOnlyTest = false;
 const bool kVertexOnlyTest = false;
 const bool kShuffleSameTimestampOps = true; // Set to true to enable shuffling of operations with the same timestamp
-const bool kMismatchfileOutput = false; // Set to true to output mismatch details to files
+const bool kMismatchfileOutput = true; // Set to true to output mismatch details to files
 void print_pma(
     int pma_idx,
     VEC_INFO* pos_info,
@@ -33,22 +40,25 @@ void print_pma(
     PMA_HEADER header;
     memcpy(&header, storage + start, sizeof(PMA_HEADER));
     int total_segs = header.vertex_range[VERTEX_PER_PMA - 1];
-    int hpw = (total_segs + 7) / 8;
-    // Helper: hpw × 64 bytes after header, 8 entries per 512-bit word
-    ap_uint<512>* helper_ptr = (ap_uint<512>*)(storage + start + sizeof(PMA_HEADER));
-    // Segment data: after helper
-    int *pma_data = (int*)(storage + start + sizeof(PMA_HEADER) + hpw * 64);
+    int fe_words = fe_words_for(total_segs);
+    int vc_words = vc_words_for(total_segs);
+    int hlp_words = fe_words + vc_words;  // = hlp_total_words(total_segs)
+    // SoA layout: FE area (1 entry per segment, 16 entries/word) + VC area (same)
+    ap_uint<512>* fe_ptr = (ap_uint<512>*)(storage + start + sizeof(PMA_HEADER));
+    ap_uint<512>* vc_ptr = fe_ptr + fe_words;
+    // Segment data: after header + helper
+    int *pma_data = (int*)(storage + start + sizeof(PMA_HEADER) + hlp_words * 64);
 
     std::cout << "=== PMA " << pma_idx << " start=" << start << " len=" << len
-              << " total_segs=" << total_segs << " hpw=" << hpw << " ===" << std::endl;
+              << " total_segs=" << total_segs << " hlp_words=" << hlp_words << " ===" << std::endl;
 
-    // Print helper
+    // Print helper (SoA: FE and VC separate, 16 entries per 512-bit word)
     std::cout << "  Helper (first_edge, valid_count):" << std::endl;
     for (int s = 0; s < total_segs; s++) {
-        int w = s / 8, slot = s % 8;
-        ap_uint<64> entry = helper_ptr[w].range(slot * 64 + 63, slot * 64);
-        int first_edge = (int)entry.range(31, 0);
-        int vc = (int)entry.range(63, 32);
+        int fe_word = s / FE_SOA_ENTRIES_PER_WORD, fe_slot = s % FE_SOA_ENTRIES_PER_WORD;
+        int vc_word = s / VC_SOA_ENTRIES_PER_WORD, vc_slot = s % VC_SOA_ENTRIES_PER_WORD;
+        int first_edge = (int)fe_ptr[fe_word].range(fe_slot * 32 + 31, fe_slot * 32);
+        int vc         = (int)vc_ptr[vc_word].range(vc_slot * 32 + 31, vc_slot * 32);
         std::cout << "    seg" << s << ": fe=" << first_edge << " vc=" << vc;
         if ((s + 1) % 4 == 0 || s == total_segs - 1) std::cout << std::endl;
         else std::cout << " | ";
@@ -77,13 +87,14 @@ void print_pma(
 int main(int argc, char** argv)
 {
     if (argc < 3) {
-        std::cerr << "Usage: " << argv[0] << " <xclbin> <graph> [device_index=1]" << std::endl;
+        std::cerr << "Usage: " << argv[0] << " <xclbin> <graph>" << std::endl;
         return 1;
     }
 
-
     std::string xclbin_name = argv[1];
     std::string graph_path = argv[2];
+    const bool host_verify = (argc >= 4 && std::string(argv[3]) == "--host-verify");
+    std::cout << "Update path: ONLINE (generator→router→worker)" << std::endl;
     auto start_init = std::chrono::high_resolution_clock::now();
     
     std::fstream graph_file(graph_path);
@@ -220,7 +231,13 @@ int main(int argc, char** argv)
     }
     auto pma_read_merger_kernel = xrt::kernel(device, uuid, "pma_read_merger_kernel:{pma_read_merger_kernel_1}");
     auto update_message_generator_kernel = xrt::kernel(device, uuid, "update_message_generator");
+#ifndef USE_STANDALONE_MODE
     auto update_message_router_kernel = xrt::kernel(device, uuid, "update_message_router");
+#endif
+#ifdef USE_STANDALONE_MODE
+    auto update_message_router_stream_kernel = xrt::kernel(device, uuid,
+        "update_message_router_stream:{update_message_router_stream_1}");
+#endif
     auto try_add_kernel = [&](std::vector<xrt::kernel> &kernels, const std::string &name) -> bool {
         try {
             kernels.emplace_back(device, uuid, name);
@@ -244,12 +261,45 @@ int main(int argc, char** argv)
     // }
     std::vector<xrt::kernel> pma_insert_edge_kernels;
     pma_insert_edge_kernels.reserve(CHANNEL_NUM);
+#ifdef USE_STANDALONE_MODE
+    // Split mode: 3 内核类型 per channel (task_reader / bs_insert / redistribution)
+    std::vector<xrt::kernel> task_reader_kernels;
+    std::vector<xrt::kernel> bs_insert_kernels;
+    std::vector<xrt::kernel> redistribution_kernels;
+    task_reader_kernels.reserve(CHANNEL_NUM);
+    bs_insert_kernels.reserve(CHANNEL_NUM);
+    redistribution_kernels.reserve(CHANNEL_NUM);
+#if defined(USE_MERGE_BS_PATH)
+    std::vector<xrt::kernel> merge_pipeline_kernels;
+    merge_pipeline_kernels.reserve(CHANNEL_NUM);
+#endif
+    for (int i = 1; i <= CHANNEL_NUM; ++i) {
+        if (!try_add_kernel(task_reader_kernels, "task_reader_kernel:{task_reader_kernel_" + std::to_string(i) + "}")) break;
+#if defined(USE_MERGE_BS_PATH)
+        if (!try_add_kernel(bs_insert_kernels, "bs_insert_kernel:{bs_insert_kernel_" + std::to_string(i) + "}")) break;
+#elif defined(USE_MERGE_PATH)
+        if (!try_add_kernel(bs_insert_kernels, "merge_pipeline:{merge_pipeline_" + std::to_string(i) + "}")) break;
+#else
+#if defined(USE_2BS_PATH)
+        for (int bs = 0; bs < 2; ++bs) {
+            if (!try_add_kernel(bs_insert_kernels, "bs_insert_kernel:{bs_insert_kernel_" + std::to_string((i - 1) * 2 + bs + 1) + "}")) break;
+        }
+#else
+        if (!try_add_kernel(bs_insert_kernels, "bs_insert_kernel:{bs_insert_kernel_" + std::to_string(i) + "}")) break;
+#endif
+        if (!try_add_kernel(redistribution_kernels, "redistribution_kernel:{redistribution_kernel_" + std::to_string(i) + "}")) break;
+    }
+#endif
+    // pma_insert_edge_kernels 别名 bs_insert (主 worker, 用于 HBM BO 的 group_id)
+    pma_insert_edge_kernels = bs_insert_kernels;
+#else
     for (int i = 1; i <= CHANNEL_NUM; ++i)
     {
         if (!try_add_kernel(pma_insert_edge_kernels, "pma_insert_edge:{pma_insert_edge_" + std::to_string(i) + "}")) {
             break;
         }
     }
+#endif
     auto check_kernel = xrt::kernel(device, uuid, "check_kernel");
     // alloc_access kernels (bitmap allocator)
     std::vector<xrt::kernel> alloc_access_kernels;
@@ -261,6 +311,36 @@ int main(int argc, char** argv)
         }
     }
     std::cout << "[DBG] L233: Kernels loaded successfully." << std::endl;
+#ifdef USE_STANDALONE_MODE
+    std::cout << "[DBG] L234: task_reader=" << task_reader_kernels.size()
+              << " bs_insert=" << bs_insert_kernels.size()
+              << " redistribution=" << redistribution_kernels.size()
+              << " read_worker=" << pma_read_worker_kernels.size()
+              << " alloc_access=" << alloc_access_kernels.size()
+              << " channels=" << CHANNEL_NUM << std::endl;
+    if (pma_read_worker_kernels.size() < static_cast<size_t>(CHANNEL_NUM) ||
+        task_reader_kernels.size() < static_cast<size_t>(CHANNEL_NUM) ||
+        bs_insert_kernels.size() < static_cast<size_t>(HOST_BS_COUNT) ||
+        redistribution_kernels.size() < static_cast<size_t>(CHANNEL_NUM) ||
+        alloc_access_kernels.size() < static_cast<size_t>(CHANNEL_NUM)
+#if defined(USE_MERGE_BS_PATH)
+        || merge_pipeline_kernels.size() < static_cast<size_t>(CHANNEL_NUM)
+#endif
+        )
+    {
+        std::cerr << "Kernel loading incomplete for read/insert/alloc CUs; aborting before launch." << std::endl;
+        std::cerr << "Loaded read workers: " << pma_read_worker_kernels.size()
+                  << ", task_reader: " << task_reader_kernels.size()
+                  << ", bs_insert: " << bs_insert_kernels.size()
+                  << ", redistribution: " << redistribution_kernels.size()
+                  << ", alloc access kernels: " << alloc_access_kernels.size()
+#if defined(USE_MERGE_BS_PATH)
+                  << ", merge_pipeline: " << merge_pipeline_kernels.size()
+#endif
+                  << std::endl;
+        return 1;
+    }
+#else
     std::cout << "[DBG] L234: insert_edge=" << pma_insert_edge_kernels.size()
               << " read_worker=" << pma_read_worker_kernels.size()
               << " alloc_access=" << alloc_access_kernels.size()
@@ -275,6 +355,7 @@ int main(int argc, char** argv)
                   << ", alloc access kernels: " << alloc_access_kernels.size() << std::endl;
         return 1;
     }
+#endif
     std::cout << "Launching kernels..." << std::endl;
     auto run_pma_read_router_kernel = xrt::run(pma_read_router_kernel);
     std::vector<xrt::run> run_pma_read_worker_kernels;
@@ -284,8 +365,10 @@ int main(int argc, char** argv)
         run_pma_read_worker_kernels.emplace_back(k);
     }
     auto run_pma_read_merger_kernel = xrt::run(pma_read_merger_kernel);
+#ifndef USE_STANDALONE_MODE
     auto run_update_message_router_kernel = xrt::run(update_message_router_kernel);
     std::cout << "Update message router kernel is launched..." << std::endl;
+#endif
     // std::vector<xrt::run> run_pma_insert_vertex_kernels;
     // run_pma_insert_vertex_kernels.reserve(pma_insert_vertex_kernels.size());
 
@@ -300,6 +383,24 @@ int main(int argc, char** argv)
     {
         run_pma_insert_edge_kernels.emplace_back(k);
     }
+#ifdef USE_STANDALONE_MODE
+    std::vector<xrt::run> run_task_reader_kernels;
+    std::vector<xrt::run> run_redistribution_kernels;
+    run_task_reader_kernels.reserve(task_reader_kernels.size());
+    run_redistribution_kernels.reserve(redistribution_kernels.size());
+    for (auto &k : task_reader_kernels) run_task_reader_kernels.emplace_back(k);
+    for (auto &k : redistribution_kernels) run_redistribution_kernels.emplace_back(k);
+#if defined(USE_MERGE_BS_PATH)
+    std::vector<xrt::run> run_merge_pipeline_kernels;
+    run_merge_pipeline_kernels.reserve(merge_pipeline_kernels.size());
+    for (auto &k : merge_pipeline_kernels) run_merge_pipeline_kernels.emplace_back(k);
+#endif
+#if !defined(USE_2BS_PATH)
+    xrt::run run_router_stream(update_message_router_stream_kernel);
+#endif
+    bool update_stop_sent = false;
+    std::cout << "task_reader / redistribution kernels are launched..." << std::endl;
+#endif
     std::cout << "PMA insert edge kernels are launched..." << std::endl;
     std::vector<xrt::run> run_alloc_access_kernels;
     run_alloc_access_kernels.reserve(alloc_access_kernels.size());
@@ -311,21 +412,21 @@ int main(int argc, char** argv)
 
     auto start_buffer = std::chrono::high_resolution_clock::now();
     // === m_axi HBM layout per channel ===
-    constexpr size_t PMA_DATA_SIZE   = 220 * 1024 * 1024;  // must match kernel's PMA_DATA_SIZE
-    constexpr size_t VECINFO_SIZE    =  10 * 1024 * 1024;
-    constexpr size_t BM_SIZE         =   6 * 1024 * 1024;
+    constexpr size_t PMA_DATA_SIZE   = 440 * 1024 * 1024;  // 每 m_axi 端口 2 个 HBM 通道 (2×220MB)
+    constexpr size_t VECINFO_SIZE    =  20 * 1024 * 1024;
+    constexpr size_t BM_SIZE         =  12 * 1024 * 1024;
     constexpr size_t CHANNEL_TOTAL   = PMA_DATA_SIZE + VECINFO_SIZE + BM_SIZE;
-    int pma_raw_data_start = 0;
-    int pma_vecinfo_start  = PMA_DATA_SIZE;
-    int pma_bm_start       = PMA_DATA_SIZE + VECINFO_SIZE;
+    long long pma_raw_data_start = 0;
+    long long pma_vecinfo_start  = PMA_DATA_SIZE;
+    long long pma_bm_start       = PMA_DATA_SIZE + VECINFO_SIZE;
+    std::vector<int> allocator_initial_segments(CHANNEL_NUM, 0);
 
     // --- One BO per channel — all 3 m_axi ports share the same bank ---
     std::vector<xrt::bo> ch_bufs; ch_bufs.reserve(CHANNEL_NUM);
     for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
         auto& k = pma_insert_edge_kernels[ch];
         std::cout << "[DBG] L290: ch=" << ch
-                  << " gid0=" << k.group_id(0) << " gid1=" << k.group_id(1)
-                  << " gid2=" << k.group_id(2) << std::endl;
+                  << " gid0=" << k.group_id(0) << " gid1=" << k.group_id(1) << std::endl;
         ch_bufs.emplace_back(device, CHANNEL_TOTAL, k.group_id(0));
     }
 
@@ -348,14 +449,22 @@ int main(int argc, char** argv)
         std::fill_n(vec_info_ptrs[ch], MAX_PMA_NUM, 0);
     }
 
-    // Separate bitmap BOs (one per channel) — alloc_access owns these
+    // Bitmap: standalone uses ch_bufs bitmap area (no separate BO);
+    // non-standalone keeps separate bo_bitmap for alloc_access m_axi.
     std::vector<xrt::bo> bo_bitmap; bo_bitmap.reserve(CHANNEL_NUM);
+    std::vector<BYTE*> bitmap_ptrs; bitmap_ptrs.reserve(CHANNEL_NUM);
+#ifdef USE_STANDALONE_MODE
+    // Standalone: bitmap lives in ch_bufs at offset pma_bm_start.
+    // alloc_access gets initial bitmap via stream from insert_edge worker.
+    for (int ch = 0; ch < CHANNEL_NUM; ++ch)
+        bitmap_ptrs.push_back(hbm_base_addresses[ch] + pma_bm_start);
+#else
     for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
         bo_bitmap.emplace_back(device, BM_SIZE, alloc_access_kernels[ch].group_id(0));
     }
-    std::vector<BYTE*> bitmap_ptrs; bitmap_ptrs.reserve(CHANNEL_NUM);
     for (int ch = 0; ch < CHANNEL_NUM; ++ch)
         bitmap_ptrs.push_back(bo_bitmap[ch].map<BYTE*>());
+#endif
 
     std::cout << "[DBG] L327: hbm_base_addresses mapped, ch0=" << (void*)hbm_base_addresses[0] << " vi=" << (void*)vec_info_ptrs[0] << " bm=" << (void*)bitmap_ptrs[0] << std::endl;
     // Generator buffers
@@ -368,15 +477,46 @@ int main(int argc, char** argv)
         std::cout << "Update buffer length: " << edge_buffer_len << std::endl;
     }
 
+    // Generator buffers (src, dst, opcode) — used in both modes
     auto bo_src = xrt::bo(device, sizeof(int) * edge_buffer_len, update_message_generator_kernel.group_id(1));
     auto bo_dst = xrt::bo(device, sizeof(int) * edge_buffer_len, update_message_generator_kernel.group_id(2));
     auto bo_opcode = xrt::bo(device, sizeof(int) * edge_buffer_len, update_message_generator_kernel.group_id(3));
-    std::cout << "Buffers for edge operations allocated." << std::endl;
+    std::cout << "Generator buffers for edge operations allocated ("
+              << (sizeof(int)*edge_buffer_len/1024) << "KB each)." << std::endl;
     int* src_ptr = bo_src.map<int*>();
     int* dst_ptr = bo_dst.map<int*>();
     int* opcode_ptr = bo_opcode.map<int*>();
 
-    // 边数据按阶段写入，初始不填充
+#ifdef USE_STANDALONE_MODE
+    // Edge buffer for redistribution (collect_edge_to_buffer / redistribute_edge_from_hbm)
+    // hbm_buffer_for_red 是 redistribution_kernel 的第 2 个 m_axi 端口 (group_id 1)
+    constexpr size_t kEdgeBufWords = 4096;  // ≥ ceil(1024 * 63 / 16)
+    constexpr size_t kEdgeBufBytes = kEdgeBufWords * 64;
+    std::vector<xrt::bo> bo_edge_bufs;
+    bo_edge_bufs.reserve(CHANNEL_NUM);
+    for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
+        bo_edge_bufs.emplace_back(device, kEdgeBufBytes,
+                                   XRT_BO_FLAGS_DEV_ONLY,
+                                   redistribution_kernels[ch].group_id(1));
+    }
+#if defined(USE_MERGE_PATH) || defined(USE_MERGE_BS_PATH)
+    // merge_pipeline 的归并缓冲 (hbm_buffer, 独立备用 bank HBM[10/11/12])
+    std::vector<xrt::bo> bo_merge_bufs;
+    bo_merge_bufs.reserve(CHANNEL_NUM);
+    for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
+#if defined(USE_MERGE_BS_PATH)
+        bo_merge_bufs.emplace_back(device, kEdgeBufBytes,
+                                   XRT_BO_FLAGS_DEV_ONLY,
+                                   merge_pipeline_kernels[ch].group_id(1));
+#else
+        bo_merge_bufs.emplace_back(device, kEdgeBufBytes,
+                                   XRT_BO_FLAGS_DEV_ONLY,
+                                   bs_insert_kernels[ch].group_id(1));
+#endif
+    }
+#endif
+    (void)edge_buffer_len;
+#endif
 
     std::cout << "[DBG] L335: Allocating COO buffers, buffer_len=" << buffer_len << " (" << (sizeof(int)*buffer_len/1024/1024) << "MB each)" << std::endl;
     auto bo_coo_src = xrt::bo(device, sizeof(int) * buffer_len, check_kernel.group_id(0));
@@ -401,18 +541,93 @@ int main(int argc, char** argv)
 
     // --- Set kernel arguments for m_axi ports ---
     for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
+#ifdef USE_STANDALONE_MODE
+#if defined(USE_MERGE_BS_PATH)
+        // bs_insert: hbm_bs, hbm_rw (同 channel bank)
+        {
+            auto& run = run_pma_insert_edge_kernels[ch];
+            int a = 0;
+            run.set_arg(a++, ch_bufs[ch]);  // hbm_bs
+            run.set_arg(a++, ch_bufs[ch]);  // hbm_rw
+            run.set_arg(a++, pma_raw_data_start);
+            run.set_arg(a++, pma_vecinfo_start);
+        }
+        // merge_pipeline: hbm_pma, hbm_buffer (独立备用 bank)
+        {
+            auto& run = run_merge_pipeline_kernels[ch];
+            int a = 0;
+            run.set_arg(a++, ch_bufs[ch]);       // hbm_pma
+            run.set_arg(a++, bo_merge_bufs[ch]); // hbm_buffer
+            run.set_arg(a++, pma_raw_data_start);
+            run.set_arg(a++, pma_vecinfo_start);
+        }
+        // task_reader: worker_id + gate m_axi (读 VEC_INFO/header/VC 供决策)
+        {
+            auto& run = run_task_reader_kernels[ch];
+            int a = 0;
+            run.set_arg(a++, ch);             // worker_id
+            run.set_arg(a++, ch_bufs[ch]);    // hbm_gate (同 channel bank)
+            run.set_arg(a++, pma_raw_data_start);
+            run.set_arg(a++, pma_vecinfo_start);
+        }
+#else
+        // 插入内核: bs_insert (hbm_bs/hbm_rw) 或 merge_pipeline (hbm_pma/hbm_buffer)
+        {
+            auto& run = run_pma_insert_edge_kernels[ch];
+            int a = 0;
+            run.set_arg(a++, ch_bufs[ch]);  // hbm_pma (merge) / hbm_bs (bs)
+#ifdef USE_MERGE_PATH
+            run.set_arg(a++, bo_merge_bufs[ch]);  // hbm_buffer (merge 归并缓冲, 独立 bank)
+#else
+            run.set_arg(a++, ch_bufs[ch]);  // hbm_rw (bs)
+#endif
+            run.set_arg(a++, pma_raw_data_start);
+            run.set_arg(a++, pma_vecinfo_start);
+        }
+        // task_reader: 纯流, 只有 worker_id 标量
+        {
+            auto& run = run_task_reader_kernels[ch];
+            run.set_arg(0, ch);             // worker_id
+            if (HOST_BS_COUNT > CHANNEL_NUM) {
+                run.set_arg(1, ch_bufs[ch]);
+                run.set_arg(2, pma_raw_data_start);
+                run.set_arg(3, pma_vecinfo_start);
+            }
+        }
+#endif
+#if defined(USE_2BS_PATH)
+        {
+            auto& run = run_pma_insert_edge_kernels[ch + CHANNEL_NUM];
+            int a = 0;
+            run.set_arg(a++, ch_bufs[ch]);
+            run.set_arg(a++, ch_bufs[ch]);
+            run.set_arg(a++, pma_raw_data_start);
+            run.set_arg(a++, pma_vecinfo_start);
+        }
+#endif
+        // redistribution: hbm_red, hbm_buffer_for_red + 标量
+        {
+            auto& run = run_redistribution_kernels[ch];
+            int a = 0;
+            run.set_arg(a++, ch_bufs[ch]);       // hbm_red
+            run.set_arg(a++, bo_edge_bufs[ch]);  // hbm_buffer_for_red
+            run.set_arg(a++, pma_raw_data_start);
+            run.set_arg(a++, pma_vecinfo_start);
+            run.set_arg(a++, pma_bm_start);      // bitmap_offset
+            // pre_expand_in/task_in/pre_ack_out/redist_ack_out/alloc_cmd/rsp/bitmap_init: axis, no host set
+        }
+        std::cout << "[DBG] L373: split kernels args set for " << CHANNEL_NUM << " channels" << std::endl;
+#else
         auto& run = run_pma_insert_edge_kernels[ch];
         int a = 0;
         run.set_arg(a++, ch_bufs[ch]);  // hbm_gate
-        run.set_arg(a++, ch_bufs[ch]);  // hbm_bs0
-        run.set_arg(a++, ch_bufs[ch]);  // hbm_bs1
-        run.set_arg(a++, ch_bufs[ch]);  // hbm_bs2
-        run.set_arg(a++, ch_bufs[ch]);  // hbm_bs3
+        run.set_arg(a++, ch_bufs[ch]);  // hbm_bs
         run.set_arg(a++, ch_bufs[ch]);  // hbm_rw
         run.set_arg(a++, ch_bufs[ch]);  // hbm_red
-        std::cout << "[DBG] L373: insert_edge kernel args set (7 ports + 2 offsets) for " << CHANNEL_NUM << " channels" << std::endl;
+        std::cout << "[DBG] L373: insert_edge kernel args set (4 ports + 2 offsets) for " << CHANNEL_NUM << " channels" << std::endl;
         run.set_arg(a++, pma_raw_data_start);
         run.set_arg(a++, pma_vecinfo_start);
+#endif
     }
     for (int ch = 0; ch < static_cast<int>(run_pma_read_worker_kernels.size()); ++ch) {
         auto& run = run_pma_read_worker_kernels[ch];
@@ -423,20 +638,83 @@ int main(int argc, char** argv)
         run.set_arg(a++, pma_raw_data_start);
         run.set_arg(a++, pma_vecinfo_start);
     }
-    // Merger edge_count_ptr: shares bo_num_edges with check_kernel, merger writes edge count via m_axi
-    run_pma_read_merger_kernel.set_arg(4, bo_num_edges);
+    // Merger has no s_axilite args — edge count forwarded to check_kernel via stream
 
-    // alloc_access kernel args: bitmap BO (pointer already at bitmap start)
-    for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
-        run_alloc_access_kernels[ch].set_arg(0, bo_bitmap[ch]);
-    }
+    // alloc_access kernel args
+#ifdef USE_STANDALONE_MODE
+    // alloc_access has one scalar control argument; all bitmap/cmd/rsp ports
+    // remain AXIS connections in system_merge_bs.cfg.
+#else
+    // Online mode uses the same AXIS-only allocator interface.
+#endif
+
+    bool read_pipeline_started = false;
+    auto ensure_read_pipeline_started = [&]() {
+        if (read_pipeline_started) return;
+        std::cout << "Starting read pipeline on first verification request..." << std::endl;
+        for (auto &run_worker : run_pma_read_worker_kernels) run_worker.start();
+        run_pma_read_merger_kernel.start();
+        run_pma_read_router_kernel.start();
+        read_pipeline_started = true;
+    };
 
     auto verify_graph = [&](const std::vector<std::vector<int>>& expected_graph, int current_max_vertex, const std::string& label, bool last) -> double {
         std::cout << "Verifying " << label << "..." << std::endl;
         int check_vertex_range = std::max(current_max_vertex, base_max_vertex) + 1;
         std::vector<std::vector<int>> Updated_Graph(check_vertex_range);
 
-        auto run_check_kernel = xrt::run(check_kernel);
+        auto verify_start = std::chrono::high_resolution_clock::now();
+        double kernel_time = 0.0;
+        if (host_verify) {
+            // Host-only verification: synchronize the authoritative PMA HBM
+            // image and decode header/segment payloads directly on the CPU.
+            // This deliberately does not start the pma_read/check pipeline.
+            for (int ch = 0; ch < CHANNEL_NUM; ++ch)
+                ch_bufs[ch].sync(XCL_BO_SYNC_BO_FROM_DEVICE);
+            int pma_limit = (check_vertex_range + VERTEX_PER_PMA - 1) / VERTEX_PER_PMA;
+            for (int pma_idx = 0; pma_idx < pma_limit; ++pma_idx) {
+                int ch = pma_idx % CHANNEL_NUM;
+                VEC_INFO vi = vec_info_ptrs[ch][pma_idx];
+                int start = (int)vi.range(31, 0);
+                int len = (int)vi.range(63, 32);
+                if (len <= 0 || start < 0) continue;
+                PMA_HEADER header;
+                memcpy(&header, hbm_base_addresses[ch] + start, sizeof(PMA_HEADER));
+                int total_segs = header.vertex_range[VERTEX_PER_PMA - 1];
+                if (total_segs <= 0) continue;
+                int hlp_words = fe_words_for(total_segs) + vc_words_for(total_segs);
+                int* payload = reinterpret_cast<int*>(hbm_base_addresses[ch] + start
+                    + sizeof(PMA_HEADER) + hlp_words * 64);
+                for (int v = 0; v < VERTEX_PER_PMA; ++v) {
+                    int src = pma_idx * VERTEX_PER_PMA + v;
+                    if (src < 0 || src >= check_vertex_range) continue;
+                    int seg_start = v == 0 ? 0 : header.vertex_range[v - 1];
+                    int seg_end = header.vertex_range[v];
+                    for (int s = seg_start; s < seg_end; ++s) {
+                        int vc = payload[s * SEGMENT_SIZE + VALID_COUNT_IDX];
+                        if (vc < 0) vc = 0;
+                        if (vc > EDGE_SLOTS_PER_SEG) vc = EDGE_SLOTS_PER_SEG;
+                        for (int k = 0; k < vc; ++k) {
+                            int dst = payload[s * SEGMENT_SIZE + k];
+                            if (dst != UNUSED_ICON) Updated_Graph[src].push_back(dst);
+                        }
+                    }
+                }
+            }
+            auto verify_end = std::chrono::high_resolution_clock::now();
+            // Continue through the common comparison/reporting path below.
+            for (int i = 0; i < check_vertex_range; ++i) {
+                std::sort(Updated_Graph[i].begin(), Updated_Graph[i].end());
+                Updated_Graph[i].erase(std::unique(Updated_Graph[i].begin(), Updated_Graph[i].end()), Updated_Graph[i].end());
+            }
+            // The comparison/reporting block below owns final_match and
+            // mismatch files; return timing after it completes.
+            (void)verify_start;
+            (void)verify_end;
+        } else {
+            ensure_read_pipeline_started();
+
+            auto run_check_kernel = xrt::run(check_kernel);
         run_check_kernel.set_arg(0, bo_coo_src);
         run_check_kernel.set_arg(1, bo_coo_dst);
         run_check_kernel.set_arg(2, bo_num_edges);
@@ -467,21 +745,22 @@ int main(int argc, char** argv)
         bo_coo_dst.sync(XCL_BO_SYNC_BO_FROM_DEVICE);
 
         auto k_end = std::chrono::high_resolution_clock::now();
-        double kernel_time = std::chrono::duration<double>(k_end - k_start).count();
+        kernel_time = std::chrono::duration<double>(k_end - k_start).count();
         // ---- end kernel-only timing ----
 
-        // Build Updated_Graph from COO arrays
-        for (int i = 0; i < check_vertex_range; ++i) Updated_Graph[i].clear();
-        for (int id = 0; id < static_cast<int>(buffer_len); ++id) {
-            int s = coo_src_ptr[id];
-            int d = coo_dst_ptr[id];
-            if (s == -1 || d == -1) break;
-            if (s < 0 || s >= check_vertex_range) continue;
-            Updated_Graph[s].push_back(d);
-        }
-        for (int i = 0; i < check_vertex_range; ++i) {
-            std::sort(Updated_Graph[i].begin(), Updated_Graph[i].end());
-            Updated_Graph[i].erase(std::unique(Updated_Graph[i].begin(), Updated_Graph[i].end()), Updated_Graph[i].end());
+            // Build Updated_Graph from COO arrays
+            for (int i = 0; i < check_vertex_range; ++i) Updated_Graph[i].clear();
+            for (int id = 0; id < static_cast<int>(buffer_len); ++id) {
+                int s = coo_src_ptr[id];
+                int d = coo_dst_ptr[id];
+                if (s == -1 || d == -1) break;
+                if (s < 0 || s >= check_vertex_range) continue;
+                Updated_Graph[s].push_back(d);
+            }
+            for (int i = 0; i < check_vertex_range; ++i) {
+                std::sort(Updated_Graph[i].begin(), Updated_Graph[i].end());
+                Updated_Graph[i].erase(std::unique(Updated_Graph[i].begin(), Updated_Graph[i].end()), Updated_Graph[i].end());
+            }
         }
         bool all_match = true;
         std::string clean_label = label;
@@ -522,7 +801,9 @@ int main(int argc, char** argv)
                 std::cout << "See mismatch_" << clean_label << ".txt for details." << std::endl;
             }
         }
-        return kernel_time;
+        return host_verify
+            ? std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - verify_start).count()
+            : kernel_time;
     };
 
     auto add_base_graph_to_hbm = [&](int vertex_num, int edge_num) -> bool
@@ -561,7 +842,7 @@ int main(int argc, char** argv)
         // }
         // for(auto& neighbors : adj_neg) std::sort(neighbors.begin(), neighbors.end());
 
-        int current_addr_offset[CHANNEL_NUM];
+        long long current_addr_offset[CHANNEL_NUM];
         for (int i = 0; i < CHANNEL_NUM; ++i)
         {
             current_addr_offset[i] = 0;
@@ -572,12 +853,14 @@ int main(int argc, char** argv)
         for (int pma_idx = 0; pma_idx < total_pma_num; ++pma_idx)
         {
             BYTE* current_base_addr = hbm_base_addresses[pma_idx % CHANNEL_NUM];
-            int* current_offset = &current_addr_offset[pma_idx % CHANNEL_NUM];
+            long long* current_offset = &current_addr_offset[pma_idx % CHANNEL_NUM];
             int channel = pma_idx % CHANNEL_NUM;
             // POS Direction
             {
                 PMA_HEADER pos_header = {0};
-                std::vector<int> pos_data;
+                std::vector<int> fe_entries;
+                std::vector<int> vc_entries;
+                std::vector<int> segment_data;
                 
                 for (int i = 0 ; i < VERTEX_PER_PMA; i++)
                 {
@@ -612,16 +895,32 @@ int main(int argc, char** argv)
                     int neighbor_idx = 0;
                     for (int s = 0; s < total_segments; ++s) {
                         int valid_num = base_num + (s < extra_num ? 1 : 0);
+                        fe_entries.push_back(valid_num > 0 ? neighbors[neighbor_idx] : UNUSED_ICON);
+                        vc_entries.push_back(valid_num);
                         for (int k = 0; k < valid_num; ++k) {
-                            pos_data.push_back(neighbors[neighbor_idx++]);
+                            segment_data.push_back(neighbors[neighbor_idx++]);
                         }
                         for (int k = valid_num; k < EDGE_SLOTS_PER_SEG; ++k) {
-                            pos_data.push_back(UNUSED_ICON);
+                            segment_data.push_back(UNUSED_ICON);
                         }
                         // Slot VALID_COUNT_IDX (63) = valid_count
-                        pos_data.push_back(valid_num);
+                        segment_data.push_back(valid_num);
                     }
                 }
+
+                // FPGA layout is header + FE SoA + VC SoA + segment payload.
+                // Pad FE/VC to complete 512-bit words (16 int entries/word).
+                const int helper_words = (pos_header.vertex_range[VERTEX_PER_PMA - 1]
+                                          + FE_SOA_ENTRIES_PER_WORD - 1)
+                                         / FE_SOA_ENTRIES_PER_WORD;
+                std::vector<int> pos_data;
+                pos_data.reserve((helper_words * 2 * FE_SOA_ENTRIES_PER_WORD)
+                                 + segment_data.size());
+                fe_entries.resize(helper_words * FE_SOA_ENTRIES_PER_WORD, UNUSED_ICON);
+                vc_entries.resize(helper_words * VC_SOA_ENTRIES_PER_WORD, 0);
+                pos_data.insert(pos_data.end(), fe_entries.begin(), fe_entries.end());
+                pos_data.insert(pos_data.end(), vc_entries.begin(), vc_entries.end());
+                pos_data.insert(pos_data.end(), segment_data.begin(), segment_data.end());
                 
                 // Write to HBM
                 int total_len = sizeof(PMA_HEADER) + pos_data.size() * sizeof(int);
@@ -640,7 +939,7 @@ int main(int argc, char** argv)
                 memcpy(current_base_addr + *current_offset + sizeof(PMA_HEADER), pos_data.data(), pos_data.size() * sizeof(int));
 
                 // pos_vec_info_ptr[pma_idx] = (ap_uint<64>(total_len) << 32) | *current_offset;
-                vec_info_ptrs[channel][pma_idx] = (ap_uint<64>(total_len) << 32) | *current_offset;
+                vec_info_ptrs[channel][pma_idx] = (ap_uint<64>(total_len) << 32) | (ap_uint<32>)*current_offset;
                 
                 *current_offset += aligned_len;
                 // Align to 64 bytes
@@ -688,9 +987,11 @@ int main(int argc, char** argv)
         for (int ch = 0; ch < CHANNEL_NUM; ++ch)
         {
         std::cout << "[DBG] L640: PMA init complete, max offset per ch: " << current_addr_offset[0] << ", " << (CHANNEL_NUM>1?current_addr_offset[1]:0) << std::endl;
-            int total_blocks = (current_addr_offset[ch] + INIT_VEC_LEN_IN_BYTE - 1) / INIT_VEC_LEN_IN_BYTE;
-            int full_bytes = total_blocks / 8;
-            int rem_bits = total_blocks % 8;
+            long long total_blocks = (current_addr_offset[ch] + INIT_VEC_LEN_IN_BYTE - 1) / INIT_VEC_LEN_IN_BYTE;
+            allocator_initial_segments[ch] = static_cast<int>(
+                total_blocks % ALLOC_BITMAP_TOTAL_BLOCKS);
+            long long full_bytes = total_blocks / 8;
+            int rem_bits = (int)(total_blocks % 8);
             memset(bitmap_ptrs[ch], 0xFF, full_bytes);
             if (rem_bits > 0)
                 bitmap_ptrs[ch][full_bytes] = (BYTE)((1 << rem_bits) - 1);
@@ -701,7 +1002,9 @@ int main(int argc, char** argv)
 
         // Sync modified buffers to device
         for (int ch = 0; ch < CHANNEL_NUM; ++ch) { ch_bufs[ch].sync(XCL_BO_SYNC_BO_TO_DEVICE); }
+#ifndef USE_STANDALONE_MODE
         for (int ch = 0; ch < CHANNEL_NUM; ++ch) { bo_bitmap[ch].sync(XCL_BO_SYNC_BO_TO_DEVICE); }
+#endif
 
         auto end_cpu_preprocess = std::chrono::high_resolution_clock::now();
         std::chrono::duration<double> elapsed_cpu_preprocess = end_cpu_preprocess - start_cpu_preprocess;
@@ -721,6 +1024,49 @@ int main(int argc, char** argv)
     // std::cout << "Incremental edge/vertex ops (non-insert-vertex): " << incremental_edges << std::endl;
     std::cout << "Expected max vertex after update: " << (max_vertex_idx + 1) << std::endl;
 
+#ifdef USE_STANDALONE_MODE
+    // --- Standalone (split): ONLINE path only ---
+    //   边走 generator→router_stream→task_reader.online_in, 无 task_buffer/DIRECT。
+    auto load_edge_batch = [&](const std::vector<Operation>& batch_ops) -> int {
+        // ---- ONLINE path only: fill generator buffers ----
+        int count = std::min((int)batch_ops.size(), (int)edge_buffer_len);
+        for (int i = 0; i < count; i++) {
+            src_ptr[i] = batch_ops[i].src;
+            dst_ptr[i] = batch_ops[i].dst;
+            opcode_ptr[i] = batch_ops[i].opcode;
+        }
+        std::cout << "[standalone] online edges: " << count << std::endl;
+        return count;
+    };
+
+    // Router and workers remain active across FLUSH barriers.  Each generator
+    // invocation waits for the three worker completion ACKs via the router.
+    auto run_update_batch = [&](int gen_edge_count, const std::string& label, bool last) -> double {
+        auto phase_start = std::chrono::high_resolution_clock::now();
+
+        // 参数已在初始化阶段 set (worker_id/offsets/bitmap_offset 每批不变), 无需重设。
+
+        xrt::run run_generator(update_message_generator_kernel);
+        bo_src.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        bo_dst.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        bo_opcode.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+        run_generator.set_arg(0, gen_edge_count);
+        run_generator.set_arg(1, bo_src);
+        run_generator.set_arg(2, bo_dst);
+        run_generator.set_arg(3, bo_opcode);
+        run_generator.set_arg(4, static_cast<int>(last));
+        run_generator.start();
+        run_generator.wait();
+        if (last) update_stop_sent = true;
+
+        auto phase_end = std::chrono::high_resolution_clock::now();
+        std::chrono::duration<double> elapsed = phase_end - phase_start;
+        std::cout << label << " edges=" << gen_edge_count
+                  << ", time=" << elapsed.count() << " s (persistent split)" << std::endl;
+        return elapsed.count();
+    };
+#else
+    // --- Original: load edges into generator buffers ---
     auto load_edge_batch = [&](const std::vector<Operation>& batch_ops) -> int {
         size_t edge_idx = 0;
         for (const auto &op : batch_ops)
@@ -766,7 +1112,7 @@ int main(int argc, char** argv)
         // Only start the Generator for this batch.
         run_update_message_generator_kernel.start();
 
-        // Generator waits for ACK from Router internally, so when it finishes, 
+        // Generator waits for ACK from Router internally, so when it finishes,
         // the batch is guaranteed to be processed by downstream kernels.
         run_update_message_generator_kernel.wait();
 
@@ -776,6 +1122,7 @@ int main(int argc, char** argv)
                   << ", time=" << elapsed.count() << " s" << std::endl;
         return elapsed.count();
     };
+#endif
 
     // 1. Load base graph into HBM (ts == -1 edges) BEFORE starting kernels
     if (base_max_vertex >= 0) {
@@ -791,20 +1138,40 @@ int main(int argc, char** argv)
             memset(bitmap_ptrs[ch], 0, BM_SIZE);
         }
         for (int ch = 0; ch < CHANNEL_NUM; ++ch) { ch_bufs[ch].sync(XCL_BO_SYNC_BO_TO_DEVICE); }
+#ifndef USE_STANDALONE_MODE
         for (int ch = 0; ch < CHANNEL_NUM; ++ch) { bo_bitmap[ch].sync(XCL_BO_SYNC_BO_TO_DEVICE); }
+#endif
+    }
+
+    // Base PMAs are packed sequentially per channel.  The first free segment
+    // is therefore the best initial next-fit cursor for that channel.
+    for (int ch = 0; ch < static_cast<int>(run_alloc_access_kernels.size()); ++ch) {
+        run_alloc_access_kernels[ch].set_arg(0, allocator_initial_segments[ch]);
     }
 
     // 2. Start Long-Running (Keep Alive) Kernels
+#ifdef USE_STANDALONE_MODE
+    // Start the complete consumer chain before the router so its three output
+    // streams are ready before generator sends the first command.
+    for (auto &r : run_alloc_access_kernels) { r.start(); }
+    for (auto &r : run_redistribution_kernels) { r.start(); }
+    for (auto &r : run_pma_insert_edge_kernels) { r.start(); }
+#if defined(USE_MERGE_BS_PATH)
+    for (auto &r : run_merge_pipeline_kernels) { r.start(); }
+#endif
+    for (auto &r : run_task_reader_kernels) { r.start(); }
+#if !defined(USE_2BS_PATH)
+    run_router_stream.start();
+#endif
+    // Read pipeline remains lazy and starts only for verification.
+#else
     for (auto &r : run_alloc_access_kernels) { r.start(); }
     for (auto &r : run_pma_insert_edge_kernels) { r.start(); }
     run_update_message_router_kernel.start();
-    for (auto &run_worker : run_pma_read_worker_kernels) { run_worker.start(); }
-    run_pma_read_merger_kernel.start();
-    run_pma_read_router_kernel.start();
-
     bo_src.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     bo_dst.sync(XCL_BO_SYNC_BO_TO_DEVICE);
     bo_opcode.sync(XCL_BO_SYNC_BO_TO_DEVICE);
+#endif
 
     // Start from BaseGraph — FPGA has base edges in HBM
     std::vector<std::vector<int>> runtime_graph = BaseGraph;
@@ -840,6 +1207,7 @@ int main(int argc, char** argv)
     timing_log << "batch,edges,update_time_s,read_time_s" << std::endl;
     int batch_idx = 0;
 
+#ifndef USE_STANDALONE_MODE
     auto send_update_stop_only = [&]() {
         auto run_update_message_generator_kernel = xrt::run(update_message_generator_kernel);
         run_update_message_generator_kernel.set_arg(0, 0); // add_vertex_num
@@ -853,6 +1221,19 @@ int main(int argc, char** argv)
         run_update_message_generator_kernel.start();
         run_update_message_generator_kernel.wait();
     };
+#endif
+#ifdef USE_STANDALONE_MODE
+    // Send STOP through the already-running persistent pipeline.
+    auto send_stop_to_workers = [&]() {
+        auto run_g = xrt::run(update_message_generator_kernel);
+        run_g.set_arg(0, 0); run_g.set_arg(1, bo_src);
+        run_g.set_arg(2, bo_dst); run_g.set_arg(3, bo_opcode);
+        run_g.set_arg(4, 1);  // last=1
+        run_g.start();
+        run_g.wait();
+        update_stop_sent = true;
+    };
+#endif
     if (kBaseGraphReadOnlyTest)
     {
         if (!Graph.empty())
@@ -864,7 +1245,13 @@ int main(int argc, char** argv)
             std::cout << "Base graph verification skipped (no vertices)." << std::endl;
         }
         // No incremental updates in this mode; send an explicit stop to update pipeline.
+#ifndef USE_STANDALONE_MODE
         send_update_stop_only();
+#else
+        // Standalone: 总是发 STOP 关闭 worker 的 online 流 —
+        // task_reader 的收波循环 (online_in.read) 阻塞等 STOP, 不发则死锁。
+        send_stop_to_workers();
+#endif
     }
     else
     {
@@ -987,7 +1374,7 @@ int main(int argc, char** argv)
                     int first_vtx = -1;
                     while (std::getline(mf, line)) {
                         if (line.rfind("MISMATCH AT VERTEX ", 0) == 0) {
-                            first_vtx = std::stoi(line.substr(20));
+                            first_vtx = std::stoi(line.substr(19));
                             break;
                         }
                     }
@@ -997,7 +1384,7 @@ int main(int argc, char** argv)
                         int ch = pma_idx % CHANNEL_NUM;
 
                         // Sync HBM + vecinfo back from device
-        for (int ch = 0; ch < CHANNEL_NUM; ++ch) { ch_bufs[ch].sync(XCL_BO_SYNC_BO_TO_DEVICE); }
+                        for (int ch = 0; ch < CHANNEL_NUM; ++ch) { ch_bufs[ch].sync(XCL_BO_SYNC_BO_FROM_DEVICE); }
 
                         VEC_INFO vi = vec_info_ptrs[ch][pma_idx];
                         int start = (int)vi.range(31, 0);
@@ -1013,8 +1400,12 @@ int main(int argc, char** argv)
             }
         }
     }
+#ifdef USE_STANDALONE_MODE
+    if (!update_stop_sent) send_stop_to_workers();
+#endif
 
     std::cout << "Waiting for long-running kernels to finish..." << std::endl;
+#ifndef USE_STANDALONE_MODE
     run_update_message_router_kernel.wait();
     for (auto &r : run_pma_insert_edge_kernels)
     {
@@ -1024,6 +1415,18 @@ int main(int argc, char** argv)
     {
         r.wait();
     }
+#else
+#if !defined(USE_2BS_PATH)
+    run_router_stream.wait();
+#endif
+    for (auto &r : run_task_reader_kernels) { r.wait(); }
+    for (auto &r : run_pma_insert_edge_kernels) { r.wait(); }
+#if defined(USE_MERGE_BS_PATH)
+    for (auto &r : run_merge_pipeline_kernels) { r.wait(); }
+#endif
+    for (auto &r : run_redistribution_kernels) { r.wait(); }
+    for (auto &r : run_alloc_access_kernels) { r.wait(); }
+#endif
     // for (auto &r : run_pma_insert_vertex_kernels)
     // {
     //     r.wait();
@@ -1043,12 +1446,11 @@ int main(int argc, char** argv)
 
     std::cout << "Waiting service kernels to drain and exit by finish protocol..." << std::endl;
     // alloc_access & mem_access removed
-    run_pma_read_router_kernel.wait();
-    for (auto &run_worker : run_pma_read_worker_kernels)
-    {
-        run_worker.wait();
+    if (read_pipeline_started) {
+        run_pma_read_router_kernel.wait();
+        for (auto &run_worker : run_pma_read_worker_kernels) run_worker.wait();
+        run_pma_read_merger_kernel.wait();
     }
-    run_pma_read_merger_kernel.wait();
 
     std::cout << "Dumping device PMA state (vecinfo + HBM) ..." << std::endl;
     for (int ch = 0; ch < CHANNEL_NUM; ++ch) {
