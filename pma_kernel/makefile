@@ -10,7 +10,7 @@ KERNELS = update_message_generator update_message_router_stream pma_insert_edge 
 XO_FILES := $(patsubst %,%.xo,$(KERNELS))
 .PHONY: all clean help
 all: $(XO_FILES)
-INCLUDE_HEADERS := $(abspath ../include/data_type.h) $(abspath ../include/debug.h)
+INCLUDE_HEADERS := $(abspath ../include/data_type.h) $(abspath ../include/debug.h) $(abspath ../include/gate_model_lut.h)
 
 %.xo: %.cpp $(INCLUDE_HEADERS)
 	@echo "---- Building kernel $* -> $@ (target=$(TARGET), defines=$(EMU_DEFINES)) ----"

@@ -20,7 +20,7 @@
 #define PMA_LOCK_SIZE 65536
 #ifdef HW_EMU
 #undef PMA_LOCK_SIZE
-#define PMA_LOCK_SIZE 4096
+#define PMA_LOCK_SIZE 256
 #endif
 void lock_pma(uint8_t* pma_lock, int pma_idx, int worker_id) {
     int local_pma = pma_idx / CHANNEL_NUM;
@@ -50,7 +50,7 @@ typedef ap_uint<34> lock_req_t;
 
 
 // ---- 锁表管理进程 (独立 DATAFLOW 阶段) ----
-// 职责: ① 轮询 3 个 ack 流 (pre_ack_in / merge1 / merge2), 解锁锁表,
+// 职责: ① 轮询 3 个 ack 流 (pre_ack_in / ack_in_bs / ack_in_merge), 解锁锁表,
 //       并把解锁事件回传给主进程 (unlock_out); ② 接受主进程的锁请求 (lock_req_in)。
 // 与主进程解耦是本设计的死锁修复核心: 主进程阻塞在 edge/pre_expand 写时, 本进程
 // 依然消费 ack — 下游 (insert_phase / redistribution) 不会被 ack 反压卡死,
@@ -64,8 +64,8 @@ typedef ap_uint<34> lock_req_t;
 //   若增大上述任一 FIFO 深度, 需同步放大 unlock_out。
 static void lock_manager(
     hls::stream<ap_uint<32>>& pre_ack_in,
-    hls::stream<ap_uint<32>>& ack_in_bs_1,
-    hls::stream<ap_uint<32>>& ack_in_bs_2,
+    hls::stream<ap_uint<32>>& ack_in_bs,
+    hls::stream<ap_uint<32>>& ack_in_merge,
     hls::stream<lock_req_t>& lock_req_in,
     hls::stream<ap_uint<1>>& lock_rsp_out,
     hls::stream<ap_uint<1>>& wave_done_out,
@@ -93,7 +93,7 @@ static void lock_manager(
     int lock_num = 0;
     bool stop_manager = false;
     while (true) {
-#pragma HLS PIPELINE off
+#pragma HLS PIPELINE II=1
         bool busy = false;
         bool have_table_op = false;
         bool check_busy = false;
@@ -102,8 +102,11 @@ static void lock_manager(
         bool set_lock = false; // 1 for set 0 for reset
         int pma_idx = 0;
         ap_uint<32> v;
-        // Simple arbitration: lock requests have priority.  When there is no
-        // request, consume one ACK according to the 3-way round-robin order.
+        // A lock query must be answered before consuming another ACK.  The
+        // previous ACK-first else-if chain could starve lock_req_in whenever a
+        // completion stream stayed non-empty; task_reader then hung forever at
+        // lock_rsp_in.empty() (the observed 189-loop stall).  ACKs are served
+        // with round-robin arbitration whenever no query is pending.
         if (!lock_req_in.empty()) {
             lock_req_t req = lock_req_in.read();
             if (req[33]) {
@@ -122,7 +125,7 @@ static void lock_manager(
                 set_lock = false;
             }
             busy = true;
-        } else if (ack_rr == 1 && ack_in_bs_1.read_nb(v)) {
+        } else if (ack_rr == 1 && ack_in_bs.read_nb(v)) {
             if ((int)v == CACHE_WAVE_ACK) {
                 wave_done_out.write((ap_uint<1>)0);
             } else if ((int)v == -1) {
@@ -133,7 +136,7 @@ static void lock_manager(
                 set_lock = false;
             }
             busy = true;
-        } else if (ack_rr == 2 && ack_in_bs_2.read_nb(v)) {
+        } else if (ack_rr == 2 && ack_in_merge.read_nb(v)) {
             if ((int)v == CACHE_WAVE_ACK) {
                 wave_done_out.write((ap_uint<1>)1);
             } else if ((int)v == -1) {
@@ -185,7 +188,7 @@ static void lock_manager(
 // ---- Gate 决策辅助: 读 PMA 的 VEC_INFO + header + VC (gate m_axi) ----
 // 供 user-define 决策扩展用。当前 3 个测试策略 (BS_ONLY/MERGE_ONLY/COUNT_GT16)
 // 只用到 pma_wave_edges, 不调用本函数 (HLS 会 DCE); 若要按顶点现边数精细决策,
-// hbm_gate 映射到本 channel 的
+// 在 decide_merge_path 之前调用并把结果传入即可。hbm_gate 映射到本 channel 的
 // PMA bank, 读的是 pre-expand 之前的布局 (启发式可接受, 只影响性能)。
 static void gate_read_pma_vertex_counts(
     ap_uint<512>* hbm_gate,
@@ -270,11 +273,14 @@ static bool gate_needs_pre_expand(
     return false;
 }
 
-// ---- Task Reader 主进程 (dual-merge 路由内核) ----
+// ---- Task Reader 主进程 (gate 路由内核) ----
 // 读 online_in 流 (generator → router_stream 按 channel 分发), 收满 wave 8192 /
 // FLUSH / STOP 即阻塞并处理当前波。处理流程:
 //   sort → profile 计数 (每 PMA 每 vertex) → 发 pre_expand_cmd 并上锁
-//        → 整 PMA 按 1,2,1,2 轮转到两个 merge worker。
+//        → 按 PMA 决策 (decide_merge_path) 确定发送粒度:
+//           merge = 整 PMA 一次 issue 到 edge_out_merge (last=1 在 PMA 末边)
+//           bs    = 16 边一批 issue 到 edge_out_bs (last=1 在每批末边), 一批后跳下
+//                  一个 PMA (separation cursors), 保持其他 PMA 锁定时仍能发 cmd。
 // 跨内核顺序保证: 一个 PMA 的边批只在 redistribution 完成预扩 (pre_ack) 后才发出,
 // 所以下游内核收到的边所在 PMA 一定已扩好。
 // 锁机制: 本进程不直接读 ack 流 — lock_manager 进程独立轮询 3 个 ack 流,
@@ -301,6 +307,17 @@ void set_lock(hls::stream<lock_req_t>& lock_req_out, int pma_idx)
     ap_wait();
 }
 
+static inline bs_update_token_t make_bs_token(const PMA_UPDATE_MESSAGE &m)
+{
+    #pragma HLS INLINE
+    bs_update_token_t t;
+    t.src = (ap_uint<32>)m.src;
+    t.dst = (ap_uint<32>)m.dst;
+    t.opcode = (ap_uint<4>)m.opcode;
+    t.last = (ap_uint<1>)m.last;
+    return t;
+}
+
 static inline void send_router_ack(hls::stream<WHOLE_ACK>& ack_to_router, int worker_id)
 {
     #pragma HLS INLINE
@@ -312,18 +329,24 @@ static inline void send_router_ack(hls::stream<WHOLE_ACK>& ack_to_router, int wo
     ack_to_router.write(ack);
 }
 
-// Diagnostic switch: keep deterministic two-merge routing, but allow a
-// no-cache control build to isolate cache admission/writeback issues.
-#ifndef DISABLE_MERGE_CACHE_HINTS
-#define DISABLE_MERGE_CACHE_HINTS 0
-#endif
-
-static inline bs_update_token_t make_bs_token(const PMA_UPDATE_MESSAGE &m) {
-    #pragma HLS INLINE
-    bs_update_token_t t;
-    t.src = (ap_uint<32>)m.src; t.dst = (ap_uint<32>)m.dst;
-    t.opcode = (ap_uint<4>)m.opcode; t.last = (ap_uint<1>)m.last;
-    return t;
+// Drain the external AXIS input independently from the wave-processing state
+// machine.  The main task-reader loop spends long intervals sorting a wave,
+// waiting for downstream acknowledgements, and accessing HBM.  If it owns the
+// external stream directly, those intervals deassert online_in_TREADY and can
+// leave a FLUSH command stuck at the router output.  This relay keeps the
+// external stream flowing and preserves command order in a bounded FIFO.
+static void receive_online_commands(
+    hls::stream<PMA_UPDATE_MESSAGE>& online_in,
+    hls::stream<PMA_UPDATE_MESSAGE>& online_fifo)
+{
+    bool stop = false;
+    while (!stop) {
+        #pragma HLS PIPELINE II=1
+        PMA_UPDATE_MESSAGE msg = online_in.read();
+        online_fifo.write(msg);
+        if (msg.opcode == PMA_UPDATE_STOP)
+            stop = true;
+    }
 }
 
 static void task_reader_main(
@@ -333,8 +356,8 @@ static void task_reader_main(
     int pma_vecinfo_start,
     hls::stream<PMA_UPDATE_MESSAGE>& online_in,
     hls::stream<pre_expand_cmd_t>& pre_expand_out,
-    hls::stream<bs_update_token_t>& edge_out_bs_1,
-    hls::stream<bs_update_token_t>& edge_out_bs_2,
+    hls::stream<bs_update_token_t>& edge_out_bs,
+    hls::stream<PMA_UPDATE_MESSAGE>& edge_out_merge,
     hls::stream<lock_req_t>& lock_req_out,
     hls::stream<ap_uint<1>>& lock_rsp_in,
     hls::stream<ap_uint<1>>& wave_done_in,
@@ -353,33 +376,26 @@ static void task_reader_main(
     ap_uint<14> seperation_cursors[WAVE_CAPACITY];
     bool pre_expand_checked[WAVE_CAPACITY];
     ap_uint<512> separation_counts[WAVE_CAPACITY];
-    bool bs_route[WAVE_CAPACITY];         // false=merge1, true=merge2
+    bool merge_path[WAVE_CAPACITY];          // 每 PMA 路由决策: true=merge, false=bs
     #pragma HLS bind_storage variable=radix_tmp type=RAM_2P impl=URAM
     #pragma HLS bind_storage variable=seperation_cursors type=RAM_2P impl=BRAM
     #pragma HLS bind_storage variable=seperations type=RAM_2P impl=BRAM
-    #pragma HLS bind_storage variable=bs_route type=RAM_2P impl=BRAM
+    #pragma HLS bind_storage variable=merge_path type=RAM_2P impl=BRAM
     #pragma HLS bind_storage variable=pre_expand_checked type=RAM_2P impl=BRAM
     #pragma HLS bind_storage variable=separation_counts type=RAM_2P impl=URAM
     #pragma HLS bind_storage variable=wave_buffer type=RAM_2P impl=URAM
     bool online_done = false;
     bool flush = false;
     // int inflight_pma_count = 0;
-    // Keep the outer loop explicit. The pipelined collection loop consumes
-    // STOP and updates online_done; the explicit break below gives HLS a
-    // distinct outer-loop exit after the current wave has been drained.
     while (true)
     {
-        #pragma HLS PIPELINE off
         // ===== 收集阶段: online 收进 wave_buffer, 收满 8192 / FLUSH / STOP 即退出 =====
         // 收满 8192 直接阻塞 (wave_buffer 只有一份, 处理完当前波才能继续收)。
         int wave_count = 0;
         COLLECT_EDGE_LOOP:
         while (!online_done && !flush && wave_count < WAVE_CAPACITY)
         {
-            // Keep STOP detection in an ordinary FSM iteration.  Pipelining
-            // this loop can leave a delayed iteration alive after online_done
-            // is set, preventing the main task-reader from reaching STOP.
-            #pragma HLS PIPELINE off
+            #pragma HLS PIPELINE II=1
             PMA_UPDATE_MESSAGE msg = online_in.read();
             if (msg.opcode == PMA_UPDATE_STOP) {
                 online_done = true;
@@ -413,11 +429,19 @@ static void task_reader_main(
                     if (current_pma != -1)
                     {
                         seperations[seperation_count] = i;
-                        // Route by the PMA ordinal within this channel and the two BS
-                        // workers.  The local quotient is stable across waves, so
-                        // one PMA always stays on one BS worker/cache.
-                        bs_route[seperation_count] =
-                            pma_bs_worker((pma_idx_u_t)current_pma);
+                        // Analytical Update Path Selection (design.tex), not a
+                        // fixed update-count threshold.
+                        int pma_edges = 0;
+                        for (int v = 0; v < 16; v++) {
+                            #pragma HLS UNROLL
+                            pma_edges += current_vc[v];
+                        }
+                        int current_edges = 0, segment_count = 0;
+                        gate_read_pma_stats(hbm_gate, pma_raw_data_start,
+                                            pma_vecinfo_start, current_pma,
+                                            current_edges, segment_count);
+                        merge_path[seperation_count] = decide_merge_path(
+                            current_pma, pma_edges, current_edges, segment_count);
                         seperation_count++;
                         // 阻塞写安全: 锁表管理进程独立消费 ack, 本进程的写阻塞不再
                         // 引发 ack 反压闭环 (旧架构死锁的根因, 见 lock_manager 注释)。
@@ -440,8 +464,17 @@ static void task_reader_main(
             if (current_pma != -1)
             {
                 seperations[seperation_count] = wave_count;
-                bs_route[seperation_count] =
-                    pma_bs_worker((pma_idx_u_t)current_pma);
+                int pma_edges = 0;
+                for (int v = 0; v < 16; v++) {
+                    #pragma HLS UNROLL
+                    pma_edges += current_vc[v];
+                }
+                int current_edges = 0, segment_count = 0;
+                gate_read_pma_stats(hbm_gate, pma_raw_data_start,
+                                    pma_vecinfo_start, current_pma,
+                                    current_edges, segment_count);
+                merge_path[seperation_count] = decide_merge_path(
+                    current_pma, pma_edges, current_edges, segment_count);
                 seperation_count++;
                 ap_uint<512> count_word = 0;
                 for (int v = 0; v < VERTEX_PER_PMA; v++) {
@@ -452,56 +485,61 @@ static void task_reader_main(
                 pre_expand_checked[seperation_count - 1] = false;
             }
             // ===== dispatch: 等 pre_ack 解锁后按 PMA 发边批 =====
-            // 每个 PMA 都作为一个完整批次发送，按 1,2,1,2 轮转到两个 merge worker。
+            // 发送粒度由 gate 决策决定 (profile scan 已算好 merge_path[i]):
+            //   merge → 整 PMA 一次发到 edge_out_merge (last=1 在 PMA 末边)
+            //   bs    → 16 边一批发到 edge_out_bs (last=1 在每批末边), 一批后跳下一 PMA。
             // 循环逐 PMA 轮询: 某 PMA 被锁 (在飞) 时跳过, 继续发其他 PMA 的批, 保持
             // pipeline 有 cmd 可处理; 锁由管理器解锁事件释放后下一轮继续该 PMA 剩余批。
             int remaining = wave_count;
 
             // Select deterministic per-route cache-admission candidates.
-            pma_idx_t bs1_top_pma[BS_CACHE_HINTS_PER_WAVE];
-            int bs1_top_value[BS_CACHE_HINTS_PER_WAVE];
-            pma_idx_t bs2_top_pma[BS_CACHE_HINTS_PER_WAVE];
-            int bs2_top_value[BS_CACHE_HINTS_PER_WAVE];
-            #pragma HLS ARRAY_PARTITION variable=bs1_top_pma complete
-            #pragma HLS ARRAY_PARTITION variable=bs1_top_value complete
-            #pragma HLS ARRAY_PARTITION variable=bs2_top_pma complete
-            #pragma HLS ARRAY_PARTITION variable=bs2_top_value complete
+            pma_idx_t bs_top_pma[BS_CACHE_HINTS_PER_WAVE];
+            ap_uint<14> bs_top_value[BS_CACHE_HINTS_PER_WAVE];
+            pma_idx_t merge_top_pma[MERGE_CACHE_HINTS_PER_WAVE];
+            ap_uint<14> merge_top_value[MERGE_CACHE_HINTS_PER_WAVE];
+            #pragma HLS ARRAY_PARTITION variable=bs_top_pma complete
+            #pragma HLS ARRAY_PARTITION variable=bs_top_value complete
+            #pragma HLS ARRAY_PARTITION variable=merge_top_pma complete
+            #pragma HLS ARRAY_PARTITION variable=merge_top_value complete
             for (int k = 0; k < BS_CACHE_HINTS_PER_WAVE; k++) {
                 #pragma HLS UNROLL
-                bs1_top_pma[k] = -1;
-                bs1_top_value[k] = -1;
-                bs2_top_pma[k] = -1;
-                bs2_top_value[k] = -1;
+                bs_top_pma[k] = -1;
+                bs_top_value[k] = -1;
+            }
+            for (int k = 0; k < MERGE_CACHE_HINTS_PER_WAVE; k++) {
+                #pragma HLS UNROLL
+                merge_top_pma[k] = -1;
+                merge_top_value[k] = -1;
             }
             for (int i = 0; i < seperation_count; i++) {
                 ap_uint<14> begin = i == 0 ? ap_uint<14>(0) : seperations[i - 1];
                 int value = seperations[i] - begin;
                 pma_idx_u_t pma = wave_buffer[begin].src >> 4;
-                if (!bs_route[i]) {
-                    for (int k = 0; k < BS_CACHE_HINTS_PER_WAVE; k++) {
-                        if (value > bs1_top_value[k] ||
-                            (value == bs1_top_value[k] &&
-                             (bs1_top_pma[k] < 0 || pma < bs1_top_pma[k]))) {
-                            for (int s = BS_CACHE_HINTS_PER_WAVE - 1; s > k; s--) {
-                                bs1_top_value[s] = bs1_top_value[s - 1];
-                                bs1_top_pma[s] = bs1_top_pma[s - 1];
+                if (merge_path[i]) {
+                    for (int k = 0; k < MERGE_CACHE_HINTS_PER_WAVE; k++) {
+                        if (value > merge_top_value[k] ||
+                            (value == merge_top_value[k] &&
+                             (merge_top_pma[k] < 0 || pma < merge_top_pma[k]))) {
+                            for (int s = MERGE_CACHE_HINTS_PER_WAVE - 1; s > k; s--) {
+                                merge_top_value[s] = merge_top_value[s - 1];
+                                merge_top_pma[s] = merge_top_pma[s - 1];
                             }
-                            bs1_top_value[k] = value;
-                            bs1_top_pma[k] = pma;
+                            merge_top_value[k] = value;
+                            merge_top_pma[k] = pma;
                             break;
                         }
                     }
                 } else {
                     for (int k = 0; k < BS_CACHE_HINTS_PER_WAVE; k++) {
-                        if (value > bs2_top_value[k] ||
-                            (value == bs2_top_value[k] &&
-                             (bs2_top_pma[k] < 0 || pma < bs2_top_pma[k]))) {
+                        if (value > bs_top_value[k] ||
+                            (value == bs_top_value[k] &&
+                             (bs_top_pma[k] < 0 || pma < bs_top_pma[k]))) {
                             for (int s = BS_CACHE_HINTS_PER_WAVE - 1; s > k; s--) {
-                                bs2_top_value[s] = bs2_top_value[s - 1];
-                                bs2_top_pma[s] = bs2_top_pma[s - 1];
+                                bs_top_value[s] = bs_top_value[s - 1];
+                                bs_top_pma[s] = bs_top_pma[s - 1];
                             }
-                            bs2_top_value[k] = value;
-                            bs2_top_pma[k] = pma;
+                            bs_top_value[k] = value;
+                            bs_top_pma[k] = pma;
                             break;
                         }
                     }
@@ -510,20 +548,18 @@ static void task_reader_main(
             PMA_UPDATE_MESSAGE cache_cmd;
             cache_cmd.last = 1;
             cache_cmd.opcode = PMA_UPDATE_CACHE_HINT;
-#if !DISABLE_MERGE_CACHE_HINTS
             for (int k = 0; k < BS_CACHE_HINTS_PER_WAVE; k++) {
-                if (bs1_top_pma[k] >= 0) {
-                    cache_cmd.src = bs1_top_pma[k];
-                    cache_cmd.dst = bs1_top_value[k];
-                    edge_out_bs_1.write(make_bs_token(cache_cmd));
-                }
-                if (bs2_top_pma[k] >= 0) {
-                    cache_cmd.src = bs2_top_pma[k];
-                    cache_cmd.dst = bs2_top_value[k];
-                    edge_out_bs_2.write(make_bs_token(cache_cmd));
-                }
+                if (bs_top_pma[k] < 0) continue;
+                cache_cmd.src = bs_top_pma[k];
+                cache_cmd.dst = bs_top_value[k];
+                edge_out_bs.write(make_bs_token(cache_cmd));
             }
-#endif
+            for (int k = 0; k < MERGE_CACHE_HINTS_PER_WAVE; k++) {
+                if (merge_top_pma[k] < 0) continue;
+                cache_cmd.src = merge_top_pma[k];
+                cache_cmd.dst = merge_top_value[k];
+                edge_out_merge.write(cache_cmd);
+            }
 
             seperation_cursors[0] = 0;
             for (int i = 1 ; i < seperation_count; i++)
@@ -572,9 +608,10 @@ static void task_reader_main(
                     ap_wait();
                     ap_uint<14> start = seperation_cursors[i];
                     ap_uint<14> end = seperations[i];
-                    ap_uint<14> chunk_end = start + BS_MAX_CMD_NUM;
-                    if (chunk_end > end) chunk_end = end;
-                    bool to_merge_2 = bs_route[i];
+                    ap_uint<14> bs_end = start + ap_uint<14>(BS_MAX_CMD_NUM);
+                    ap_uint<14> chunk_end = merge_path[i]
+                        ? end : (bs_end < end ? bs_end : end);
+                    bool to_merge = merge_path[i];
                     for (int j = start; j < chunk_end; j++)
                     {
                         int src = wave_buffer[j].src;
@@ -582,8 +619,9 @@ static void task_reader_main(
                         int opcode = (int)wave_buffer[j].opcode;
                         PMA_UPDATE_MESSAGE msg;
                         msg.src = src; msg.dst = dst; msg.opcode = (PMA_UPDATE_OPCODE)opcode; msg.last = (j == chunk_end - 1);
-                        if (to_merge_2) edge_out_bs_2.write(make_bs_token(msg));
-                        else            edge_out_bs_1.write(make_bs_token(msg));
+                        if (to_merge) edge_out_merge.write(msg);
+                        else          edge_out_bs.write(make_bs_token(msg));
+                        // edge_out_bs.write(msg);
                     }
                     remaining -= (chunk_end - start);
                     seperation_cursors[i] = chunk_end;
@@ -597,48 +635,54 @@ static void task_reader_main(
             wave_end.dst = 0;
             wave_end.opcode = PMA_UPDATE_WAVE_END;
             wave_end.last = 1;
-            edge_out_bs_1.write(make_bs_token(wave_end));
-            edge_out_bs_2.write(make_bs_token(wave_end));
-            bool bs1_done = false;
-            bool bs2_done = false;
-            while (!bs1_done || !bs2_done) {
+            edge_out_bs.write(make_bs_token(wave_end));
+            edge_out_merge.write(wave_end);
+            bool bs_done = false;
+            bool merge_done = false;
+            while (!bs_done || !merge_done) {
                 ap_uint<1> route = wave_done_in.read();
-                if (route == 0) bs1_done = true;
-                else            bs2_done = true;
+                if (route == 0) bs_done = true;
+                else            merge_done = true;
             }
         }
         ap_wait();
-        // FLUSH is complete only after both merge workers return CACHE_WAVE_ACK.
+        // FLUSH is complete only here: for a non-empty wave both BS and merge
+        // have returned CACHE_WAVE_ACK, which also means BS has drained all
+        // redistribution work.  An empty worker has no state from this batch
+        // to drain and can acknowledge immediately.
         if (flush) {
             send_router_ack(ack_to_router, worker_id);
             flush = false;
         }
-        // Explicitly exit the outer loop after the collection pipeline and
-        // the current wave's downstream barrier have completed.
-        if (online_done) {
-            break;
-        }
+        if (online_done) break;
+        // 收尾 ACK (最后一波的批可能仍在飞) — 否则 inflight 不降 → 死循环
+        // poll_completions(completion_in, inflight_pma_count);
+        // if (online_done && inflight_pma_count == 0) break;
+        // 全部处理完但未结束: 空转等 online (下一轮顶部继续收波)
+        // if (wave_count == 0) ap_wait();
     }
     // while (inflight_pma_count > 0) {
     //     poll_completions(completion_in, inflight_pma_count);
     //     ap_wait();
     // }
-    // Send STOP to both BS workers. Each BS sends a STOP task to the
-    // shared redistribution; redistribution returns -1 on the corresponding
-    // ACK stream only after both input streams have stopped.
+    // Send STOP（所有批完成后最后执行）— 两条路径都要收, 各自收尾退出。
+    // bs_insert 收到后经 redistribution 收尾 (redistribution 也由它带 STOP);
+    // merge_pipeline 收到后直接 ack(-1) 退出 (不再与 redistribution 交互)。
     PMA_UPDATE_MESSAGE stop_msg;
     stop_msg.src = -1; stop_msg.dst = -1;
     stop_msg.opcode = PMA_UPDATE_STOP; stop_msg.last = 1;
-    edge_out_bs_1.write(make_bs_token(stop_msg));
-    ap_wait();
-    edge_out_bs_2.write(make_bs_token(stop_msg));
-    ap_wait();
-    bool bs1_stopped = false;
-    bool bs2_stopped = false;
-    while (!bs1_stopped || !bs2_stopped) {
+    edge_out_bs.write(make_bs_token(stop_msg));
+    edge_out_merge.write(stop_msg);
+    // Wait until both downstream paths have really stopped.  The BS stop ACK
+    // is emitted only after redistribution has forwarded STOP to alloc_access,
+    // so this pair covers the whole worker pipeline rather than merely the
+    // task_reader input boundary.
+    bool bs_stopped = false;
+    bool merge_stopped = false;
+    while (!bs_stopped || !merge_stopped) {
         ap_uint<1> route = stop_done_in.read();
-        if (route == 0) bs1_stopped = true;
-        else            bs2_stopped = true;
+        if (route == 0) bs_stopped = true;
+        else            merge_stopped = true;
     }
 
     // All real ACKs have now been consumed.  Stop the lock manager and wait
@@ -664,11 +708,11 @@ extern "C"
         int pma_vecinfo_start,
         hls::stream<PMA_UPDATE_MESSAGE>& online_in,
         hls::stream<pre_expand_cmd_t>& pre_expand_out,
-        hls::stream<bs_update_token_t>& edge_out_bs_1,
-        hls::stream<bs_update_token_t>& edge_out_bs_2,
+        hls::stream<bs_update_token_t>& edge_out_bs,
+        hls::stream<PMA_UPDATE_MESSAGE>& edge_out_merge,
         hls::stream<ap_uint<32>>& pre_ack_in,
-        hls::stream<ap_uint<32>>& ack_in_bs_1,
-        hls::stream<ap_uint<32>>& ack_in_bs_2,
+        hls::stream<ap_uint<32>>& ack_in_bs,
+        hls::stream<ap_uint<32>>& ack_in_merge,
         hls::stream<WHOLE_ACK>& ack_to_router)
     {
         #pragma HLS INTERFACE m_axi port=hbm_gate offset=slave bundle=gmem0 max_read_burst_length=256
@@ -679,23 +723,29 @@ extern "C"
         #pragma HLS INTERFACE s_axilite port=return bundle=control
         #pragma HLS INTERFACE axis port=online_in
         #pragma HLS INTERFACE axis port=pre_expand_out
-        #pragma HLS INTERFACE axis port=edge_out_bs_1
-        #pragma HLS INTERFACE axis port=edge_out_bs_2
+        #pragma HLS INTERFACE axis port=edge_out_bs
+        #pragma HLS INTERFACE axis port=edge_out_merge
         #pragma HLS INTERFACE axis port=pre_ack_in
-        #pragma HLS INTERFACE axis port=ack_in_bs_1
-        #pragma HLS INTERFACE axis port=ack_in_bs_2
+        #pragma HLS INTERFACE axis port=ack_in_bs
+        #pragma HLS INTERFACE axis port=ack_in_merge
         #pragma HLS INTERFACE axis port=ack_to_router
 
         // 内部通道: lock_req (main → manager, 深度 16 足够: main 提交慢, manager 消费快)
         //           unlock (manager → main, 深度 256: 主进程阻塞期间的 ack 缓冲垫, 见
         //           lock_manager 注释的深度不变量)
         hls::stream<lock_req_t> lock_req;
+        // Front-end command buffer.  A batch in this design is at most one
+        // wave plus its barrier; 64 entries covers the small-batch case that
+        // exposed the router/reader handshake issue while retaining ordering.
+        hls::stream<PMA_UPDATE_MESSAGE> online_fifo;
         hls::stream<ap_uint<1>> lock_rsp;
         hls::stream<ap_uint<1>> wave_done;
         hls::stream<ap_uint<1>> stop_done;
         hls::stream<ap_uint<1>> manager_done;
         // hls::stream<ap_uint<32>> completion;
         #pragma HLS STREAM variable=lock_req depth=16
+        #pragma HLS STREAM variable=online_fifo depth=64
+        #pragma HLS BIND_STORAGE variable=online_fifo type=fifo impl=bram
         #pragma HLS STREAM variable=lock_rsp depth=16
         #pragma HLS STREAM variable=wave_done depth=4
         #pragma HLS STREAM variable=stop_done depth=4
@@ -704,10 +754,11 @@ extern "C"
 
         #pragma HLS DATAFLOW
 
-        lock_manager(pre_ack_in, ack_in_bs_1, ack_in_bs_2, lock_req, lock_rsp,
+        receive_online_commands(online_in, online_fifo);
+        lock_manager(pre_ack_in, ack_in_bs, ack_in_merge, lock_req, lock_rsp,
                      wave_done, stop_done, manager_done, worker_id);
         task_reader_main(worker_id, hbm_gate, pma_raw_data_start, pma_vecinfo_start / 64,
-                         online_in, pre_expand_out, edge_out_bs_1, edge_out_bs_2,
+                         online_fifo, pre_expand_out, edge_out_bs, edge_out_merge,
                          lock_req, lock_rsp, wave_done, stop_done, manager_done,
                          ack_to_router);
     }

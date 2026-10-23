@@ -835,6 +835,15 @@ static void pre_expand_finish(
     vi_write_pre_ack(hbm, vi_wo, pma_idx, nvi, pre_ack_out);
 }
 
+// One-BS merge+BS framework and the existing two-BS framework share
+// the redistribution implementation. Preserve the two-BS source default.
+#ifndef REDISTRIBUTION_BS_PORTS
+#define REDISTRIBUTION_BS_PORTS 2
+#endif
+#if REDISTRIBUTION_BS_PORTS != 1 && REDISTRIBUTION_BS_PORTS != 2
+#error REDISTRIBUTION_BS_PORTS must be 1 or 2
+#endif
+
 // ---- Redistribution main loop ----
 // Task types:
 //   payload_count == 0: STOP — also signals alloc_access via alloc_cmd_stream
@@ -852,9 +861,13 @@ static void send_redist_ack_by_pma(
     hls::stream<ap_uint<32>>& redist_ack_out_1,
     hls::stream<ap_uint<32>>& redist_ack_out_2)
 {
+#if REDISTRIBUTION_BS_PORTS == 1
+    redist_ack_out_1.write((ap_uint<32>)pm);
+#else
     ap_uint<1> bs_id = pma_bs_worker(pm);
     if (bs_id == 0) redist_ack_out_1.write((ap_uint<32>)pm);
     else            redist_ack_out_2.write((ap_uint<32>)pm);
+#endif
 }
 
 void redistribution_phase(
@@ -889,7 +902,7 @@ void redistribution_phase(
     ap_uint<5> ctx_tail = 0;
     ap_uint<5> ctx_count = 0;
     unsigned task_rr = 0;
-    bool stop_seen[2] = {false, false};
+    bool stop_seen[2] = {false, REDISTRIBUTION_BS_PORTS == 1};
 
     while (true) {
         // ================================================================
@@ -938,6 +951,9 @@ void redistribution_phase(
         // preferred worker changes.
         rebalance_task_t task;
         int task_source = -1;
+#if REDISTRIBUTION_BS_PORTS == 1
+        if (!stop_seen[0] && task_in_1.read_nb(task)) task_source = 0;
+#else
         if (task_rr == 0) {
             if (!stop_seen[0] && task_in_1.read_nb(task)) task_source = 0;
             else if (!stop_seen[1] && task_in_2.read_nb(task)) task_source = 1;
@@ -945,6 +961,7 @@ void redistribution_phase(
             if (!stop_seen[1] && task_in_2.read_nb(task)) task_source = 1;
             else if (!stop_seen[0] && task_in_1.read_nb(task)) task_source = 0;
         }
+#endif
         if (task_source < 0) { ap_wait(); continue; }
         // Switch only after successfully selecting a task.  If both FIFOs
         // are empty, keep the current round-robin position unchanged.
@@ -959,7 +976,9 @@ void redistribution_phase(
                 scmd.keep = 0xFFF;
                 alloc_cmd_stream.write(scmd);
                 redist_ack_out_1.write((ap_uint<32>)-1);
+#if REDISTRIBUTION_BS_PORTS == 2
                 redist_ack_out_2.write((ap_uint<32>)-1);
+#endif
                 break;
             }
             continue;
@@ -1053,11 +1072,19 @@ extern "C"
         long long pma_vecinfo_start,
         long long bitmap_offset,
         hls::stream<pre_expand_cmd_t>& pre_expand_in,
+#if REDISTRIBUTION_BS_PORTS == 1
+        hls::stream<rebalance_task_t>& task_in,
+#else
         hls::stream<rebalance_task_t>& task_in_1,
         hls::stream<rebalance_task_t>& task_in_2,
+#endif
         hls::stream<ap_uint<32>>& pre_ack_out,
+#if REDISTRIBUTION_BS_PORTS == 1
+        hls::stream<ap_uint<32>>& redist_ack_out,
+#else
         hls::stream<ap_uint<32>>& redist_ack_out_1,
         hls::stream<ap_uint<32>>& redist_ack_out_2,
+#endif
         hls::stream<ap_axiu<96,0,0,0>>& alloc_cmd_stream,
         hls::stream<ap_axiu<64,0,0,0>>& alloc_rsp_stream,
         hls::stream<ap_axiu<ALLOC_BITMAP_STORAGE_WORD_BITS,0,0,0>>& bitmap_init)
@@ -1072,11 +1099,19 @@ extern "C"
         #pragma HLS INTERFACE s_axilite port=bitmap_offset bundle=control
         #pragma HLS INTERFACE s_axilite port=return bundle=control
         #pragma HLS INTERFACE axis port=pre_expand_in
+#if REDISTRIBUTION_BS_PORTS == 1
+        #pragma HLS INTERFACE axis port=task_in
+#else
         #pragma HLS INTERFACE axis port=task_in_1
         #pragma HLS INTERFACE axis port=task_in_2
+#endif
         #pragma HLS INTERFACE axis port=pre_ack_out
+#if REDISTRIBUTION_BS_PORTS == 1
+        #pragma HLS INTERFACE axis port=redist_ack_out
+#else
         #pragma HLS INTERFACE axis port=redist_ack_out_1
         #pragma HLS INTERFACE axis port=redist_ack_out_2
+#endif
         #pragma HLS INTERFACE axis port=alloc_cmd_stream
         #pragma HLS INTERFACE axis port=alloc_rsp_stream
         #pragma HLS INTERFACE axis port=bitmap_init
@@ -1086,10 +1121,19 @@ extern "C"
         // bitmap_offset 处), 复用 hbm_red 端口读, 无需额外 m_axi。
         bitmap_init_reader(hbm_red, bitmap_offset, bitmap_init);
 
+#if REDISTRIBUTION_BS_PORTS == 1
+        hls::stream<rebalance_task_t> unused_task_in;
+        hls::stream<ap_uint<32>> unused_redist_ack_out;
+#endif
         redistribution_phase(hbm_red, hbm_buffer_for_red,
                              pma_raw_data_start, pma_vecinfo_start / 64,
+#if REDISTRIBUTION_BS_PORTS == 1
+                             task_in, unused_task_in,
+                             redist_ack_out, unused_redist_ack_out,
+#else
                              task_in_1, task_in_2,
                              redist_ack_out_1, redist_ack_out_2,
+#endif
                              pre_expand_in, pre_ack_out,
                              alloc_cmd_stream, alloc_rsp_stream);
     }

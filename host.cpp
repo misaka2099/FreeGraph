@@ -234,7 +234,7 @@ int main(int argc, char** argv)
 #ifndef USE_STANDALONE_MODE
     auto update_message_router_kernel = xrt::kernel(device, uuid, "update_message_router");
 #endif
-#ifdef USE_STANDALONE_MODE
+#if defined(USE_STANDALONE_MODE) && !defined(HOST_SKIP_AP_CTRL_NONE_ROUTER)
     auto update_message_router_stream_kernel = xrt::kernel(device, uuid,
         "update_message_router_stream:{update_message_router_stream_1}");
 #endif
@@ -276,6 +276,7 @@ int main(int argc, char** argv)
     for (int i = 1; i <= CHANNEL_NUM; ++i) {
         if (!try_add_kernel(task_reader_kernels, "task_reader_kernel:{task_reader_kernel_" + std::to_string(i) + "}")) break;
 #if defined(USE_MERGE_BS_PATH)
+        if (!try_add_kernel(merge_pipeline_kernels, "merge_pipeline:{merge_pipeline_" + std::to_string(i) + "}")) break;
         if (!try_add_kernel(bs_insert_kernels, "bs_insert_kernel:{bs_insert_kernel_" + std::to_string(i) + "}")) break;
 #elif defined(USE_MERGE_PATH)
         if (!try_add_kernel(bs_insert_kernels, "merge_pipeline:{merge_pipeline_" + std::to_string(i) + "}")) break;
@@ -287,9 +288,9 @@ int main(int argc, char** argv)
 #else
         if (!try_add_kernel(bs_insert_kernels, "bs_insert_kernel:{bs_insert_kernel_" + std::to_string(i) + "}")) break;
 #endif
+#endif
         if (!try_add_kernel(redistribution_kernels, "redistribution_kernel:{redistribution_kernel_" + std::to_string(i) + "}")) break;
     }
-#endif
     // pma_insert_edge_kernels 别名 bs_insert (主 worker, 用于 HBM BO 的 group_id)
     pma_insert_edge_kernels = bs_insert_kernels;
 #else
@@ -395,7 +396,7 @@ int main(int argc, char** argv)
     run_merge_pipeline_kernels.reserve(merge_pipeline_kernels.size());
     for (auto &k : merge_pipeline_kernels) run_merge_pipeline_kernels.emplace_back(k);
 #endif
-#if !defined(USE_2BS_PATH)
+#if !defined(USE_2BS_PATH) && !defined(HOST_SKIP_AP_CTRL_NONE_ROUTER)
     xrt::run run_router_stream(update_message_router_stream_kernel);
 #endif
     bool update_stop_sent = false;
@@ -549,8 +550,8 @@ int main(int argc, char** argv)
             int a = 0;
             run.set_arg(a++, ch_bufs[ch]);  // hbm_bs
             run.set_arg(a++, ch_bufs[ch]);  // hbm_rw
-            run.set_arg(a++, pma_raw_data_start);
-            run.set_arg(a++, pma_vecinfo_start);
+            run.set_arg(a++, static_cast<int>(pma_raw_data_start));
+            run.set_arg(a++, static_cast<int>(pma_vecinfo_start));
         }
         // merge_pipeline: hbm_pma, hbm_buffer (独立备用 bank)
         {
@@ -567,8 +568,8 @@ int main(int argc, char** argv)
             int a = 0;
             run.set_arg(a++, ch);             // worker_id
             run.set_arg(a++, ch_bufs[ch]);    // hbm_gate (同 channel bank)
-            run.set_arg(a++, pma_raw_data_start);
-            run.set_arg(a++, pma_vecinfo_start);
+            run.set_arg(a++, static_cast<int>(pma_raw_data_start));
+            run.set_arg(a++, static_cast<int>(pma_vecinfo_start));
         }
 #else
         // 插入内核: bs_insert (hbm_bs/hbm_rw) 或 merge_pipeline (hbm_pma/hbm_buffer)
@@ -1160,7 +1161,7 @@ int main(int argc, char** argv)
     for (auto &r : run_merge_pipeline_kernels) { r.start(); }
 #endif
     for (auto &r : run_task_reader_kernels) { r.start(); }
-#if !defined(USE_2BS_PATH)
+#if !defined(USE_2BS_PATH) && !defined(HOST_SKIP_AP_CTRL_NONE_ROUTER)
     run_router_stream.start();
 #endif
     // Read pipeline remains lazy and starts only for verification.
@@ -1416,7 +1417,7 @@ int main(int argc, char** argv)
         r.wait();
     }
 #else
-#if !defined(USE_2BS_PATH)
+#if !defined(USE_2BS_PATH) && !defined(HOST_SKIP_AP_CTRL_NONE_ROUTER)
     run_router_stream.wait();
 #endif
     for (auto &r : run_task_reader_kernels) { r.wait(); }

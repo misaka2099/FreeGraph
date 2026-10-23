@@ -22,3 +22,6 @@
 ReGraph/
 .claude/
 .run/**
+# Analytical routing model LUT generation and numerical regression.
+!/scripts/generate_gate_lut.py
+!/scripts/test_gate_model.py

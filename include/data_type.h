@@ -447,21 +447,71 @@ struct fe_cache_update_t {
 #define GATE_POLICY GATE_POLICY_ANALYTICAL
 #endif
 
+// Paper: tex/sections/5_design.tex, Adaptive Dispatcher / Cost model.
+// Costs use Q48.16 cycles. LUT interpolation avoids online logs/integration.
+#include "gate_model_lut.h"
+#ifndef GATE_AXIS_SETUP_CYCLES
+#define GATE_AXIS_SETUP_CYCLES 30
+#endif
+#ifndef GATE_KAPPA_PROC
+#define GATE_KAPPA_PROC 1
+#endif
+
 static inline unsigned long long gate_ceil_log2(unsigned long long x) {
-    unsigned long long p = 1;
     unsigned long long r = 0;
-    while (p < x) { p <<= 1; ++r; }
+    for (unsigned i = 0; i < 32; ++i) {
+        #pragma HLS UNROLL
+        if ((1ULL << i) < x) r = i + 1;
+    }
     return r;
 }
 
-static inline unsigned long long gate_hbm_cost(unsigned long long x) {
-    if (x == 0) return 0;
-    unsigned long long beats = (x + 15) / 16;
-    return beats + (beats + 255) / 256; // c_axis = 1
+static inline unsigned gate_floor_log2(unsigned long long x) {
+    unsigned r = 0;
+    for (unsigned i = 1; i < 32; ++i) {
+        #pragma HLS UNROLL
+        if (x >= (1ULL << i)) r = i;
+    }
+    return r;
 }
 
-// Update Path Selection from design.tex. E=current valid edges, U=wave
-// updates, S=segments. Return true=merge, false=BS.
+static inline unsigned long long gate_log2_q16(unsigned long long x) {
+    if (x <= 1) return 0;
+    unsigned exponent = gate_floor_log2(x);
+    unsigned long long base = 1ULL << exponent;
+    unsigned long long fraction = ((x - base) << 16) >> exponent;
+    unsigned index = (unsigned)(fraction >> 8);
+    unsigned weight = (unsigned)(fraction & 255);
+    return ((unsigned long long)exponent << 16)
+        + gate_log2_mantissa_q16[index]
+        + (((unsigned long long)(gate_log2_mantissa_q16[index + 1]
+             - gate_log2_mantissa_q16[index]) * weight) >> 8);
+}
+
+static inline unsigned long long gate_hbm_cost(unsigned long long x) {
+    unsigned long long beats = (x + 15) / 16;
+    return beats + GATE_AXIS_SETUP_CYCLES * ((beats + 255) / 256);
+}
+
+static inline unsigned long long gate_recip_exp_q40(unsigned long long s,
+                                                     unsigned q) {
+    if (q == 0) return 1ULL << 40; // Exp(S,0)=1, for any S.
+    if (s <= 8) return gate_inv_exp_q40[(unsigned)s - 1][q];
+    // Channel capacity bounds S below 2^21; clamp malformed metadata.
+    if (s >= (1ULL << 21)) return gate_inv_exp_q40[151][q];
+    unsigned exponent = gate_floor_log2(s);
+    unsigned shift = exponent - 3;
+    unsigned long long base = 1ULL << exponent;
+    unsigned bin = (unsigned)((s - base) >> shift);
+    unsigned row = 7 + (exponent - 3) * 8 + bin;
+    unsigned long long remainder = s - base - ((unsigned long long)bin << shift);
+    unsigned long long lo = gate_inv_exp_q40[row][q];
+    unsigned long long hi = gate_inv_exp_q40[row + 1][q];
+    return lo - (((lo - hi) * remainder) >> shift);
+}
+
+// E and S describe the pre-enlargement subPMA, U its incoming update group.
+// Paper defaults: L_seg=63, c_axis=30, kappa_proc=1.
 static inline bool decide_merge_path(int pma_idx, int pma_wave_edges,
                                      int current_edges, int segment_count) {
     (void)pma_idx;
@@ -472,14 +522,24 @@ static inline bool decide_merge_path(int pma_idx, int pma_wave_edges,
             unsigned long long E = current_edges < 0 ? 0 : (unsigned)current_edges;
             unsigned long long U = pma_wave_edges < 0 ? 0 : (unsigned)pma_wave_edges;
             unsigned long long S = segment_count > 0 ? (unsigned)segment_count : 1;
+            unsigned long long P = S * EDGE_SLOTS_PER_SEG;
             unsigned long long d = (E + S - 1) / S;
-            unsigned long long c_bs = U * gate_ceil_log2(S)
-                + 2 * U * gate_hbm_cost(SEGMENT_SIZE)
-                + U * (2 * ((d + 1) / 2) + 1)
-                + U * gate_ceil_log2(E + 1);
-            unsigned long long c_merge = gate_hbm_cost(E)
-                + 2 * (E + U) + gate_hbm_cost(E + U);
-            return c_merge < c_bs;
+            unsigned q = d < EDGE_SLOTS_PER_SEG ? EDGE_SLOTS_PER_SEG - (unsigned)d : 0;
+            unsigned long long h_payload = gate_hbm_cost(P);
+            unsigned long long log_e_q16 = gate_log2_q16(E + 1);
+            unsigned long long processing_q16 = GATE_KAPPA_PROC
+                * ((log_e_q16 * log_e_q16) >> 16);
+            unsigned long long rebalance_q16 =
+                q == 0 ? (2 * h_payload << 16) :
+                (2 * h_payload * gate_recip_exp_q40(S, q)) >> 24;
+            unsigned long long sparse_per_update_q16 =
+                ((gate_ceil_log2(S) + 2 * gate_hbm_cost(EDGE_SLOTS_PER_SEG)
+                    + 2 * ((d + 1) / 2) + 1) << 16)
+                + processing_q16 + rebalance_q16;
+            unsigned long long c_bs_q16 = U * sparse_per_update_q16;
+            unsigned long long c_merge_q16 =
+                (2 * h_payload + 2 * (E + U)) << 16;
+            return c_merge_q16 < c_bs_q16;
         }
         case GATE_POLICY_COUNT_GT16:  return pma_wave_edges > 16;
         default:                      return false;
