@@ -14,7 +14,7 @@ INCLUDES := -I$(abspath ../include)
 TARGET ?= sw_emu
 
 # List of kernels (file names without .cpp and matching extern "C" function names)
-KERNELS :=  alloc_access_kernel mem_access_kernel
+KERNELS := alloc_access_kernel
 
 XO_FILES := $(patsubst %,%.xo,$(KERNELS))
 
@@ -40,11 +40,6 @@ all: $(XO_FILES)
 # free_kernel.xo: free_kernel.cpp memory_manage_free.cpp
 # 	@echo "---- Building free_kernel -> $@ ----"
 # 	$(VPP) -c -g -t $(TARGET) $(INCLUDES) --platform $(PLATFORM) -k free_kernel -o $@ free_kernel.cpp memory_manage_free.cpp
-
-host: host.cpp
-	@echo "---- Building host executable ----"
-	g++ -g -o host host.cpp -I$(XILINX_XRT)/include -L$(XILINX_XRT)/lib -I$(XILINX_VITIS_HLS)/include -lxrt_coreutil -lxrt_core -lpthread -lstdc++ -lm
-
 
 help:
 	@echo "Makefile targets:"

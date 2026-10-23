@@ -5,7 +5,7 @@ INCLUDES := -I$(abspath ../include)
 TARGET ?= sw_emu
 # Add a compile-time switch for emulation-sized on-chip structures.
 EMU_DEFINES := $(if $(filter hw_emu,$(TARGET)),-DHW_EMU,)
-KERNELS = update_message_generator update_message_router_stream pma_insert_edge pma_read_router_kernel pma_read_worker_kernel pma_read_merger_kernel check_kernel bfs_kernel task_reader_kernel bs_insert_kernel redistribution_kernel merge_pipeline
+KERNELS := task_reader_kernel bs_insert_kernel merge_pipeline redistribution_kernel update_message_generator update_message_router_stream pma_read_router_kernel pma_read_worker_kernel pma_read_merger_kernel check_kernel
 XO_FILES := $(patsubst %,%.xo,$(KERNELS))
 .PHONY: all clean help
 all: $(XO_FILES)

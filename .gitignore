@@ -1,28 +1,27 @@
-# 白名单式 .gitignore: 先忽略全部, 再按类型放行源码/makefile/cfg。
-# 目录用 !*/ 放行 (否则 git 不进入被忽略目录, 里面的白名单文件也不会被匹配)。
-# 无前导斜杠的 pattern 递归匹配任意目录层级。
-
-# ---- 忽略全部 ----
 *
-
-# ---- 放行目录 (让 git 可以递归下探) ----
-!*/
-
-# ---- 白名单: 只跟踪源码类文件 (递归) ----
-!*.cpp
-!*.hpp
-!*.c
-!*.h
-!*.mk
-!makefile
-!*.cfg
-# ---- Vitis HLS 构建产物 _x 目录: 整体递归忽略 (覆盖上面的 *.cpp/*.c/*.h 白名单) ----
-**/_x/**
-# --w-- 子项目 / 内部目录整体忽略 ----
-ReGraph/
-.claude/
-.run/**
-# Analytical routing model LUT generation and numerical regression.
-!/scripts/generate_gate_lut.py
-!/scripts/test_gate_model.py
+!/.gitignore
 !/README.md
+!/host.cpp
+!/makefile
+!/system_merge_bs.cfg
+!/xrt.ini
+!/include/
+!/include/data_type.h
+!/include/debug.h
+!/include/gate_model_lut.h
+!/memkernel/
+!/memkernel/alloc_access_kernel.cpp
+!/memkernel/makefile
+!/pma_kernel/
+!/pma_kernel/bs_insert_kernel.cpp
+!/pma_kernel/check_kernel.cpp
+!/pma_kernel/makefile
+!/pma_kernel/merge_pipeline.cpp
+!/pma_kernel/pma_read_merger_kernel.cpp
+!/pma_kernel/pma_read_router_kernel.cpp
+!/pma_kernel/pma_read_worker_kernel.cpp
+!/pma_kernel/radix_sort.h
+!/pma_kernel/redistribution_kernel.cpp
+!/pma_kernel/task_reader_kernel.cpp
+!/pma_kernel/update_message_generator.cpp
+!/pma_kernel/update_message_router_stream.cpp
