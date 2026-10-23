@@ -5,7 +5,6 @@
 VPP ?= /home/tools/Vitis/2022.2/bin/v++
 CXX ?= g++
 TARGET ?= hw
-GATE_POLICY ?= 2
 PLATFORM ?= /opt/xilinx/platforms/xilinx_u280_gen3x16_xdma_1_202211_1/xilinx_u280_gen3x16_xdma_1_202211_1.xpfm
 XILINX_XRT ?= /opt/xilinx/xrt
 XILINX_VITIS_HLS ?= /home/tools/Vitis_HLS/2022.2
@@ -13,9 +12,6 @@ CXXFLAGS ?= -O2 -g
 
 ifeq ($(filter $(TARGET),hw hw_emu sw_emu),)
 $(error TARGET must be hw, hw_emu or sw_emu)
-endif
-ifeq ($(filter $(GATE_POLICY),0 1 2 3),)
-$(error GATE_POLICY must be 0, 1, 2 or 3)
 endif
 
 BUILD_DIR := build/framework
@@ -28,8 +24,6 @@ PMA_KERNELS := task_reader_kernel bs_insert_kernel merge_pipeline redistribution
 XO_FILES := memkernel/alloc_access_kernel.xo $(addprefix pma_kernel/,$(addsuffix .xo,$(PMA_KERNELS)))
 HEADERS := $(wildcard include/*.h include/*.hpp pma_kernel/*.h pma_kernel/*.hpp memkernel/*.h memkernel/*.hpp)
 HOST_DEFINES := -DUSE_STANDALONE_MODE -DUSE_MERGE_BS_PATH -DHOST_SKIP_AP_CTRL_NONE_ROUTER
-# This framework has one BS engine per channel; preserve the source's
-# two-BS default for builds that invoke the subdirectory Makefile directly.
 EMU_DEFINES := $(if $(filter hw_emu,$(TARGET)),-DHW_EMU,) -DREDISTRIBUTION_BS_PORTS=1
 
 .PHONY: all xclbin clean help FORCE
@@ -42,20 +36,20 @@ host: host.cpp $(HEADERS) makefile
 		$(LDFLAGS) -L$(XILINX_XRT)/lib -Wl,-rpath,$(XILINX_XRT)/lib -lxrt_core -lxrt_coreutil -lOpenCL -pthread -lrt -ldl
 
 # Update the stamp only when build settings change. This prevents shared
-# subdirectory .xo files from being reused for a different target or policy.
+# subdirectory .xo files from being reused for a different target.
 $(BUILD_CONFIG): FORCE
 	mkdir -p $(BUILD_DIR)
-	@printf '%s\n' 'TARGET=$(TARGET)' 'GATE_POLICY=$(GATE_POLICY)' 'PLATFORM=$(PLATFORM)' 'EMU_DEFINES=$(EMU_DEFINES)' 'VPP=$(VPP)' > $@.tmp
+	@printf '%s\n' 'TARGET=$(TARGET)' 'PLATFORM=$(PLATFORM)' 'EMU_DEFINES=$(EMU_DEFINES)' 'VPP=$(VPP)' > $@.tmp
 	@cmp -s $@.tmp $@ || cp $@.tmp $@
 	@rm -f $@.tmp
 
 $(XO_FILES): %.xo: %.cpp $(HEADERS) $(BUILD_CONFIG) makefile memkernel/makefile pma_kernel/makefile
 	$(MAKE) -C $(@D) $(@F) -W $(*F).cpp VPP="$(VPP)" TARGET=$(TARGET) \
-		PLATFORM=$(PLATFORM) GATE_POLICY=$(GATE_POLICY) EMU_DEFINES="$(EMU_DEFINES)"
+		PLATFORM=$(PLATFORM) EMU_DEFINES="$(EMU_DEFINES)"
 
 $(XCLBIN): $(XO_FILES) $(CONFIG) makefile
-	mkdir -p $(BUILD_DIR)/$(TARGET)/gate_$(GATE_POLICY)/link
-	cd $(BUILD_DIR)/$(TARGET)/gate_$(GATE_POLICY)/link && $(VPP) -l -g -t $(TARGET) --platform $(PLATFORM) \
+	mkdir -p $(BUILD_DIR)/$(TARGET)/link
+	cd $(BUILD_DIR)/$(TARGET)/link && $(VPP) -l -g -t $(TARGET) --platform $(PLATFORM) \
 		--kernel_frequency=150 --save-temps --config $(abspath $(CONFIG)) \
 		-o $(abspath $@) $(abspath $(XO_FILES))
 
@@ -63,7 +57,6 @@ help:
 	@echo 'make                         Build full read/write host and hardware xclbin'
 	@echo 'make host                    Build the full-framework host'
 	@echo 'make xclbin TARGET=hw_emu     Build the hardware-emulation image'
-	@echo 'make GATE_POLICY=2           Use the paper cost model (default)'
 	@echo 'Run: ./host $(XCLBIN) <graph.mtx>'
 	@echo 'Graph verification uses the FPGA read pipeline by default.'
 	@echo 'For hw_emu, set XCL_EMULATION_MODE=hw_emu before running.'

@@ -5,7 +5,6 @@ INCLUDES := -I$(abspath ../include)
 TARGET ?= sw_emu
 # Add a compile-time switch for emulation-sized on-chip structures.
 EMU_DEFINES := $(if $(filter hw_emu,$(TARGET)),-DHW_EMU,)
-GATE_POLICY ?= 2
 KERNELS = update_message_generator update_message_router_stream pma_insert_edge pma_read_router_kernel pma_read_worker_kernel pma_read_merger_kernel check_kernel bfs_kernel task_reader_kernel bs_insert_kernel redistribution_kernel merge_pipeline
 XO_FILES := $(patsubst %,%.xo,$(KERNELS))
 .PHONY: all clean help
@@ -15,11 +14,6 @@ INCLUDE_HEADERS := $(abspath ../include/data_type.h) $(abspath ../include/debug.
 %.xo: %.cpp $(INCLUDE_HEADERS)
 	@echo "---- Building kernel $* -> $@ (target=$(TARGET), defines=$(EMU_DEFINES)) ----"
 	$(VPP) -c -g -t $(TARGET) $(INCLUDES) $(EMU_DEFINES) --save-temps --platform $(PLATFORM) -k $* -o $@ $<
-	@echo "---- done: $@ ----"
-
-task_reader_kernel.xo: task_reader_kernel.cpp $(INCLUDE_HEADERS)
-	@echo "---- Building task_reader_kernel -> $@ (target=$(TARGET), GATE_POLICY=$(GATE_POLICY), defines=$(EMU_DEFINES)) ----"
-	$(VPP) -c -g -t $(TARGET) $(INCLUDES) $(EMU_DEFINES) --save-temps --platform $(PLATFORM) -k task_reader_kernel -DGATE_POLICY=$(GATE_POLICY) -o $@ $<
 	@echo "---- done: $@ ----"
 
 check_kernel.xo: check_kernel.cpp $(INCLUDE_HEADERS)

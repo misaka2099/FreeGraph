@@ -835,10 +835,10 @@ static void pre_expand_finish(
     vi_write_pre_ack(hbm, vi_wo, pma_idx, nvi, pre_ack_out);
 }
 
-// One-BS merge+BS framework and the existing two-BS framework share
-// the redistribution implementation. Preserve the two-BS source default.
+// Default to the stream framework: one BS and one merge engine per channel.
+// A separate two-BS build must explicitly select REDISTRIBUTION_BS_PORTS=2.
 #ifndef REDISTRIBUTION_BS_PORTS
-#define REDISTRIBUTION_BS_PORTS 2
+#define REDISTRIBUTION_BS_PORTS 1
 #endif
 #if REDISTRIBUTION_BS_PORTS != 1 && REDISTRIBUTION_BS_PORTS != 2
 #error REDISTRIBUTION_BS_PORTS must be 1 or 2

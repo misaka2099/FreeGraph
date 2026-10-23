@@ -16,6 +16,7 @@
 #include <unordered_set>
 #include <fstream>
 #include <random>
+#include <sstream>
 bool final_match = true;
 // The split host supports only the ONLINE generator -> router -> worker path.
 // USE_STANDALONE_MODE is supplied by the split-host build targets.
@@ -108,16 +109,40 @@ int main(int argc, char** argv)
         int src;
         int dst;
         long long timestamp;
-        int opcode;
     };
 
     std::vector<Operation> all_ops;
-    int a = -1, b = -1, op = PMA_UPDATE_INSERT_EDGE;
-    long long ts = 0;
-
-    // 输入格式: src dst timestamp opcode  (timestamp == -1 → base graph)
-    while (graph_file >> a >> b >> ts >> op)
-        all_ops.push_back({a, b, ts, op});
+    std::string input_line;
+    size_t line_number = 0;
+    while (std::getline(graph_file, input_line)) {
+        ++line_number;
+        std::istringstream fields(input_line);
+        fields >> std::ws;
+        if (fields.eof()) continue;
+        Operation operation{};
+        if (!(fields >> operation.src >> operation.dst >> operation.timestamp)
+            || operation.src < 0 || operation.dst < 0 || operation.timestamp < -1) {
+            std::cerr << "Invalid edge record at line " << line_number
+                      << ": expected src dst timestamp." << std::endl;
+            return 1;
+        }
+        fields >> std::ws;
+        if (!fields.eof()) {
+            int input_opcode = -1;
+            if (!(fields >> input_opcode) || (input_opcode != 1 && input_opcode != 0)) {
+                std::cerr << "Invalid edge record at line " << line_number
+                          << ": only edge insertions are supported." << std::endl;
+                return 1;
+            }
+            fields >> std::ws;
+            if (!fields.eof()) {
+                std::cerr << "Invalid edge record at line " << line_number
+                          << ": unexpected trailing fields." << std::endl;
+                return 1;
+            }
+        }
+        all_ops.push_back(operation);
+    }
     graph_file.close();
 
     // Separate base graph (ts == -1) from update operations (ts >= 0)
@@ -137,27 +162,8 @@ int main(int argc, char** argv)
         };
         edge_count = 0;
         for (const auto& opr : ops) {
-            switch (opr.opcode) {
-                case PMA_UPDATE_INSERT_EDGE:
-                    ensure(opr.src); ensure(opr.dst);
-                    g[opr.src].push_back(opr.dst); edge_count++;
-                    break;
-                case PMA_UPDATE_DELETE_EDGE:
-                    ensure(opr.src); ensure(opr.dst);
-                    if (opr.src < static_cast<int>(g.size())) {
-                        auto& nbrs = g[opr.src];
-                        nbrs.erase(std::remove(nbrs.begin(), nbrs.end(), opr.dst), nbrs.end());
-                    }
-                    edge_count--;
-                    break;
-                case PMA_UPDATE_DELETE_VERTEX:
-                    if (opr.src >= 0) {
-                        ensure(opr.src);
-                        if (opr.src < static_cast<int>(g.size())) g[opr.src].clear();
-                    }
-                    break;
-                default: break;
-            }
+            ensure(opr.src); ensure(opr.dst);
+            g[opr.src].push_back(opr.dst); edge_count++;
         }
         for (auto& nbrs : g) {
             std::sort(nbrs.begin(), nbrs.end());
@@ -185,10 +191,6 @@ int main(int argc, char** argv)
     bool first_edge_batch = true;
     for (const auto &op : operations)
     {
-        // if (op.opcode == PMA_UPDATE_INSERT_VERTEX)
-        // {
-        //     continue;
-        // }
         if (first_edge_batch || op.timestamp != current_edge_ts)
         {
             max_edge_batch = std::max(max_edge_batch, current_edge_batch);
@@ -1034,7 +1036,7 @@ int main(int argc, char** argv)
         for (int i = 0; i < count; i++) {
             src_ptr[i] = batch_ops[i].src;
             dst_ptr[i] = batch_ops[i].dst;
-            opcode_ptr[i] = batch_ops[i].opcode;
+            opcode_ptr[i] = PMA_UPDATE_INSERT_EDGE;
         }
         std::cout << "[standalone] online edges: " << count << std::endl;
         return count;
@@ -1072,10 +1074,6 @@ int main(int argc, char** argv)
         size_t edge_idx = 0;
         for (const auto &op : batch_ops)
         {
-            // if (op.opcode == PMA_UPDATE_INSERT_VERTEX)
-            // {
-            //     continue;
-            // }
             // std::cout << "[DBG] L680: Starting edge update batches, total_ops=" << operations.size() << std::endl;
             if (edge_idx >= edge_buffer_len)
             {
@@ -1084,8 +1082,7 @@ int main(int argc, char** argv)
             }
             src_ptr[edge_idx] = op.src;
             dst_ptr[edge_idx] = op.dst;
-            // std::cout << "Loading edge: " << op.src << " -> " << op.dst << " with opcode " << op.opcode << std::endl;
-            opcode_ptr[edge_idx] = op.opcode;
+            opcode_ptr[edge_idx] = PMA_UPDATE_INSERT_EDGE;
             ++edge_idx;
         }
         if (edge_idx > 0)
@@ -1268,17 +1265,8 @@ int main(int argc, char** argv)
 
             if (batch_ops.size() > 1 && kShuffleSameTimestampOps)
             {
-                std::shuffle(batch_ops.begin(), batch_ops.end(), rng); // shuffle the whole operation tuple (src, dst, opcode) within same timestamp
+                std::shuffle(batch_ops.begin(), batch_ops.end(), rng);
             }
-
-            // int new_vertex_count = 0;
-            // for (const auto &op : batch_ops)
-            // {
-            //     if (op.opcode == PMA_UPDATE_INSERT_VERTEX)
-            //     {
-            //         new_vertex_count += 1;
-            //     }
-            // }
 
             int edge_count = load_edge_batch(batch_ops);
             if (edge_count < 0)
@@ -1302,48 +1290,11 @@ int main(int argc, char** argv)
             dirty_vertices.reserve(batch_ops.size());
             for (const auto &op : batch_ops)
             {
-                switch (op.opcode)
-                {
-                    // case PMA_UPDATE_INSERT_VERTEX:
-                    //     ensure_runtime_vertex(op.src >= 0 ? op.src : op.dst);
-                    //     break;
-                    case PMA_UPDATE_INSERT_EDGE:
-                        if (kVertexOnlyTest) break;
-                        ensure_runtime_vertex(op.src);
-                        ensure_runtime_vertex(op.dst);
-                        if (op.src >= 0 && op.src < static_cast<int>(runtime_graph.size()))
-                        {
-                            runtime_graph[op.src].push_back(op.dst);
-                            dirty_vertices.push_back(op.src);
-                        }
-                        break;
-                    case PMA_UPDATE_DELETE_EDGE:
-                        if (kVertexOnlyTest) break;
-                        ensure_runtime_vertex(op.src);
-                        ensure_runtime_vertex(op.dst);
-                        if (op.src >= 0 && op.src < static_cast<int>(runtime_graph.size()))
-                        {
-                            auto &nbrs = runtime_graph[op.src];
-                            nbrs.erase(std::remove(nbrs.begin(), nbrs.end(), op.dst), nbrs.end());
-                            dirty_vertices.push_back(op.src);
-                        }
-                        break;
-                    case PMA_UPDATE_DELETE_VERTEX:
-                        if (kVertexOnlyTest) break;
-                        ensure_runtime_vertex(op.src);
-                        if (op.src >= 0 && op.src < static_cast<int>(runtime_graph.size()))
-                        {
-                            runtime_graph[op.src].clear();
-                            dirty_vertices.push_back(op.src);
-                        }
-                        // for (auto &nbrs : runtime_graph)
-                        // {
-                        //     nbrs.erase(std::remove(nbrs.begin(), nbrs.end(), op.src), nbrs.end());
-                        // }
-                        break;
-                    default:
-                        break;
-                }
+                if (kVertexOnlyTest) break;
+                ensure_runtime_vertex(op.src);
+                ensure_runtime_vertex(op.dst);
+                runtime_graph[op.src].push_back(op.dst);
+                dirty_vertices.push_back(op.src);
             }
 
             std::sort(dirty_vertices.begin(), dirty_vertices.end());

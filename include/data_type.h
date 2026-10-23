@@ -435,18 +435,6 @@ struct fe_cache_update_t {
     vertex_id_t first_edge;
 };
 
-// ---- Gate 路由策略 (task_reader 按 PMA 决策: 走 merge 还是走 bs) ----
-// 编译期用 -DGATE_POLICY=N 或改下面默认值切换。决策只影响发送粒度:
-//   merge = 整 PMA 一次 issue (last=1 在 PMA 末边)
-//   bs    = 16 边一批 issue (last=1 在每批末边), 一批处理后跳下一个 PMA
-#define GATE_POLICY_BS_ONLY    0
-#define GATE_POLICY_MERGE_ONLY 1
-#define GATE_POLICY_ANALYTICAL 2
-#define GATE_POLICY_COUNT_GT16 3 // legacy fixed-threshold policy
-#ifndef GATE_POLICY
-#define GATE_POLICY GATE_POLICY_ANALYTICAL
-#endif
-
 // Paper: tex/sections/5_design.tex, Adaptive Dispatcher / Cost model.
 // Costs use Q48.16 cycles. LUT interpolation avoids online logs/integration.
 #include "gate_model_lut.h"
@@ -515,33 +503,25 @@ static inline unsigned long long gate_recip_exp_q40(unsigned long long s,
 static inline bool decide_merge_path(int pma_idx, int pma_wave_edges,
                                      int current_edges, int segment_count) {
     (void)pma_idx;
-    switch (GATE_POLICY) {
-        case GATE_POLICY_BS_ONLY:     return false;
-        case GATE_POLICY_MERGE_ONLY:  return true;
-        case GATE_POLICY_ANALYTICAL: {
-            unsigned long long E = current_edges < 0 ? 0 : (unsigned)current_edges;
-            unsigned long long U = pma_wave_edges < 0 ? 0 : (unsigned)pma_wave_edges;
-            unsigned long long S = segment_count > 0 ? (unsigned)segment_count : 1;
-            unsigned long long P = S * EDGE_SLOTS_PER_SEG;
-            unsigned long long d = (E + S - 1) / S;
-            unsigned q = d < EDGE_SLOTS_PER_SEG ? EDGE_SLOTS_PER_SEG - (unsigned)d : 0;
-            unsigned long long h_payload = gate_hbm_cost(P);
-            unsigned long long log_e_q16 = gate_log2_q16(E + 1);
-            unsigned long long processing_q16 = GATE_KAPPA_PROC
-                * ((log_e_q16 * log_e_q16) >> 16);
-            unsigned long long rebalance_q16 =
-                q == 0 ? (2 * h_payload << 16) :
-                (2 * h_payload * gate_recip_exp_q40(S, q)) >> 24;
-            unsigned long long sparse_per_update_q16 =
-                ((gate_ceil_log2(S) + 2 * gate_hbm_cost(EDGE_SLOTS_PER_SEG)
-                    + 2 * ((d + 1) / 2) + 1) << 16)
-                + processing_q16 + rebalance_q16;
-            unsigned long long c_bs_q16 = U * sparse_per_update_q16;
-            unsigned long long c_merge_q16 =
-                (2 * h_payload + 2 * (E + U)) << 16;
-            return c_merge_q16 < c_bs_q16;
-        }
-        case GATE_POLICY_COUNT_GT16:  return pma_wave_edges > 16;
-        default:                      return false;
-    }
+    unsigned long long E = current_edges < 0 ? 0 : (unsigned)current_edges;
+    unsigned long long U = pma_wave_edges < 0 ? 0 : (unsigned)pma_wave_edges;
+    unsigned long long S = segment_count > 0 ? (unsigned)segment_count : 1;
+    unsigned long long P = S * EDGE_SLOTS_PER_SEG;
+    unsigned long long d = (E + S - 1) / S;
+    unsigned q = d < EDGE_SLOTS_PER_SEG ? EDGE_SLOTS_PER_SEG - (unsigned)d : 0;
+    unsigned long long h_payload = gate_hbm_cost(P);
+    unsigned long long log_e_q16 = gate_log2_q16(E + 1);
+    unsigned long long processing_q16 = GATE_KAPPA_PROC
+        * ((log_e_q16 * log_e_q16) >> 16);
+    unsigned long long rebalance_q16 =
+        q == 0 ? (2 * h_payload << 16) :
+        (2 * h_payload * gate_recip_exp_q40(S, q)) >> 24;
+    unsigned long long sparse_per_update_q16 =
+        ((gate_ceil_log2(S) + 2 * gate_hbm_cost(EDGE_SLOTS_PER_SEG)
+            + 2 * ((d + 1) / 2) + 1) << 16)
+        + processing_q16 + rebalance_q16;
+    unsigned long long c_bs_q16 = U * sparse_per_update_q16;
+    unsigned long long c_merge_q16 =
+        (2 * h_payload + 2 * (E + U)) << 16;
+    return c_merge_q16 < c_bs_q16;
 }
